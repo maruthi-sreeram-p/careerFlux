@@ -1,0 +1,444 @@
+/* ==========================================================================
+   Application shell
+   ========================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100dvh;
+}
+
+/* ---------------------------------------------------------------- Sidebar */
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-subtle);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line-faint);
+  flex: none;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.brand-word {
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: var(--track-tighter);
+  color: var(--text);
+}
+
+.sidebar__nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nav-group__label {
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--track-wider);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: background-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
+}
+
+.nav-item:hover {
+  background: var(--panel-hover);
+  color: var(--text-secondary);
+}
+
+.nav-item--active {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+/* A short accent rule rather than a full-height bar: enough to locate
+   yourself, quiet enough not to shout. */
+.nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-3) * -1 + 1px);
+  top: 50%;
+  width: 2px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+
+.nav-item__icon {
+  flex: none;
+  opacity: 0.85;
+}
+
+.nav-item--active .nav-item__icon {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.nav-item__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+.sidebar__footer {
+  flex: none;
+  padding: var(--space-3);
+  border-top: 1px solid var(--line-faint);
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  text-align: left;
+  transition: background-color var(--duration-fast) var(--ease);
+}
+
+.account:hover {
+  background: var(--panel-hover);
+}
+
+.account__avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--panel-active);
+  border: 1px solid var(--line-strong);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: none;
+}
+
+.account__name {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.account__email {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------- Content */
+
+.shell__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-6);
+  background: rgb(8 9 12 / 82%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+.topbar__search {
+  flex: 1;
+  max-width: 420px;
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.topbar__menu {
+  display: none;
+}
+
+.notif-button {
+  position: relative;
+}
+
+.notif-button__dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  border: 1.5px solid var(--bg);
+}
+
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-16);
+}
+
+.page--wide {
+  max-width: none;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+}
+
+.page-title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tighter);
+}
+
+.page-subtitle {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: var(--reading-max);
+}
+
+.section {
+  margin-top: var(--space-10);
+}
+
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.section__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+/* --------------------------------------------------------------- Grids */
+
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.grid--stats {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.grid--two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.grid--detail {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.grid--discovery {
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (width < 1100px) {
+  .grid--detail,
+  .grid--discovery {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width < 720px) {
+  .grid--two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ----------------------------------------------------------- Stat tiles */
+
+/* A stat tile shows one measured number and says where it came from. Nothing
+   on the dashboard is a number without a source. */
+.stat {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.stat__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.stat__value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tighter);
+  line-height: 1;
+}
+
+.stat__value--accent {
+  color: var(--accent);
+}
+
+.stat__value--positive {
+  color: var(--positive);
+}
+
+.stat__unit {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+.stat__note {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+/* -------------------------------------------------------------- Mobile */
+
+.sidebar__scrim {
+  display: none;
+}
+
+@media (width < 1000px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    z-index: var(--z-drawer);
+    transform: translateX(-100%);
+    transition: transform var(--duration-slow) var(--ease);
+  }
+
+  .sidebar--open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-drawer) - 1);
+    background: var(--scrim);
+    animation: fade-in var(--duration) var(--ease);
+  }
+
+  .topbar {
+    padding: 0 var(--space-4);
+  }
+
+  .topbar__menu {
+    display: inline-flex;
+  }
+
+  .page {
+    padding: var(--space-6) var(--space-4) var(--space-16);
+  }
+}
+
+@media (width < 640px) {
+  .page-title {
+    font-size: var(--text-xl);
+  }
+
+  .topbar__search {
+    display: none;
+  }
+}

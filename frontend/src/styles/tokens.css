@@ -1,0 +1,185 @@
+/* ==========================================================================
+   CareerFlux design tokens
+
+   A dark-first system. The surfaces are near-black neutrals with a faint cool
+   cast; colour is treated as a scarce resource and spent only where it carries
+   meaning — a match score, a source state, a destructive action. Borders and
+   spacing do the structural work that gradients and shadows would do in a
+   louder interface.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Surfaces -----------------------------------------------------------
+     Six steps from the page backdrop to the highest raised element. Anything
+     that needs to sit above something else moves one step up, never two. */
+  --bg: #08090c;
+  --bg-subtle: #0a0c10;
+  --panel: #0e1116;
+  --panel-raised: #12161d;
+  --panel-hover: #171c25;
+  --panel-active: #1c222c;
+
+  /* Overlay scrims and glass. Used sparingly: dialogs and the mobile nav. */
+  --scrim: rgb(4 5 7 / 72%);
+
+  /* --- Lines --------------------------------------------------------------
+     Hairlines carry most of the structure, so there are four weights rather
+     than one: quiet separators, standard containers, emphasis, and controls.
+
+     The first three are decorative boundaries between regions, which WCAG does
+     not hold to a contrast ratio. --line-control is different: it is the border
+     that tells someone where an input begins, so it meets the 3:1 required by
+     1.4.11 Non-text Contrast even though it is visibly heavier than the rest. */
+  --line-faint: #161a21;
+  --line: #1d232c;
+  --line-strong: #29313d;
+  --line-control: #5d6470;
+
+  /* --- Text ---------------------------------------------------------------
+     Four steps, every one of which clears WCAG AA (4.5:1) against --panel:
+     roughly 15.7, 8.4, 6.9 and 4.7 to one. The faintest step is still used only
+     for metadata, but "less important" is not a reason to make text unreadable. */
+  --text: #e7eaf0;
+  --text-secondary: #a5adbb;
+  --text-muted: #949cab;
+  --text-faint: #7d8492;
+
+  /* --- Accent -------------------------------------------------------------
+     A single cool teal signals "CareerFlux is doing something intelligent
+     here": primary actions, focus, active nav, the match ring. It appears on
+     roughly one element per screen region, never as decoration. */
+  --accent: #46d1c2;
+  --accent-bright: #6fe3d6;
+  --accent-dim: #1f6f68;
+  --accent-faint: rgb(70 209 194 / 12%);
+  --accent-line: rgb(70 209 194 / 28%);
+  --accent-ink: #04231f;
+
+  /* --- Semantic -----------------------------------------------------------
+     Deliberately desaturated so that nothing shouts. Each has a faint fill and
+     a line variant so badges can be built without new values. */
+  --positive: #5cc98e;
+  --positive-faint: rgb(92 201 142 / 12%);
+  --positive-line: rgb(92 201 142 / 28%);
+
+  --caution: #d8a63f;
+  --caution-faint: rgb(216 166 63 / 12%);
+  --caution-line: rgb(216 166 63 / 28%);
+
+  --negative: #e0705f;
+  --negative-faint: rgb(224 112 95 / 12%);
+  --negative-line: rgb(224 112 95 / 30%);
+
+  --info: #7ba2f0;
+  --info-faint: rgb(123 162 240 / 12%);
+  --info-line: rgb(123 162 240 / 28%);
+
+  --neutral-faint: rgb(165 173 187 / 8%);
+  --neutral-line: rgb(165 173 187 / 18%);
+
+  /* --- Typography ---------------------------------------------------------
+     Inter for everything the reader reads, JetBrains Mono for anything the
+     system measured: scores, counts, identifiers, timestamps. The split is
+     what makes the interface feel instrument-like rather than decorative. */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono',
+    Menlo, Consolas, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px - dense metadata only */
+  --text-xs: 0.75rem;    /* 12px - labels, badges */
+  --text-sm: 0.8125rem;  /* 13px - secondary body, table cells */
+  --text-base: 0.875rem; /* 14px - body. The interface default. */
+  --text-md: 1rem;       /* 16px - lead paragraphs */
+  --text-lg: 1.125rem;   /* 18px - card titles */
+  --text-xl: 1.375rem;   /* 22px - section headings */
+  --text-2xl: 1.75rem;   /* 28px - page titles */
+  --text-3xl: 2.25rem;   /* 36px - landing sub-headlines */
+  --text-4xl: 3rem;      /* 48px - landing headline */
+  --text-5xl: 3.75rem;   /* 60px - landing headline, large screens */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+
+  /* Negative tracking on large text, positive on small caps labels. */
+  --track-tight: -0.02em;
+  --track-tighter: -0.03em;
+  --track-wide: 0.06em;
+  --track-wider: 0.1em;
+
+  /* --- Spacing ------------------------------------------------------------
+     4px base. Every gap in the product is one of these. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+
+  /* --- Radii --------------------------------------------------------------
+     Restrained on purpose. Nothing in the product is a pill except badges. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  /* --- Elevation ----------------------------------------------------------
+     Shadows are almost invisible; they exist to lift dialogs and menus off the
+     page, not to decorate cards. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow: 0 4px 16px -4px rgb(0 0 0 / 50%);
+  --shadow-lg: 0 16px 48px -12px rgb(0 0 0 / 65%);
+  --shadow-focus: 0 0 0 3px rgb(70 209 194 / 22%);
+
+  /* --- Motion -------------------------------------------------------------
+     One easing curve for almost everything, so movement feels like it comes
+     from a single hand. Durations stay short enough never to block input. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration: 180ms;
+  --duration-slow: 320ms;
+
+  /* --- Layout -------------------------------------------------------------- */
+  --sidebar-width: 232px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 56px;
+  --content-max: 1440px;
+  --reading-max: 68ch;
+  --z-sticky: 20;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+}
+
+/* Respect the platform preference. Motion is decoration here, never the only
+   way a state change is communicated, so removing it costs nothing. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 1ms;
+    --duration: 1ms;
+    --duration-slow: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

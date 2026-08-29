@@ -1,0 +1,133 @@
+# ---------------------------------------------------------------------------
+# CareerFlux - base configuration
+#
+# Secrets are never stored here. Everything sensitive is read from the
+# environment; see .env.example at the repository root for the full list.
+# ---------------------------------------------------------------------------
+spring:
+  application:
+    name: careerflux
+  profiles:
+    default: dev
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema. Hibernate never generates or mutates DDL.
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        order_inserts: true
+        order_updates: true
+        default_batch_fetch_size: 32
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
+  jackson:
+    # Nulls are serialised rather than omitted. The API contract says a field is
+    # nullable; dropping it instead turns "not stated" into `undefined` on the
+    # client, which is a different thing and a reliable source of crashes.
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: careerflux-ingestion
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+      retries: 3
+  ai:
+    model:
+      # Pinned off by default so the application boots without an API key.
+      # AiEnablementEnvironmentPostProcessor flips this to `google-genai`
+      # automatically when GEMINI_API_KEY is present in the environment.
+      chat: none
+      embedding: none
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}
+        chat:
+          options:
+            model: ${CAREERFLUX_AI_MODEL:gemini-2.5-flash}
+            temperature: 0.2
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+  compression:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+careerflux:
+  security:
+    jwt:
+      # Dev-only fallback. Production startup fails fast if this is left at the default.
+      secret: ${CAREERFLUX_JWT_SECRET:dev-only-insecure-secret-change-me-0123456789abcdef}
+      access-token-ttl: PT2H
+      refresh-token-ttl: P14D
+    cors:
+      allowed-origins: ${CAREERFLUX_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  storage:
+    resume-dir: ${CAREERFLUX_RESUME_DIR:./data/resumes}
+  ingestion:
+    # The in-process bus is the default transport. Run with the `kafka` profile
+    # to route the exact same pipeline events through Spring Kafka instead.
+    transport: in-process
+    # PAUSED during rules-2 validation.
+    #
+    # Newly ingested postings are classified by the current code, so leaving the
+    # scheduler running while the stored corpus is still rules-1 lets the two
+    # drift apart mid-audit. Nothing is deleted and no source is touched; only
+    # scheduled execution stops.
+    #
+    # This single flag gates scheduled ingestion, stale-job expiry, the nightly
+    # match recompute, source health checks and the outbox dispatcher. Queued
+    # rematches are unaffected and still drain.
+    #
+    # Set back to true once the classifier is approved and the corpus backfilled.
+    scheduler-enabled: false
+    max-jobs-per-run: 200
+  sources:
+    user-agent: "CareerFluxBot/0.1 (+https://careerflux.local/bot; contact=ops@careerflux.local)"
+    request-timeout: PT20S
+    default-rate-limit-per-minute: 20
+    health-check-interval: PT6H
+  demo:
+    # Sample job data is never inserted unless asked for here. The `demo`
+    # profile enables demo *accounts*; this enables demo *data*. Conflating the
+    # two once added fixture postings to a corpus of real ones.
+    seed-sample-jobs: false
+    allow-seeding-into-populated-corpus: false
+
+  matching:
+    # Thresholds drive notification routing; see docs/architecture.md.
+    hidden-below: 70
+    digest-min: 70
+    high-priority-min: 85
+    immediate-min: 95
+
+logging:
+  level:
+    com.careerflux: INFO
+    org.hibernate.SQL: WARN

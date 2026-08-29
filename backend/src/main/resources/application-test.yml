@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:careerflux-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+careerflux:
+  security:
+    jwt:
+      secret: test-only-secret-value-0123456789abcdef0123456789
+  ingestion:
+    scheduler-enabled: false
+  storage:
+    resume-dir: ./target/test-resumes

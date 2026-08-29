@@ -1,0 +1,5 @@
+# Routes the ingestion pipeline through Apache Kafka instead of the in-process bus.
+# Requires a reachable broker at spring.kafka.bootstrap-servers.
+careerflux:
+  ingestion:
+    transport: kafka

@@ -1,0 +1,620 @@
+/* ==========================================================================
+   Match presentation and job surfaces
+
+   The score is the product's most-looked-at number, so it gets the most
+   deliberate treatment: a ring that draws itself once, a colour that encodes
+   the tier, and an explanation that is never optional.
+   ========================================================================== */
+
+/* ------------------------------------------------------------ Score ring */
+
+.match-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.match-ring--excellent { color: var(--positive); }
+.match-ring--strong { color: var(--accent); }
+.match-ring--moderate { color: var(--caution); }
+.match-ring--weak,
+.match-ring--hidden { color: var(--text-muted); }
+
+.match-ring__arc {
+  transition: stroke-dashoffset 900ms var(--ease-out);
+}
+
+.match-ring__value {
+  position: absolute;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.match-ring__unit {
+  font-size: 0.62em;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+/* ------------------------------------------------------------ Score pill */
+
+.match-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  flex: none;
+}
+
+.match-pill--excellent {
+  color: var(--positive);
+  border-color: var(--positive-line);
+  background: var(--positive-faint);
+}
+
+.match-pill--strong {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-faint);
+}
+
+.match-pill--moderate {
+  color: var(--caution);
+  border-color: var(--caution-line);
+  background: var(--caution-faint);
+}
+
+.match-pill__unit {
+  font-size: 0.75em;
+  opacity: 0.75;
+}
+
+/* ------------------------------------------------------------- Breakdown */
+
+.breakdown {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.breakdown__row {
+  display: grid;
+  grid-template-columns: 88px 1fr 44px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.breakdown__row--total {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line-faint);
+  margin-bottom: var(--space-1);
+}
+
+.breakdown__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.breakdown__row--total .breakdown__label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.breakdown__track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.breakdown__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--text-faint);
+  transition: width 700ms var(--ease-out);
+}
+
+.breakdown__fill--total {
+  background: var(--accent);
+}
+
+.breakdown__value {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.breakdown__row--total .breakdown__value {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+/* ----------------------------------------------------------- Explanation */
+
+.explanation {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.explanation--compact {
+  gap: var(--space-2);
+}
+
+.explanation__group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.explanation--compact .reasons {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.reason {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.reason__mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+
+.reasons--strength .reason__mark {
+  color: var(--positive);
+  background: var(--positive-faint);
+}
+
+.reasons--gap .reason__mark {
+  color: var(--caution);
+  background: var(--caution-faint);
+}
+
+.reasons--context .reason__mark {
+  color: var(--text-faint);
+}
+
+.reason__dash {
+  width: 7px;
+  height: 1.5px;
+  background: currentcolor;
+  border-radius: var(--radius-full);
+}
+
+.reason__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.reason__label {
+  color: var(--text);
+}
+
+.explanation--compact .reason__label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.explanation--compact .reason__detail {
+  display: none;
+}
+
+.reason__detail {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.explanation__more {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  padding-left: calc(16px + var(--space-2));
+}
+
+.explanation--compact .explanation__more {
+  padding-left: 0;
+}
+
+.explanation__narrative {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.explanation__provenance {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+
+/* -------------------------------------------------------------- Job card */
+
+.job-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--duration) var(--ease),
+    background-color var(--duration) var(--ease),
+    transform var(--duration) var(--ease);
+}
+
+.job-card:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
+}
+
+.job-card:focus-within {
+  border-color: var(--accent-line);
+}
+
+.job-card--dismissed {
+  opacity: 0.55;
+}
+
+.job-card__logo {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  flex: none;
+  overflow: hidden;
+}
+
+.job-card__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.job-card__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.job-card__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  color: var(--text);
+  transition: color var(--duration-fast) var(--ease);
+}
+
+.job-card__title:hover {
+  color: var(--accent);
+}
+
+.job-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.job-card__meta-sep {
+  color: var(--text-faint);
+}
+
+.job-card__company {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.job-card__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex: none;
+}
+
+.job-card__actions {
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease);
+}
+
+.job-card:hover .job-card__actions,
+.job-card:focus-within .job-card__actions {
+  opacity: 1;
+}
+
+/* Touch devices have no hover, so the actions are always visible there. */
+@media (hover: none) {
+  .job-card__actions {
+    opacity: 1;
+  }
+}
+
+.job-card__source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--line-faint);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+@media (width < 720px) {
+  .job-card {
+    grid-template-columns: auto 1fr;
+    padding: var(--space-4);
+  }
+
+  .job-card__aside {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+/* On touch, the title is the primary way into a job, so it gets a hit area a
+   thumb can actually land on without changing how it looks. */
+@media (hover: none) {
+  .job-card__title,
+  .job-row__title {
+    display: inline-block;
+    padding-block: var(--space-2);
+    margin-block: calc(var(--space-2) * -1);
+  }
+}
+
+/* -------------------------------------------------------- Job list (row) */
+
+.job-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line-faint);
+  transition: background-color var(--duration-fast) var(--ease);
+}
+
+.job-row:last-child {
+  border-bottom: none;
+}
+
+.job-row:hover {
+  background: var(--panel-raised);
+}
+
+.job-row__title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.job-row__title:hover {
+  color: var(--accent);
+}
+
+.job-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.job-row__tags {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+@media (width < 900px) {
+  .job-row {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .job-row__tags {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------ Provenance */
+
+.provenance {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.provenance__entry {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--radius-md);
+}
+
+.provenance__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.provenance__name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.provenance__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+/* ------------------------------------------------------- Change timeline */
+
+.timeline {
+  display: grid;
+  gap: 0;
+}
+
+.timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+}
+
+.timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+.timeline__marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  flex: none;
+  z-index: 1;
+}
+
+/* The connecting line is drawn by the marker so it can never desync from it. */
+.timeline__item:not(:last-child) .timeline__marker::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: calc(var(--space-4) + 2px);
+  background: var(--line);
+  transform: translateX(-50%);
+}
+
+.timeline__marker--created {
+  border-color: var(--accent-line);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+.timeline__marker--closed {
+  border-color: var(--negative-line);
+  background: var(--negative-faint);
+  color: var(--negative);
+}
+
+.timeline__marker--changed {
+  border-color: var(--caution-line);
+  background: var(--caution-faint);
+  color: var(--caution);
+}
+
+.timeline__body {
+  display: grid;
+  gap: 2px;
+  padding-top: 1px;
+  min-width: 0;
+}
+
+.timeline__summary {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.timeline__time {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.timeline__diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.timeline__diff del {
+  color: var(--negative);
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.timeline__diff ins {
+  color: var(--positive);
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------- Sample badge */
+
+/* Sample data is labelled everywhere it appears. It must never be mistakable
+   for a real posting from a real employer. */
+.sample-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}

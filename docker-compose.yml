@@ -1,0 +1,153 @@
+# =============================================================================
+# CareerFlux local development stack
+#
+#   docker compose up -d          start Postgres and Kafka
+#   docker compose logs -f kafka  watch a service
+#   docker compose down           stop
+#   docker compose down -v        stop and delete the data
+#
+# This file brings up the backing services only. The backend and frontend are
+# run from your shell during development so you keep hot reload; the `full`
+# profile below adds containerised versions of both for a deployment rehearsal.
+#
+# There is deliberately no Redis here. Caching and rate limiting are in-process
+# and correct for a single node; a container the application never connects to
+# would imply an architecture that does not exist. See docs/architecture.md.
+# =============================================================================
+
+name: careerflux
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: careerflux-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: careerflux
+      POSTGRES_USER: careerflux
+      POSTGRES_PASSWORD: careerflux_local_dev
+      # Deterministic collation, so ordering is identical on every machine.
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U careerflux -d careerflux']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command:
+      # Sized for a laptop running the whole stack, not for production.
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: careerflux-kafka
+    restart: unless-stopped
+    ports:
+      - '9092:9092'
+    environment:
+      # KRaft mode: no ZooKeeper. One broker that is also the controller, which
+      # is the right shape for local development.
+      # KRaft mode: no ZooKeeper. One broker that is also the controller, which
+      # is the right shape for local development.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      # Bind addresses are written without a host. Spelling them 0.0.0.0 makes
+      # Kafka reject the config, because it derives advertised listeners from
+      # these and a meta-address is not routable for a client to connect back to.
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093,INTERNAL://:29092'
+      # Two advertised listeners for two kinds of client: the backend running on
+      # your host reaches the broker at localhost, a containerised backend reaches
+      # it at the service name. The controller listener is never advertised.
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092,INTERNAL://kafka:29092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Single broker, so nothing can be replicated further than once.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # A KRaft cluster id is a base64-encoded UUID, not free text.
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qg'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Containerised application, for rehearsing a deployment.
+  #   docker compose --profile full up -d
+  # ---------------------------------------------------------------------------
+
+  backend:
+    profiles: ['full']
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: careerflux-backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres,kafka
+      DATABASE_URL: jdbc:postgresql://postgres:5432/careerflux
+      DATABASE_USERNAME: careerflux
+      DATABASE_PASSWORD: careerflux_local_dev
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # Supplied from your shell or a .env file — never baked into the image.
+      # Left as a plain substitution rather than a required one, because Compose
+      # interpolates the whole file even when you only ask for Postgres. The
+      # backend already refuses to start on a missing or short secret, which is
+      # the right place for that check.
+      CAREERFLUX_JWT_SECRET: ${CAREERFLUX_JWT_SECRET:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CAREERFLUX_ADMIN_EMAIL: ${CAREERFLUX_ADMIN_EMAIL:-}
+      CAREERFLUX_ADMIN_PASSWORD: ${CAREERFLUX_ADMIN_PASSWORD:-}
+      CAREERFLUX_CORS_ORIGINS: http://localhost:5173,http://localhost:8081
+    ports:
+      - '8080:8080'
+    volumes:
+      - resume-data:/app/data/resumes
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/actuator/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  frontend:
+    profiles: ['full']
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: careerflux-frontend
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_started }
+    ports:
+      - '8081:80'
+
+volumes:
+  postgres-data:
+  kafka-data:
+  resume-data:

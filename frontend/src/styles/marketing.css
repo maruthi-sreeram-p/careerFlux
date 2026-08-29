@@ -1,0 +1,481 @@
+/* ==========================================================================
+   Landing page and authentication
+
+   The public surface is quieter than the product, not louder. It has one job:
+   explain what CareerFlux actually does differently, which is the source
+   intelligence layer nobody else shows you.
+   ========================================================================== */
+
+.marketing {
+  min-height: 100dvh;
+  background: var(--bg);
+}
+
+.marketing__inner {
+  width: 100%;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding-inline: var(--space-6);
+}
+
+@media (width < 640px) {
+  .marketing__inner {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* ------------------------------------------------------------------- Nav */
+
+.marketing-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgb(8 9 12 / 78%);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.marketing-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  height: 60px;
+}
+
+.marketing-nav__links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.marketing-nav__links a:hover {
+  color: var(--text);
+}
+
+@media (width < 860px) {
+  .marketing-nav__links {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ Hero */
+
+.hero {
+  position: relative;
+  padding-block: var(--space-24) var(--space-20);
+  overflow: hidden;
+}
+
+/* A single, very faint radial wash behind the headline. The only gradient in
+   the entire product, and it exists to give the fold depth rather than colour. */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  width: min(900px, 120vw);
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    circle,
+    rgb(70 209 194 / 7%) 0%,
+    rgb(70 209 194 / 2%) 38%,
+    transparent 66%
+  );
+  pointer-events: none;
+}
+
+.hero__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: var(--space-16);
+  align-items: center;
+}
+
+@media (width < 1000px) {
+  .hero__inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-12);
+  }
+}
+
+.hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--panel);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.hero__title {
+  font-size: clamp(2.25rem, 5.2vw, 3.75rem);
+  font-weight: 600;
+  line-height: 1.03;
+  letter-spacing: -0.035em;
+  max-width: 16ch;
+}
+
+.hero__title em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.hero__lead {
+  margin-top: var(--space-6);
+  max-width: 52ch;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+}
+
+.hero__footnote {
+  margin-top: var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* -------------------------------------------------------- Flow diagram */
+
+.flow {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+}
+
+.flow__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  transition: border-color var(--duration-slow) var(--ease),
+    background-color var(--duration-slow) var(--ease);
+}
+
+.flow__stage--live {
+  border-color: var(--accent-line);
+  background: var(--accent-faint);
+}
+
+.flow__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+  flex: none;
+  transition: color var(--duration-slow) var(--ease),
+    border-color var(--duration-slow) var(--ease);
+}
+
+.flow__stage--live .flow__icon {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+.flow__label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.flow__note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.flow__connector {
+  display: grid;
+  place-items: center;
+  height: 18px;
+  color: var(--line-strong);
+}
+
+.flow__connector--live {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------- Sections */
+
+.mkt-section {
+  padding-block: var(--space-24);
+  border-top: 1px solid var(--line-faint);
+}
+
+.mkt-section__head {
+  max-width: 62ch;
+  margin-bottom: var(--space-12);
+}
+
+.mkt-section__title {
+  font-size: clamp(1.6rem, 3.2vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.15;
+}
+
+.mkt-section__lead {
+  margin-top: var(--space-4);
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+
+.mkt-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.mkt-card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--duration) var(--ease);
+}
+
+.mkt-card:hover {
+  border-color: var(--line-strong);
+}
+
+.mkt-card__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  background: var(--accent-faint);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+}
+
+.mkt-card__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.mkt-card__body {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--text-muted);
+}
+
+/* The worked example: a real recommendation, rendered with the real
+   components so the marketing claim and the product cannot drift apart. */
+.example {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (width < 900px) {
+  .example {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mkt-numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-6);
+  padding: var(--space-8);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.mkt-number__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+}
+
+.mkt-number__label {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+/* ------------------------------------------------------------------- CTA */
+
+.cta {
+  display: grid;
+  gap: var(--space-5);
+  justify-items: center;
+  text-align: center;
+  padding: var(--space-16) var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+}
+
+.cta__title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  max-width: 20ch;
+}
+
+/* ---------------------------------------------------------------- Footer */
+
+.marketing-footer {
+  padding-block: var(--space-10);
+  border-top: 1px solid var(--line-faint);
+}
+
+.marketing-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------------------ Auth */
+
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+@media (width < 940px) {
+  .auth {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .auth__aside {
+    display: none;
+  }
+}
+
+.auth__panel {
+  display: grid;
+  place-items: center;
+  padding: var(--space-8) var(--space-6);
+}
+
+.auth__form {
+  width: 100%;
+  max-width: 380px;
+  display: grid;
+  gap: var(--space-5);
+}
+
+.auth__title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tighter);
+}
+
+.auth__subtitle {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.auth__aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  background: var(--bg-subtle);
+  border-left: 1px solid var(--line);
+}
+
+.auth__quote {
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+  letter-spacing: -0.015em;
+  max-width: 34ch;
+}
+
+.auth__alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--negative-line);
+  background: var(--negative-faint);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.auth__alert--info {
+  border-color: var(--info-line);
+  background: var(--info-faint);
+}
+
+.auth__footer {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.auth__footer a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.auth__footer a:hover {
+  text-decoration: underline;
+}
+
+/* Password strength: three segments that fill as the rule is satisfied. No
+   score, no adjectives, just whether it is long enough. */
+.strength {
+  display: flex;
+  gap: 3px;
+  margin-top: var(--space-1);
+}
+
+.strength__seg {
+  height: 3px;
+  flex: 1;
+  border-radius: var(--radius-full);
+  background: var(--line);
+  transition: background-color var(--duration) var(--ease);
+}
+
+.strength__seg--on {
+  background: var(--accent);
+}

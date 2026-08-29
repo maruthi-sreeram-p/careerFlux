@@ -1,0 +1,412 @@
+/* ==========================================================================
+   Onboarding
+
+   A guided flow, not a form. One decision per screen, a progress rail that
+   always says where you are, and an extraction step that shows its work before
+   anything is written to the profile.
+   ========================================================================== */
+
+.onboarding {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg);
+}
+
+.onboarding__bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: rgb(8 9 12 / 85%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.onboarding__bar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  height: var(--topbar-height);
+  max-width: 940px;
+  margin: 0 auto;
+  padding-inline: var(--space-6);
+}
+
+.steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.step__dot {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: background-color var(--duration) var(--ease),
+    border-color var(--duration) var(--ease),
+    color var(--duration) var(--ease);
+}
+
+.step--active {
+  color: var(--text);
+}
+
+.step--active .step__dot {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+.step--done .step__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.step__rule {
+  width: 20px;
+  height: 1px;
+  background: var(--line);
+}
+
+.step--done + .step__rule,
+.step__rule--done {
+  background: var(--accent-dim);
+}
+
+@media (width < 720px) {
+  .step__label {
+    display: none;
+  }
+}
+
+.onboarding__body {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-6) var(--space-20);
+}
+
+.onboarding__title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tighter);
+}
+
+.onboarding__lead {
+  margin-top: var(--space-3);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  max-width: 56ch;
+}
+
+.onboarding__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--line-faint);
+}
+
+/* Screens fade and lift by a few pixels as they advance. Short enough that it
+   never sits between the user and the next field. */
+.onboarding__screen {
+  animation: screen-in var(--duration-slow) var(--ease-out);
+}
+
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ----------------------------------------------------------- Drop zone */
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  padding: var(--space-16) var(--space-6);
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--duration) var(--ease),
+    background-color var(--duration) var(--ease);
+}
+
+.dropzone:hover {
+  border-color: var(--text-faint);
+  background: var(--panel-raised);
+}
+
+.dropzone--active {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+}
+
+.dropzone--busy {
+  cursor: progress;
+}
+
+.dropzone__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text-muted);
+}
+
+.dropzone--active .dropzone__icon {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.dropzone__title {
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.dropzone__hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* The parsing state. Steps light up as the server reports them, so the wait
+   explains itself instead of showing an indeterminate spinner. */
+.parsing {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-8);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.parsing__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+  transition: color var(--duration) var(--ease);
+}
+
+.parsing__step--active {
+  color: var(--text);
+}
+
+.parsing__step--done {
+  color: var(--text-secondary);
+}
+
+.parsing__mark {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--line-strong);
+  flex: none;
+}
+
+.parsing__step--done .parsing__mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.parsing__step--active .parsing__mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* -------------------------------------------------------- Review editor */
+
+.review-group {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.review-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.review-group__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.review-group__note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.token-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  min-height: 40px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius);
+  transition: border-color var(--duration-fast) var(--ease);
+}
+
+.token-input:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-focus);
+}
+
+.token-input__field {
+  flex: 1;
+  min-width: 120px;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.token-input__field::placeholder {
+  color: var(--text-faint);
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) 2px var(--space-2);
+  background: var(--panel-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.token__remove {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  transition: color var(--duration-fast) var(--ease),
+    background-color var(--duration-fast) var(--ease);
+}
+
+.token__remove:hover {
+  background: var(--panel-active);
+  color: var(--negative);
+}
+
+/* Option grid used for work mode and employment type. */
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--duration-fast) var(--ease),
+    background-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease);
+}
+
+.option:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.option--selected {
+  border-color: var(--accent-line);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+.option__check {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-control);
+  flex: none;
+}
+
+.option--selected .option__check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* --------------------------------------------------------- Completeness */
+
+.completeness {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.completeness__track {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.completeness__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  transition: width 600ms var(--ease-out);
+}

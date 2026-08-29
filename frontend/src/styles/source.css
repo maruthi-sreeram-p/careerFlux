@@ -1,0 +1,433 @@
+/* ==========================================================================
+   Source intelligence
+
+   This is an operations console, not an admin table. It is built around one
+   question — can I trust what this source is telling us right now? — so state,
+   health and policy are always visible together.
+   ========================================================================== */
+
+.state-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--space-2);
+}
+
+/* A state tile is a filter and a count at once. Selected tiles carry the
+   accent; urgent states carry their own colour whether selected or not. */
+.state-tile {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease),
+    background-color var(--duration-fast) var(--ease);
+}
+
+.state-tile:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-raised);
+}
+
+.state-tile--selected {
+  border-color: var(--accent-line);
+  background: var(--accent-faint);
+}
+
+.state-tile__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.state-tile__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text);
+}
+
+.state-tile--attention .state-tile__count {
+  color: var(--caution);
+}
+
+.state-tile--blocked .state-tile__count {
+  color: var(--negative);
+}
+
+.state-tile--active .state-tile__count {
+  color: var(--positive);
+}
+
+/* ------------------------------------------------------- Source list row */
+
+.source-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1.6fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--line-faint);
+  transition: background-color var(--duration-fast) var(--ease);
+}
+
+.source-row:last-child {
+  border-bottom: none;
+}
+
+.source-row:hover {
+  background: var(--panel-raised);
+}
+
+/* A single coloured pip carries the state; the row does not need to shout. */
+.source-row__pip {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--text-faint);
+}
+
+.source-row__pip--active { background: var(--positive); }
+.source-row__pip--degraded,
+.source-row__pip--pending_review,
+.source-row__pip--policy_review { background: var(--caution); }
+.source-row__pip--blocked { background: var(--negative); }
+.source-row__pip--approved { background: var(--accent); }
+.source-row__pip--retired { background: var(--line-strong); }
+
+.source-row__name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.source-row__name:hover {
+  color: var(--accent);
+}
+
+.source-row__url {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.source-row__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.source-row__numbers {
+  display: flex;
+  gap: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.source-row__number {
+  text-align: right;
+}
+
+.source-row__number-label {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+@media (width < 1000px) {
+  .source-row {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+  }
+
+  .source-row__meta,
+  .source-row__numbers {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------- Lifecycle rail */
+
+/* The state machine, drawn. The candidate-facing version is read-only; the
+   admin version adds the transition controls beside it. */
+.lifecycle {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+.lifecycle__node {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+  padding: var(--space-3) var(--space-4);
+  min-width: 116px;
+  text-align: center;
+  flex: none;
+}
+
+.lifecycle__dot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--text-faint);
+  transition: all var(--duration) var(--ease);
+}
+
+.lifecycle__node--done .lifecycle__dot {
+  border-color: var(--accent-dim);
+  background: var(--accent-faint);
+  color: var(--accent);
+}
+
+.lifecycle__node--current .lifecycle__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 4px var(--accent-faint);
+}
+
+.lifecycle__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lifecycle__node--current .lifecycle__label,
+.lifecycle__node--done .lifecycle__label {
+  color: var(--text-secondary);
+}
+
+.lifecycle__link {
+  align-self: start;
+  margin-top: calc(var(--space-3) + 12px);
+  width: 24px;
+  height: 1px;
+  background: var(--line);
+  flex: none;
+}
+
+.lifecycle__link--done {
+  background: var(--accent-dim);
+}
+
+/* ------------------------------------------------------- Policy checklist */
+
+.policy-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.policy-check:last-child {
+  border-bottom: none;
+}
+
+.policy-check__mark {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  flex: none;
+  margin-top: 1px;
+}
+
+.policy-check__mark--pass {
+  background: var(--positive-faint);
+  color: var(--positive);
+}
+
+.policy-check__mark--warn {
+  background: var(--caution-faint);
+  color: var(--caution);
+}
+
+.policy-check__mark--fail {
+  background: var(--negative-faint);
+  color: var(--negative);
+}
+
+.policy-check__label {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.policy-check__detail {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* The verdict banner: the single answer to "may we read this?" */
+.verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--bg-subtle);
+}
+
+.verdict--pass {
+  border-color: var(--positive-line);
+  background: var(--positive-faint);
+}
+
+.verdict--fail {
+  border-color: var(--negative-line);
+  background: var(--negative-faint);
+}
+
+.verdict__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.verdict__list {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.verdict__list li {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.verdict__list li::before {
+  content: '—';
+  color: var(--text-faint);
+  flex: none;
+}
+
+/* ------------------------------------------------------ Health sparkline */
+
+/* Bars, not a line chart: each bar is one real probe, and gaps are honest
+   about the fact that nothing was measured. */
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+}
+
+.sparkline__bar {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transition: background-color var(--duration-fast) var(--ease);
+}
+
+.sparkline__bar--healthy { background: var(--positive); }
+.sparkline__bar--degraded { background: var(--caution); }
+.sparkline__bar--failing,
+.sparkline__bar--unreachable { background: var(--negative); }
+.sparkline__bar--unknown { background: var(--line-strong); }
+
+/* ------------------------------------------------------------ Run table */
+
+.run-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.run-table th {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.run-table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--line-faint);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.run-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.run-table tbody tr:hover td {
+  background: var(--panel-raised);
+}
+
+.run-table .num {
+  font-family: var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- Topic meters */
+
+.topic-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.topic-row__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
+.topic-row__track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.topic-row__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent-dim);
+}
+
+.topic-row__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-align: right;
+}

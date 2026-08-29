@@ -1,0 +1,50 @@
+# --- Secrets ------------------------------------------------------------------
+# Only .env.example is tracked. A real .env, and anything that looks like a key,
+# stays out of the repository.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# --- Runtime data -------------------------------------------------------------
+# Uploaded resumes and the local H2 database are candidate data. Never commit them.
+data/
+backend/data/
+*.mv.db
+*.trace.db
+
+# --- Java / Maven -------------------------------------------------------------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+!maven-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# --- Node ---------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Editors and OS -----------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# --- Logs ---------------------------------------------------------------------
+*.log
+logs/
