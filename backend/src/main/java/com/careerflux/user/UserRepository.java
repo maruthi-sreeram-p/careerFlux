@@ -109,6 +109,22 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     long countStaffInInstitution(@Param("institutionId") UUID institutionId);
 
     /**
+     * The same staff, listed rather than counted.
+     *
+     * <p>Ordered by role then name so the list reads the way a college thinks
+     * about it — administrators, officers, coordinators — rather than by
+     * whatever order rows happen to come back in.
+     */
+    @Query("""
+            select u from User u
+            left join fetch u.department
+            where u.institution.id = :institutionId
+              and u.role <> com.careerflux.user.UserRole.STUDENT
+            order by u.role, u.fullName
+            """)
+    List<User> findStaffInInstitution(@Param("institutionId") UUID institutionId);
+
+    /**
      * The students a requirement may be scored against.
      *
      * <p>Institution, department and batch are all applied here rather than
@@ -142,4 +158,28 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                                         @Param("departmentIds") Collection<UUID> departmentIds,
                                         @Param("anyBatch") boolean anyBatch,
                                         @Param("graduationYear") Integer graduationYear);
+
+    /**
+     * Whether one student falls inside a discovery scope.
+     *
+     * <p>The single-student form of {@link #findStudentsForDiscovery}. Used when
+     * shortlisting, where listing an entire cohort to check one membership would
+     * read thousands of rows to answer a yes/no.
+     */
+    @Query("""
+            select count(u) > 0 from User u
+            left join u.department d
+            left join u.batch b
+            where u.id = :userId
+              and u.institution.id = :institutionId
+              and u.role = com.careerflux.user.UserRole.STUDENT
+              and (:allDepartments = true or d.id in :departmentIds)
+              and (:anyBatch = true or b.graduationYear = :graduationYear)
+            """)
+    boolean isStudentInDiscoveryScope(@Param("institutionId") UUID institutionId,
+                                      @Param("allDepartments") boolean allDepartments,
+                                      @Param("departmentIds") Collection<UUID> departmentIds,
+                                      @Param("anyBatch") boolean anyBatch,
+                                      @Param("graduationYear") Integer graduationYear,
+                                      @Param("userId") UUID userId);
 }

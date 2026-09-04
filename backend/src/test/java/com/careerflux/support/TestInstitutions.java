@@ -52,6 +52,7 @@ public class TestInstitutions implements ApplicationRunner {
     private UUID exampleId;
     private UUID rivalId;
     private UUID exampleCseId;
+    private UUID rivalCseId;
     private UUID exampleMechId;
     private UUID exampleBatch2026Id;
     private UUID exampleBatch2027Id;
@@ -78,6 +79,10 @@ public class TestInstitutions implements ApplicationRunner {
         rivalId = rival.getId();
 
         exampleCseId = departmentId(example, "Computer Science", "CSE");
+        // Deliberately the same code as the example college's department.
+        // A lookup by code has to find the caller's, and a test where the
+        // code simply does not exist elsewhere proves nothing about tenancy.
+        rivalCseId = departmentId(rival, "Computer Science", "CSE");
         exampleMechId = departmentId(example, "Mechanical Engineering", "MECH");
         exampleBatch2026Id = batchId(example, "Class of 2026", 2026);
         exampleBatch2027Id = batchId(example, "Class of 2027", 2027);
@@ -130,6 +135,11 @@ public class TestInstitutions implements ApplicationRunner {
 
     public Department exampleCse() {
         return departments.findById(exampleCseId).orElseThrow();
+    }
+
+    /** A department in the other college, sharing the example college's code. */
+    public Department rivalCse() {
+        return departments.findById(rivalCseId).orElseThrow();
     }
 
     public Department exampleMech() {

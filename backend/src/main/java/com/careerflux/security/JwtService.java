@@ -3,7 +3,9 @@ package com.careerflux.security;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.crypto.SecretKey;
@@ -15,6 +17,8 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+
+import org.springframework.core.env.Environment;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,14 +41,52 @@ public class JwtService {
     private final SecretKey signingKey;
     private final CareerFluxProperties.Jwt config;
 
-    public JwtService(CareerFluxProperties properties) {
+    /**
+     * The value application.yml falls back to when the environment is silent.
+     *
+     * <p>It is published in this repository, so a token signed with it can be
+     * forged by anyone who has read the source — for any user, in any
+     * institution. It is long enough to pass a length check, which is exactly
+     * why a length check alone was not protection.
+     */
+    private static final String DEVELOPMENT_FALLBACK_SECRET =
+            "dev-only-insecure-secret-change-me-0123456789abcdef";
+
+    /** Profiles where the published fallback is an acceptable convenience. */
+    private static final Set<String> PROFILES_ALLOWING_FALLBACK = Set.of("dev", "test");
+
+    public JwtService(CareerFluxProperties properties, Environment environment) {
         this.config = properties.security().jwt();
-        byte[] secret = config.secret().getBytes(StandardCharsets.UTF_8);
+        String secretValue = config.secret();
+        byte[] secret = secretValue.getBytes(StandardCharsets.UTF_8);
         if (secret.length < 32) {
             throw new IllegalStateException(
                     "CAREERFLUX_JWT_SECRET must be at least 32 characters. Set it in the environment.");
         }
+        // Length was never the risk. A known value is, and this one is in the
+        // repository: without this check a deployment that simply forgot to set
+        // the variable would sign real sessions with a public key and start
+        // perfectly happily.
+        if (DEVELOPMENT_FALLBACK_SECRET.equals(secretValue) && !developmentLike(environment)) {
+            throw new IllegalStateException(
+                    "CAREERFLUX_JWT_SECRET is still the built-in development value, which is public "
+                            + "in the source repository. Set a real secret in the environment "
+                            + "(openssl rand -base64 48) before running outside dev or test.");
+        }
+        if (DEVELOPMENT_FALLBACK_SECRET.equals(secretValue)) {
+            log.warn("Signing tokens with the built-in development secret. This is fine locally "
+                    + "and unacceptable anywhere else.");
+        }
         this.signingKey = Keys.hmacShaKeyFor(secret);
+    }
+
+    private static boolean developmentLike(Environment environment) {
+        String[] active = environment.getActiveProfiles();
+        // No profile named at all means the default, which is dev.
+        if (active.length == 0) {
+            return true;
+        }
+        return Arrays.stream(active).anyMatch(PROFILES_ALLOWING_FALLBACK::contains);
     }
 
     public String issueAccessToken(User user) {

@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.UUID;
 
 import com.careerflux.common.TextUtils;
+import com.careerflux.config.BackgroundWorkGate;
 import com.careerflux.config.CareerFluxProperties;
 import com.careerflux.source.adapter.AdapterRegistry;
+import com.careerflux.source.adapter.FailureClassification;
 import com.careerflux.source.adapter.JobSourceAdapter;
 import com.careerflux.source.adapter.SourceConfiguration;
 import com.careerflux.source.adapter.SourceHealthResult;
@@ -51,17 +53,20 @@ public class SourceHealthService {
     private final AdapterRegistry adapterRegistry;
     private final SourceLifecycleService lifecycleService;
     private final CareerFluxProperties properties;
+    private final BackgroundWorkGate gate;
 
     public SourceHealthService(JobSourceRepository sourceRepository,
                                SourceHealthCheckRepository healthCheckRepository,
                                AdapterRegistry adapterRegistry,
                                SourceLifecycleService lifecycleService,
-                               CareerFluxProperties properties) {
+                               CareerFluxProperties properties,
+                               BackgroundWorkGate gate) {
         this.sourceRepository = sourceRepository;
         this.healthCheckRepository = healthCheckRepository;
         this.adapterRegistry = adapterRegistry;
         this.lifecycleService = lifecycleService;
         this.properties = properties;
+        this.gate = gate;
     }
 
     /** Probes one source and records what came back. */
@@ -71,10 +76,10 @@ public class SourceHealthService {
         SourceHealthResult result;
 
         if (adapter == null) {
-            result = new SourceHealthResult(SourceHealthStatus.UNKNOWN, null, null, null,
+            result = SourceHealthResult.unmeasurable(
                     "No adapter is registered for this source, so its health cannot be measured.");
         } else if (!source.getState().permitsFetching()) {
-            result = new SourceHealthResult(SourceHealthStatus.UNKNOWN, null, null, null,
+            result = SourceHealthResult.unmeasurable(
                     "Source is in state " + source.getState() + " and is not contacted.");
         } else {
             try {
@@ -88,8 +93,20 @@ public class SourceHealthService {
         return record(source, result);
     }
 
+    /**
+     * Records what a probe or a sync observed, and applies the consequences.
+     *
+     * <p>An observation CareerFlux never made is not recorded at all. When our
+     * own pacing declines to send a request, nothing happened to the source, and
+     * writing a health row would claim otherwise — that was the defect where a
+     * busy source degraded itself purely because we were being polite to it.
+     */
     @Transactional
     public SourceHealthCheck record(JobSource source, SourceHealthResult result) {
+        if (result.classification() == FailureClassification.NOT_ATTEMPTED) {
+            log.debug("Not recording health for source {}: {}", source.getId(), result.message());
+            return null;
+        }
         SourceHealthCheck check = new SourceHealthCheck();
         check.setSource(source);
         check.setStatus(result.status());
@@ -104,10 +121,11 @@ public class SourceHealthService {
         source.setLastHealthCheckAt(check.getCheckedAt());
 
         boolean failed = result.status() == SourceHealthStatus.FAILING
-                || result.status() == SourceHealthStatus.UNREACHABLE;
+                || result.status() == SourceHealthStatus.UNREACHABLE
+                || result.status() == SourceHealthStatus.DEGRADED;
         if (failed) {
             source.setConsecutiveFailures(source.getConsecutiveFailures() + 1);
-            applyFailureConsequences(source);
+            applyFailureConsequences(source, result.classification());
         } else if (result.status() == SourceHealthStatus.HEALTHY) {
             if (source.getConsecutiveFailures() > 0) {
                 log.info("Source {} recovered after {} failures", source.getId(), source.getConsecutiveFailures());
@@ -123,9 +141,20 @@ public class SourceHealthService {
         return check;
     }
 
-    private void applyFailureConsequences(JobSource source) {
+    /**
+     * What repeated failure costs the source, which depends on what kind it is.
+     *
+     * <p>Only failures that will keep happening reach PENDING_REVIEW. A source
+     * that throttles us or has a bad afternoon still degrades — visible to an
+     * operator, still retried on schedule — but is never pulled out of service
+     * and queued for human attention it does not need. Retiring the busiest
+     * boards for answering 429 was precisely backwards.
+     */
+    private void applyFailureConsequences(JobSource source, FailureClassification classification) {
         int failures = source.getConsecutiveFailures();
-        if (failures >= REVIEW_AFTER_FAILURES && source.getState().canTransitionTo(SourceState.PENDING_REVIEW)) {
+        boolean mayEscalate = classification == null || classification.escalatesToReview();
+        if (mayEscalate && failures >= REVIEW_AFTER_FAILURES
+                && source.getState().canTransitionTo(SourceState.PENDING_REVIEW)) {
             lifecycleService.transition(source, SourceState.PENDING_REVIEW, "health-monitor",
                     failures + " consecutive failures. Pulled out of service pending review.");
         } else if (failures >= DEGRADE_AFTER_FAILURES && source.getState() == SourceState.ACTIVE) {
@@ -142,7 +171,8 @@ public class SourceHealthService {
     @Scheduled(fixedDelayString = "PT15M", initialDelayString = "PT2M")
     @Transactional
     public void monitorDueSources() {
-        if (!properties.ingestion().schedulerEnabled()) {
+        // Makes outbound requests to third parties, so it is ingestion-gated.
+        if (!gate.permitsScheduledIngestion()) {
             return;
         }
         Instant threshold = Instant.now().minus(properties.sources().healthCheckInterval());
@@ -162,6 +192,11 @@ public class SourceHealthService {
     @Scheduled(cron = "0 30 3 * * *")
     @Transactional
     public void pruneHistory() {
+        // Deletes rows, so it answers to the master switch rather than running
+        // unconditionally as it did before.
+        if (!gate.permitsBackgroundWork()) {
+            return;
+        }
         int removed = healthCheckRepository.deleteOlderThan(
                 Instant.now().minus(java.time.Duration.ofDays(HEALTH_HISTORY_DAYS)));
         if (removed > 0) {

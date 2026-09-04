@@ -1,6 +1,9 @@
 package com.careerflux.institution.service;
 
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
@@ -95,7 +98,22 @@ public class StudentDirectoryService {
                         nonEmpty(scope.batchIds()),
                         pageable);
 
-        List<StudentRow> rows = students.getContent().stream().map(this::toRow).toList();
+        // Three queries for the page rather than two per row. toRow used to
+        // fetch each student's profile and count their resumes individually,
+        // which is invisible at a page of five and fifty statements at
+        // twenty-five.
+        List<UUID> userIds = students.getContent().stream().map(User::getId).toList();
+        Map<UUID, CandidateProfile> profilesByUser = userIds.isEmpty() ? Map.of()
+                : profileRepository.findForDiscovery(userIds).stream()
+                        .collect(Collectors.toMap(profile -> profile.getUser().getId(),
+                                profile -> profile));
+        Set<UUID> withResume = profilesByUser.isEmpty() ? Set.of()
+                : new HashSet<>(resumeRepository.findCandidateIdsWithResume(
+                        profilesByUser.values().stream().map(CandidateProfile::getId).toList()));
+
+        List<StudentRow> rows = students.getContent().stream()
+                .map(user -> toRow(user, profilesByUser.get(user.getId()), withResume))
+                .toList();
         return new StudentPage(rows, students.getNumber(), students.getSize(),
                 students.getTotalElements(), students.getTotalPages());
     }
@@ -115,7 +133,10 @@ public class StudentDirectoryService {
         CandidateProfile profile = profileRepository.findByUserId(userId)
                 .orElseThrow(() -> NotFoundException.of("Student", userId));
         accessGuard.requireCanReadCandidate(profile);
-        return toRow(profile.getUser());
+        // One student, so the "batch" is a set of one.
+        Set<UUID> withResume = new HashSet<>(
+                resumeRepository.findCandidateIdsWithResume(List.of(profile.getId())));
+        return toRow(profile.getUser(), profile, withResume);
     }
 
     @Transactional(readOnly = true)
@@ -173,8 +194,8 @@ public class StudentDirectoryService {
                 scope.seesWholeInstitution(), departments, batches, permissions);
     }
 
-    private StudentRow toRow(User user) {
-        CandidateProfile profile = profileRepository.findByUserId(user.getId()).orElse(null);
+    /** Built from rows already loaded for the whole page, never per student. */
+    private StudentRow toRow(User user, CandidateProfile profile, Set<UUID> withResume) {
         return new StudentRow(
                 user.getId(),
                 profile == null ? null : profile.getId(),
@@ -186,7 +207,7 @@ public class StudentDirectoryService {
                 profile == null ? null : profile.getPrimaryRole(),
                 profile == null ? "NOT_STARTED" : profile.getOnboardingStage().name(),
                 profile == null ? 0 : profile.getProfileCompleteness(),
-                profile != null && resumeRepository.countByCandidateId(profile.getId()) > 0,
+                profile != null && withResume.contains(profile.getId()),
                 user.getCreatedAt());
     }
 

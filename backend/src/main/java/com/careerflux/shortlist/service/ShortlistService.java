@@ -46,6 +46,14 @@ import org.springframework.transaction.annotation.Transactional;
  * checks, in order: the permission, the requirement's ownership, its lifecycle
  * state, the candidate's presence in the caller's own discovery scope, and
  * finally whether the row already exists.
+ *
+ * <p>The permission is {@code PLACEMENT_SHORTLIST_MANAGE} rather than
+ * {@code PLACEMENT_DRIVE_MANAGE}, and the difference is what lets a coordinator
+ * use this at all. Authoring a requirement is unscoped; shortlisting is scoped
+ * by the check below, so the narrow permission can be granted narrowly without
+ * also handing out the ability to write and publish requirements for the whole
+ * college. The scope check is unchanged and is what actually confines a
+ * coordinator to their own department.
  */
 @Service
 public class ShortlistService {
@@ -85,7 +93,7 @@ public class ShortlistService {
      */
     @Transactional
     public ShortlistEntry add(UUID requirementId, UUID candidateId) {
-        accessGuard.requirePermission(Permission.PLACEMENT_DRIVE_MANAGE);
+        accessGuard.requirePermission(Permission.PLACEMENT_SHORTLIST_MANAGE);
         CompanyRequirement requirement = openRequirement(requirementId);
         CandidateProfile candidate = candidateInScope(requirement, candidateId);
 
@@ -118,7 +126,7 @@ public class ShortlistService {
      */
     @Transactional
     public void remove(UUID requirementId, UUID candidateId) {
-        accessGuard.requirePermission(Permission.PLACEMENT_DRIVE_MANAGE);
+        accessGuard.requirePermission(Permission.PLACEMENT_SHORTLIST_MANAGE);
         CompanyRequirement requirement = openRequirement(requirementId);
         candidateInScope(requirement, candidateId);
 

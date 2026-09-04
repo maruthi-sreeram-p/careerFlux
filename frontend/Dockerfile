@@ -19,4 +19,9 @@ FROM nginx:1.27-alpine AS runtime
 COPY --from=build /build/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# The config includes /etc/nginx/realip/*.conf so an operator can declare a
+# trusted proxy without editing the image. The directory has to exist; the
+# wildcard matching nothing is fine, a missing directory is not.
+RUN mkdir -p /etc/nginx/realip
+
 EXPOSE 80

@@ -9,6 +9,9 @@ import com.careerflux.candidate.dto.CandidateDtos.ProfileUpdateRequest;
 import com.careerflux.candidate.dto.CandidateDtos.ResumeParseResult;
 import com.careerflux.candidate.dto.CandidateDtos.ResumeSummary;
 import com.careerflux.candidate.service.CandidateMapper;
+import com.careerflux.candidate.dto.CandidateDtos.AcademicRecord;
+import com.careerflux.candidate.dto.CandidateDtos.AcademicUpdateRequest;
+import com.careerflux.candidate.service.AcademicRecordService;
 import com.careerflux.candidate.service.CandidateProfileService;
 import com.careerflux.candidate.service.ResumeService;
 import com.careerflux.security.CurrentUser;
@@ -52,11 +55,15 @@ public class CandidateController {
     private final CandidateMapper mapper;
     private final CurrentUser currentUser;
 
+    private final AcademicRecordService academicRecords;
+
     public CandidateController(CandidateProfileService profileService,
+                               AcademicRecordService academicRecords,
                                ResumeService resumeService,
                                CandidateMapper mapper,
                                CurrentUser currentUser) {
         this.profileService = profileService;
+        this.academicRecords = academicRecords;
         this.resumeService = resumeService;
         this.mapper = mapper;
         this.currentUser = currentUser;
@@ -72,6 +79,23 @@ public class CandidateController {
     @Operation(summary = "Replace profile details, skills, experience and education")
     public CandidateProfileResponse updateProfile(@Valid @RequestBody ProfileUpdateRequest request) {
         return profileService.updateProfile(currentUser.requireId(), request);
+    }
+
+    /**
+     * The student's own CGPA.
+     *
+     * <p>Separate from the profile update because it means something different:
+     * the profile PUT replaces what it is given, and a client omitting a field
+     * there would silently erase an academic record. This states one fact
+     * deliberately.
+     *
+     * <p>Recorded as self-entered. It appears on their profile and is not what
+     * a company's stated minimum is judged against.
+     */
+    @PutMapping("/academics")
+    @Operation(summary = "Record your own CGPA. Self-entered, and not institutionally verified.")
+    public AcademicRecord updateAcademics(@RequestBody AcademicUpdateRequest request) {
+        return academicRecords.updateOwn(request.cgpa());
     }
 
     @PutMapping("/preferences")
@@ -101,7 +125,21 @@ public class CandidateController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + resume.filename().replace("\"", "") + "\"")
-                .contentType(MediaType.parseMediaType(resume.contentType()))
+                // The stored type came from the client at upload time, so it may
+                // not parse. Falling back keeps a download working instead of
+                // turning somebody else's malformed header into a 500.
+                .contentType(safeMediaType(resume.contentType()))
                 .body(new ByteArrayResource(resume.content()));
+    }
+
+    private static MediaType safeMediaType(String declared) {
+        if (declared == null || declared.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            return MediaType.parseMediaType(declared);
+        } catch (org.springframework.http.InvalidMediaTypeException malformed) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
     }
 }

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/AppShell';
 import { Badge, Button, Chip, Panel, useToast } from '../components/ui/primitives';
 import { useAuth } from '../lib/auth';
-import { useRequirement, useUpdateRequirement } from '../lib/queries';
+import { useRequirement, useShortlist, useUpdateRequirement } from '../lib/queries';
 import { can } from '../lib/types';
 import type { Requirement, RequirementSkill } from '../lib/types';
 
@@ -61,6 +61,7 @@ export default function RequirementDetail() {
   const toast = useToast();
   const requirement = useRequirement(requirementId);
   const update = useUpdateRequirement();
+  const shortlist = useShortlist(requirementId);
   const mayManage = can(user, 'PLACEMENT_DRIVE_MANAGE');
 
   if (requirement.isLoading) {
@@ -188,8 +189,10 @@ export default function RequirementDetail() {
           </p>
           {data.minCgpa !== null && (
             <p className="text-muted" style={{ marginTop: 'var(--space-3)' }}>
-              The company asks for a CGPA of {data.minCgpa}. CareerFlux does not hold student CGPA,
-              so no student is filtered or ranked on this — it is recorded as stated.
+                The company asks for a CGPA of {data.minCgpa}. This is checked against the CGPA
+                the college recorded, and only that — a student's own figure never counts. It
+                decides eligibility, not the technical compatibility score, and a student
+                whose CGPA the college has not recorded is shown as unknown, not excluded.
             </p>
           )}
         </Panel>
@@ -212,16 +215,32 @@ export default function RequirementDetail() {
                 fit and formal eligibility are shown separately, so a strong candidate is never
                 hidden by a condition the college may want to make an exception to.
               </p>
-              <Link className="btn btn--primary" to={`/app/requirements/${data.id}/candidates`}>
-                Find candidates
-              </Link>
+              <div className="row gap-2">
+                <Link className="btn btn--primary" to={`/app/requirements/${data.id}/candidates`}>
+                  Find candidates
+                </Link>
+                <Link className="btn btn--secondary" to={`/app/requirements/${data.id}/shortlist`}>
+                  {shortlist.data
+                    ? `View shortlist (${shortlist.data.shortlistedCount})`
+                    : 'View shortlist'}
+                </Link>
+              </div>
             </>
           ) : (
-            <p className="text-muted">
-              {data.status === 'DRAFT'
-                ? 'Open this requirement to discover candidates. A draft is not yet what the company agreed to.'
-                : 'Requirement closed. Reopen it to discover candidates again.'}
-            </p>
+            <>
+              <p className="text-muted">
+                {data.status === 'DRAFT'
+                  ? 'Open this requirement to discover candidates. A draft is not yet what the company agreed to.'
+                  : 'Requirement closed. Reopen it to discover candidates again — the shortlist already built stays readable.'}
+              </p>
+              {data.status === 'CLOSED' && (
+                <Link className="btn btn--secondary" to={`/app/requirements/${data.id}/shortlist`}>
+                  {shortlist.data
+                    ? `View shortlist (${shortlist.data.shortlistedCount})`
+                    : 'View shortlist'}
+                </Link>
+              )}
+            </>
           )}
         </Panel>
       </section>

@@ -226,7 +226,7 @@ export default function RequirementNew() {
           </Field>
           <Field
             label="CGPA the company asks for"
-            hint="Recorded as the company's stated rule. CareerFlux does not hold student CGPA yet, so nothing is filtered on it."
+            hint="Checked against the CGPA the college recorded for each student. A student's own figure never counts, and one with no recorded CGPA is shown as unknown rather than excluded."
           >
             {({ id }) => (
               <TextInput

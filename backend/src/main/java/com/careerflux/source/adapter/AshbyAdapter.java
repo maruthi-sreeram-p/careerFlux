@@ -6,6 +6,7 @@ import java.util.List;
 import com.careerflux.source.domain.AccessPolicyType;
 import com.careerflux.source.domain.AtsProvider;
 import com.careerflux.source.domain.SourceType;
+import com.careerflux.source.net.SafeUrlValidator;
 import com.careerflux.source.service.SourceRateLimiter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,8 +30,8 @@ public class AshbyAdapter extends AbstractHttpJobAdapter {
     private static final String API_ROOT = "https://api.ashbyhq.com/posting-api/job-board/";
 
     public AshbyAdapter(RestClient sourceRestClient, SourceRateLimiter rateLimiter,
-                        ObjectMapper objectMapper) {
-        super(sourceRestClient, rateLimiter, objectMapper);
+                        SafeUrlValidator urlValidator, ObjectMapper objectMapper) {
+        super(sourceRestClient, rateLimiter, urlValidator, objectMapper);
     }
 
     @Override

@@ -17,6 +17,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Source maps reconstruct the entire frontend source from the served
+    // bundle, so a production build does not emit them and nginx refuses to
+    // serve `.map` even if one appears. Set CAREERFLUX_SOURCEMAPS=true to get
+    // them back for a debugging build, knowing what that publishes.
+    sourcemap: process.env.CAREERFLUX_SOURCEMAPS === 'true',
   },
 });

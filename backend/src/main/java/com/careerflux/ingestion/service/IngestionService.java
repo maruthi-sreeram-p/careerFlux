@@ -10,6 +10,7 @@ import java.util.UUID;
 import com.careerflux.common.ApplyUrl;
 import com.careerflux.common.TextUtils;
 import com.careerflux.config.CareerFluxProperties;
+import com.careerflux.common.logging.CorrelationId;
 import com.careerflux.ingestion.domain.IngestionRun;
 import com.careerflux.ingestion.domain.IngestionStatus;
 import com.careerflux.ingestion.domain.IngestionTrigger;
@@ -29,6 +30,7 @@ import com.careerflux.job.repository.JobRepository;
 import com.careerflux.skill.Skill;
 import com.careerflux.skill.SkillRepository;
 import com.careerflux.source.adapter.AdapterException;
+import com.careerflux.source.adapter.FailureClassification;
 import com.careerflux.source.adapter.AdapterRegistry;
 import com.careerflux.source.adapter.JobSourceAdapter;
 import com.careerflux.source.adapter.RawJobPosting;
@@ -43,7 +45,8 @@ import com.careerflux.source.service.SourceRegistryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Runs the ingestion pipeline for one source.
@@ -85,6 +88,19 @@ public class IngestionService {
     private final PipelineEventBus eventBus;
     private final CareerFluxProperties properties;
 
+    /**
+     * Transactions are opened explicitly rather than with {@code @Transactional},
+     * because the point of this class is that they do <em>not</em> span the whole
+     * method: the network fetch has to happen between two of them, and a
+     * self-invoked annotated method would not go through the Spring proxy anyway.
+     *
+     * <p>Propagation is the default {@code REQUIRED}. A caller that already has a
+     * transaction still gets one transaction, exactly as before; the split is real
+     * for the callers that matter, which are the scheduler and the controller, and
+     * neither of those is transactional.
+     */
+    private final TransactionTemplate transaction;
+
     public IngestionService(JobSourceRepository sourceRepository,
                             JobRepository jobRepository,
                             JobObservationRepository observationRepository,
@@ -98,7 +114,8 @@ public class IngestionService {
                             SourceRegistryService registryService,
                             SourceHealthService healthService,
                             PipelineEventBus eventBus,
-                            CareerFluxProperties properties) {
+                            CareerFluxProperties properties,
+                            PlatformTransactionManager transactionManager) {
         this.sourceRepository = sourceRepository;
         this.jobRepository = jobRepository;
         this.observationRepository = observationRepository;
@@ -113,42 +130,109 @@ public class IngestionService {
         this.healthService = healthService;
         this.eventBus = eventBus;
         this.properties = properties;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
-    @Transactional
     public IngestionRun ingest(UUID sourceId, IngestionTrigger trigger) {
+        // Resolves in its own read transaction, with company and access policy
+        // fetched, so what comes back is complete rather than half-initialised.
         JobSource source = registryService.require(sourceId);
         return ingest(source, trigger);
     }
 
-    @Transactional
+    /**
+     * Orchestration only — deliberately not transactional.
+     *
+     * <p>The run is created and committed, the source is fetched with no
+     * transaction held, and the results are processed in a second transaction.
+     */
     public IngestionRun ingest(JobSource source, IngestionTrigger trigger) {
-        IngestionRun run = startRun(source, trigger);
+        IngestionRun run = transaction.execute(status -> startRun(source, trigger));
+        // Every log line for the rest of this run carries the same id the run
+        // row already stored, so the database record and the logs can finally be
+        // read together.
+        return CorrelationId.with(run.getCorrelationId(), () -> runIngestion(source, trigger, run));
+    }
+
+    private IngestionRun runIngestion(JobSource source, IngestionTrigger trigger, IngestionRun run) {
+
+        // Totals live here rather than on the run entity, and are written onto it
+        // once in finishRun. Created before the early exits so every path finishes
+        // the same way, with an all-zero tally where nothing was counted.
+        IngestionTally tally = new IngestionTally();
 
         // Last line of defence: never contact a source the lifecycle does not permit.
         if (!source.getState().permitsFetching()) {
-            return finishRun(run, IngestionStatus.SKIPPED,
-                    "Source is in state " + source.getState() + " and is not contacted.");
+            return transaction.execute(status -> finishRun(run, tally, IngestionStatus.SKIPPED,
+                    "Source is in state " + source.getState() + " and is not contacted."));
         }
         JobSourceAdapter adapter = adapterRegistry.find(source.getAdapterKey()).orElse(null);
         if (adapter == null) {
-            return finishRun(run, IngestionStatus.SKIPPED,
-                    "No adapter is registered for key " + source.getAdapterKey() + ".");
+            return transaction.execute(status -> finishRun(run, tally, IngestionStatus.SKIPPED,
+                    "No adapter is registered for key " + source.getAdapterKey() + "."));
         }
 
-        source.setLastSyncAttemptAt(Instant.now());
+        // The attempt is written down and committed BEFORE the network call. Two
+        // reasons. The scheduler selects on lastSyncAttemptAt, so a fetch that fails
+        // in a way that discards the transaction would otherwise leave this source
+        // permanently due and retried every cycle. And what the fetch needs to know
+        // about the source is read here, inside the transaction, so that only an
+        // immutable value crosses the boundary rather than an entity whose lazy
+        // associations would have no session left to load from.
+        SourceConfiguration configuration = transaction.execute(status -> {
+            source.setLastSyncAttemptAt(Instant.now());
+            // Explicit: the source is detached on the scheduled path, so nothing
+            // would notice this change without being told to save it.
+            sourceRepository.save(source);
+            return SourceConfiguration.from(source, properties.ingestion().maxJobsPerRun());
+        });
+
+        // ---------------------------------------------------- no transaction here
         List<RawJobPosting> raw;
         try {
-            raw = adapter.fetchJobs(SourceConfiguration.from(source, properties.ingestion().maxJobsPerRun()));
+            raw = adapter.fetchJobs(configuration);
         } catch (AdapterException ex) {
-            source.setSyncFailureCount(source.getSyncFailureCount() + 1);
-            healthService.record(source, ex.getHttpStatus() == null
-                    ? SourceHealthResult.unreachable(ex.getMessage())
-                    : SourceHealthResult.failing(ex.getHttpStatus(), null, ex.getMessage()));
-            return finishRun(run, IngestionStatus.FAILED, ex.getMessage());
+            return transaction.execute(status -> failedFetch(source, run, tally, ex));
         }
+        // ------------------------------------------------------------------------
 
-        run.setRawCount(raw.size());
+        List<RawJobPosting> postings = raw;
+        return transaction.execute(status -> processFetched(source, postings, run, tally));
+    }
+
+    /** What a fetch that never returned postings leaves behind. */
+    private IngestionRun failedFetch(JobSource source, IngestionRun run, IngestionTally tally,
+                                     AdapterException ex) {
+        if (ex.getClassification() == FailureClassification.NOT_ATTEMPTED) {
+            // Our own pacing declined to send the request. Nothing was asked of the
+            // source, so nothing is recorded against it and the run is skipped
+            // rather than failed. The attempt timestamp the scheduler relies on was
+            // already committed above, which is why there is no second save here.
+            log.info("Skipping sync of {}: {}", source.getName(), ex.getMessage());
+            return finishRun(run, tally, IngestionStatus.SKIPPED, ex.getMessage());
+        }
+        source.setSyncFailureCount(source.getSyncFailureCount() + 1);
+        // record() saves the source itself, which is what persists both the failure
+        // count above and the health fields it sets.
+        healthService.record(source, SourceHealthResult.from(ex, null));
+        return finishRun(run, tally, IngestionStatus.FAILED, ex.getMessage());
+    }
+
+    /**
+     * Everything that happens once the postings are in hand, in one transaction.
+     *
+     * <p>Still one transaction for the whole batch: splitting it per posting is M2,
+     * and deliberately not done here. What has changed is only that the network is
+     * no longer inside it.
+     *
+     * <p>JOB_RAW is emitted here rather than as soon as the fetch returned. The
+     * outbox row has to commit with the data it describes, and announcing postings
+     * from outside this transaction would publish an event for work this
+     * transaction may still discard.
+     */
+    private IngestionRun processFetched(JobSource source, List<RawJobPosting> raw,
+                                        IngestionRun run, IngestionTally tally) {
+        tally.recordRaw(raw.size());
         emit(PipelineTopics.JOB_RAW, run.getCorrelationId(),
                 new RawBatchEvent(source.getId(), source.getName(), raw.size(), run.getCorrelationId()));
 
@@ -158,47 +242,68 @@ public class IngestionService {
 
         for (RawJobPosting posting : raw) {
             if (!TextUtils.hasText(posting.externalId()) || !TextUtils.hasText(posting.title())) {
-                run.setErrorCount(run.getErrorCount() + 1);
+                tally.recordError();
                 continue;
             }
+            // Before processing, deliberately. A posting the source is still
+            // advertising must count as seen even if we then fail to process it,
+            // or closeVanished below would close a job that never went away.
             seenExternalIds.add(posting.externalId());
             try {
-                processOne(source, posting, run, dictionary);
+                PostingOutcome outcome =
+                        processOne(source, posting, run.getCorrelationId(), dictionary, tally);
+                log.trace("Posting {} from {} resolved as {}",
+                        posting.externalId(), source.getName(), outcome);
             } catch (RuntimeException ex) {
                 log.warn("Failed to ingest posting {} from {}: {}",
                         posting.externalId(), source.getName(), ex.getMessage());
-                run.setErrorCount(run.getErrorCount() + 1);
+                tally.recordError();
                 if (errors.size() < 3) {
                     errors.add(ex.getMessage());
                 }
             }
         }
 
-        int closed = closeVanished(source, seenExternalIds);
-        run.setClosedCount(closed);
+        tally.recordClosed(closeVanished(source, seenExternalIds));
 
         source.setSyncSuccessCount(source.getSyncSuccessCount() + 1);
         source.setLastSuccessfulSyncAt(Instant.now());
         source.setConsecutiveFailures(0);
-        source.setJobsIngestedTotal(source.getJobsIngestedTotal() + run.getNewCount());
+        source.setJobsIngestedTotal(source.getJobsIngestedTotal() + tally.newCount());
         sourceRepository.save(source);
 
         healthService.record(source, SourceHealthResult.healthy(200, 0, raw.size()));
 
-        IngestionStatus status = run.getErrorCount() == 0 ? IngestionStatus.SUCCEEDED : IngestionStatus.PARTIAL;
-        return finishRun(run, status, errors.isEmpty() ? null : String.join("; ", errors));
+        IngestionStatus status = tally.isClean() ? IngestionStatus.SUCCEEDED : IngestionStatus.PARTIAL;
+        return finishRun(run, tally, status, errors.isEmpty() ? null : String.join("; ", errors));
     }
 
-    private void processOne(JobSource source, RawJobPosting posting, IngestionRun run, List<Skill> dictionary) {
+    /**
+     * Processes one posting and reports what it turned out to be.
+     *
+     * <p>Takes the correlation id and the tally rather than the run entity, so
+     * nothing here touches a managed object. That is the point of the change: the
+     * per-posting work has to be movable into a transaction of its own, and an
+     * entity loaded by an outer persistence context could not come with it.
+     *
+     * <p>The tally is recorded <em>as each fact is established</em>, not once at
+     * the end, because that is when the run entity used to be incremented. A
+     * posting that normalizes and is classified as a duplicate and only then
+     * fails is counted in normalizedCount and duplicateCount and errorCount —
+     * counting it purely from the returned value would silently drop the first
+     * two, and the totals an operator reads would change.
+     */
+    private PostingOutcome processOne(JobSource source, RawJobPosting posting, String correlationId,
+                                      List<Skill> dictionary, IngestionTally tally) {
         String companyName = TextUtils.hasText(posting.companyName())
                 ? posting.companyName()
                 : source.getCompany() != null ? source.getCompany().getName() : source.getName();
 
         NormalizedJob normalized = normalizer.normalize(posting, companyName);
-        run.setNormalizedCount(run.getNormalizedCount() + 1);
+        tally.recordNormalized();
         emit(PipelineTopics.JOB_NORMALIZED, source.getId() + ":" + normalized.externalId(),
                 new NormalizedJobEvent(source.getId(), normalized.externalId(), normalized.normalizedTitle(),
-                        run.getCorrelationId()));
+                        correlationId));
 
         Company company = source.getCompany() != null
                 ? source.getCompany()
@@ -207,15 +312,18 @@ public class IngestionService {
         JobDeduplicator.Resolution resolution = deduplicator.resolve(normalized, company, source.getId());
         emit(PipelineTopics.JOB_DEDUPLICATED, source.getId() + ":" + normalized.externalId(),
                 new DeduplicationEvent(source.getId(), normalized.externalId(),
-                        resolution.signal().name(), resolution.isNewJob(), run.getCorrelationId()));
+                        resolution.signal().name(), resolution.isNewJob(), correlationId));
 
         Job job;
+        PostingOutcome outcome;
         if (resolution.isNewJob()) {
             job = createJob(normalized, company);
-            run.setNewCount(run.getNewCount() + 1);
+            outcome = PostingOutcome.NEW;
+            tally.record(outcome);
         } else {
             job = resolution.job();
-            run.setDuplicateCount(run.getDuplicateCount() + 1);
+            outcome = PostingOutcome.DUPLICATE;
+            tally.record(outcome);
 
             if (resolution.isRepeatObservation()) {
                 // The same source showing us the same posting again. This is the only
@@ -224,12 +332,14 @@ public class IngestionService {
                 List<com.careerflux.job.domain.JobChange> changes =
                         changeDetector.detect(job, normalized, resolution.observation());
                 if (!changes.isEmpty()) {
-                    run.setUpdatedCount(run.getUpdatedCount() + 1);
+                    // Counted in addition to the duplicate above, never instead of it.
+                    outcome = PostingOutcome.UPDATED;
+                    tally.record(outcome);
                     applyUpdates(job, normalized);
                     changes.forEach(change -> emit(PipelineTopics.JOB_CHANGED,
                             job.getId() + ":" + change.getChangeType(),
                             new JobChangedEvent(job.getId(), change.getChangeType().name(),
-                                    change.getSummary(), run.getCorrelationId())));
+                                    change.getSummary(), correlationId)));
                 }
             } else {
                 // A different source describing a job we already hold. Its wording is
@@ -255,14 +365,15 @@ public class IngestionService {
             enricher.enrich(job, dictionary);
             emit(PipelineTopics.JOB_ENRICHED, job.getId().toString(),
                     new EnrichmentEvent(job.getId(), job.getEnrichmentEngine(),
-                            job.getSkills().size(), run.getCorrelationId()));
+                            job.getSkills().size(), correlationId));
             changeDetector.recordCreated(job, observation, source.getName());
             emit(PipelineTopics.JOB_CLASSIFIED, job.getId().toString(),
                     new ClassifiedJobEvent(job.getId(), job.getSeniority().name(),
-                            job.getWorkMode().name(), run.getCorrelationId()));
+                            job.getWorkMode().name(), correlationId));
         }
 
         jobRepository.save(job);
+        return outcome;
     }
 
     private Job createJob(NormalizedJob normalized, Company company) {
@@ -419,7 +530,19 @@ public class IngestionService {
         return runRepository.save(run);
     }
 
-    private IngestionRun finishRun(IngestionRun run, IngestionStatus status, String message) {
+    private IngestionRun finishRun(IngestionRun run, IngestionTally tally, IngestionStatus status,
+                                   String message) {
+        // The one place in-memory totals become persisted state. Keeping the copy
+        // here rather than on the tally leaves the tally free of any knowledge of
+        // JPA, which is what makes it safe to carry across a transaction boundary.
+        run.setRawCount(tally.rawCount());
+        run.setNormalizedCount(tally.normalizedCount());
+        run.setNewCount(tally.newCount());
+        run.setUpdatedCount(tally.updatedCount());
+        run.setDuplicateCount(tally.duplicateCount());
+        run.setClosedCount(tally.closedCount());
+        run.setErrorCount(tally.errorCount());
+
         run.setStatus(status);
         run.setErrorMessage(TextUtils.truncate(message, 1000));
         run.setFinishedAt(Instant.now());
@@ -428,7 +551,7 @@ public class IngestionService {
                 run.getSource() == null ? "?" : run.getSource().getName(),
                 status, run.getRawCount(), run.getNewCount(), run.getUpdatedCount(),
                 run.getDuplicateCount(), run.getClosedCount(), run.getErrorCount());
-        return runRepository.save(run);
+        return run;
     }
 
     private void emit(String topic, String key, Object payload) {

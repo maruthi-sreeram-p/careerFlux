@@ -1148,3 +1148,291 @@
     align-items: flex-start;
   }
 }
+
+/* Row footer: the breakdown toggle on the left, the decision on the right. */
+.candidate__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+}
+
+/* ------------------------------------------------------------- Placement */
+
+/*
+ * The placement workflow, on two very different screens.
+ *
+ * The staff view sits inside a candidate row and has to stay quiet: it is one
+ * more line in a list somebody is scanning. The student view is the whole
+ * subject of its page, and the one thing that must not be missable there is an
+ * invitation waiting on an answer — hence the left rail on .placement--awaiting.
+ */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-faint);
+}
+
+.stage__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.stage__waiting {
+  font-size: var(--text-xs);
+  color: var(--caution);
+}
+
+.stage__history-toggle {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.stage__history-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.stage__empty {
+  font-size: var(--text-xs);
+  margin: 0;
+}
+
+/* The trail. Ordered, oldest first, so it reads as a sequence of events. */
+.stage__history {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-left: 2px solid var(--line);
+}
+
+.stage__event {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+  position: relative;
+}
+
+/* A dot on the rail, tinted by who acted: the college, or the student. */
+.stage__event::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-4) * -1 - 5px);
+  top: 0.45em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.stage__event--student::before {
+  background: var(--info);
+}
+
+.stage__event-line {
+  color: var(--text-secondary);
+}
+
+.stage__event-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ------------------------------------------------- A student's own list */
+
+.placement__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.placement {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The one card that must not be scrolled past. */
+.placement--awaiting {
+  border-color: var(--caution-line);
+  box-shadow: inset 3px 0 0 var(--caution);
+}
+
+.placement__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.placement__role {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
+}
+
+.placement__meaning {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.placement__ask {
+  border: 1px solid var(--caution-line);
+  background: var(--caution-faint);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.placement__ask p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.placement__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-xs);
+  border-top: 1px solid var(--line-faint);
+  padding-top: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .placement__head {
+    flex-direction: column;
+  }
+}
+
+/* ------------------------------------------------ Company source discovery */
+
+/*
+ * The candidate chooser.
+ *
+ * A confirmation step, so the options have to read as options: a chosen domain
+ * is unmistakably chosen, and nothing is chosen until somebody chooses it. The
+ * evidence badge sits next to the domain because an operator authorising an
+ * outbound request should see at a glance whether the domain is one CareerFlux
+ * already knew or one it guessed and then checked.
+ */
+
+.discovery-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.candidate-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.candidate-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.candidate-group__name {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.candidate-group__detail {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.candidate-group__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.candidate-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.candidate-option:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-hover);
+}
+
+.candidate-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Chosen has to be obvious: this is the state that authorises a fetch. */
+.candidate-option--chosen {
+  border-color: var(--accent);
+  background: var(--accent-faint);
+}
+
+.candidate-option__domain {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+}
+
+.candidate-option__detail {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+}
+
+.discovery-outcome {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}

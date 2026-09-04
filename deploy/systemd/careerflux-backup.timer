@@ -1,0 +1,22 @@
+# Runs the backup every six hours, which is the stated recovery point.
+#
+#   sudo cp careerflux-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now careerflux-backup.timer
+#   systemctl list-timers careerflux-backup.timer
+
+[Unit]
+Description=CareerFlux backup every six hours
+
+[Timer]
+OnCalendar=00/6:00:00
+# Runs a missed backup after a reboot instead of silently skipping to the next
+# slot. A host that was off overnight otherwise has a twelve-hour gap nobody
+# notices until they need it.
+Persistent=true
+# Spread the start so a backup never begins at exactly the same instant as
+# whatever else the host does on the hour.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

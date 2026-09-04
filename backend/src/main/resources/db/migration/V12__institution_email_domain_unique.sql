@@ -1,0 +1,21 @@
+-- Stop two colleges claiming exactly the same email domains.
+--
+-- The application already refuses an overlapping claim, and does it more
+-- thoroughly than this index can: it runs the real matching rule, so it also
+-- catches a claim that merely covers another college's subdomain. What it
+-- cannot do is win a race. Two operators onboarding the same college at the
+-- same moment both pass the check, and both insert.
+--
+-- That race matters more than it looks. EnrolmentService refuses to guess when
+-- two colleges claim one address, so the result is not a tidy duplicate row --
+-- it is every student from that college being turned away at registration,
+-- with the cause sitting in a table nobody thinks to look at.
+--
+-- What this index covers is exact equality of the stored claim, which is why
+-- the service normalises to a sorted, lower-cased, de-duplicated string before
+-- saving: without that, "a.edu,b.edu" and "b.edu,a.edu" would be two different
+-- values and the index would let both through. Partial overlaps remain the
+-- application's job. NULL is not indexed as a value, so a college onboarding
+-- with a registration code instead is unaffected -- and several of them can
+-- coexist.
+CREATE UNIQUE INDEX uq_institutions_email_domains ON institutions (email_domains);

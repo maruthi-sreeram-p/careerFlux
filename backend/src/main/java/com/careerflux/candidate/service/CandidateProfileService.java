@@ -4,9 +4,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -180,37 +183,60 @@ public class CandidateProfileService {
         return toResponse(profile);
     }
 
+    /**
+     * Replaces a candidate's career preferences.
+     *
+     * <p>A rescore is asked for only when this save actually changed something.
+     * Rescoring a candidate against the corpus takes minutes, and re-opening the
+     * preferences screen and pressing save without editing anything is a normal
+     * thing to do; before this, that queued a full recomputation to arrive at
+     * exactly the numbers already stored.
+     *
+     * <p><b>Anything, not just anything matching reads.</b> Only four of the six
+     * value types and one of the nine scalars currently reach
+     * {@code CandidateSnapshot}, so a narrower rule would suppress more. It would
+     * also be tied to the scorer's present internals: the day salary or industry
+     * is wired into scoring, matches would silently stop updating and nothing
+     * would report it. A redundant rescore is rare and cheap to notice; a stale
+     * match is neither.
+     */
     @Transactional
     public CandidateProfileResponse savePreferences(UUID userId, PreferencesPayload payload) {
         CandidateProfile profile = requireByUserId(userId);
         CandidatePreferences preferences = profile.getPreferences();
+
+        // A profile that had no preferences row now has one, which is a change
+        // however empty the payload is.
+        boolean changed = preferences == null;
         if (preferences == null) {
             preferences = new CandidatePreferences();
             profile.setPreferences(preferences);
         }
+        OnboardingStage stageBefore = profile.getOnboardingStage();
 
-        preferences.setSalaryMin(payload.salaryMin());
-        preferences.setSalaryMax(payload.salaryMax());
-        preferences.setSalaryCurrency(trimToNull(payload.salaryCurrency()));
-        preferences.setSalaryPeriod(trimToNull(payload.salaryPeriod()));
-        preferences.setOpenToRelocation(payload.openToRelocation());
-        preferences.setMinExperienceYears(payload.minExperienceYears());
-        preferences.setMaxExperienceYears(payload.maxExperienceYears());
-        preferences.setImmediateAlerts(payload.immediateAlerts());
-        preferences.setDailyDigest(payload.dailyDigest());
+        changed |= applyPreferenceScalars(preferences, payload);
 
-        replacePreferenceValues(profile, PreferenceType.TARGET_ROLE, payload.targetRoles(), null);
-        replacePreferenceValues(profile, PreferenceType.INDUSTRY, payload.industries(), null);
-        replacePreferenceValues(profile, PreferenceType.LOCATION, payload.locations(), null);
-        replacePreferenceValues(profile, PreferenceType.WORK_MODE, payload.workModes(), WorkMode.class);
-        replacePreferenceValues(profile, PreferenceType.EMPLOYMENT_TYPE, payload.employmentTypes(),
+        // Each call reports whether it wrote anything. Deliberately not
+        // short-circuited: every type must be applied regardless of what an
+        // earlier one found.
+        changed |= replacePreferenceValues(profile, PreferenceType.TARGET_ROLE, payload.targetRoles(), null);
+        changed |= replacePreferenceValues(profile, PreferenceType.INDUSTRY, payload.industries(), null);
+        changed |= replacePreferenceValues(profile, PreferenceType.LOCATION, payload.locations(), null);
+        changed |= replacePreferenceValues(profile, PreferenceType.WORK_MODE, payload.workModes(), WorkMode.class);
+        changed |= replacePreferenceValues(profile, PreferenceType.EMPLOYMENT_TYPE, payload.employmentTypes(),
                 EmploymentType.class);
-        replacePreferenceValues(profile, PreferenceType.PREFERRED_COMPANY, payload.preferredCompanies(), null);
+        changed |= replacePreferenceValues(profile, PreferenceType.PREFERRED_COMPANY,
+                payload.preferredCompanies(), null);
 
         advanceOnboarding(profile, OnboardingStage.COMPLETE);
         recomputeCompleteness(profile);
+        // Reaching the end of onboarding is itself worth a rescore: it is the
+        // point at which this candidate starts being treated as matchable.
+        changed |= profile.getOnboardingStage() != stageBefore;
         profileRepository.save(profile);
-        events.publishEvent(new CandidateProfileChangedEvent(profile.getId(), "preferences saved"));
+        if (changed) {
+            events.publishEvent(new CandidateProfileChangedEvent(profile.getId(), "preferences saved"));
+        }
         return toResponse(profile);
     }
 
@@ -398,15 +424,145 @@ public class CandidateProfileService {
         }
     }
 
-    private <E extends Enum<E>> void replacePreferenceValues(CandidateProfile profile, PreferenceType type,
-                                                             List<String> values, Class<E> constrainedTo) {
-        preferenceValueRepository.deleteByCandidateIdAndValueType(profile.getId(), type);
-        if (values == null || values.isEmpty()) {
-            return;
+    /**
+     * Brings one preference type in line with the request, by difference.
+     *
+     * <p>This used to delete every row and re-insert the lot. That reads as the
+     * obvious way to "replace" a list, and it could not save the same values
+     * twice: Spring Data's derived delete queues {@code em.remove} calls rather
+     * than issuing SQL, and Hibernate's action queue runs inserts <em>before</em>
+     * deletes. Re-inserting a value whose old row was still present violated
+     * {@code uq_candidate_preference_values}, so any save that kept even one
+     * existing value failed with a conflict. In practice that was every real
+     * edit a student made after their first.
+     *
+     * <p>Working by difference removes the collision rather than sequencing
+     * around it: the rows to insert and the rows to delete are disjoint by
+     * construction, because a value is in exactly one of those sets. Ordering
+     * between them stops mattering at all, which a flush would not achieve — it
+     * would only make the ordering safe for as long as somebody remembered it.
+     *
+     * <p>It also stops a save churning rows it did not change, so a student who
+     * edits one entry keeps the identity of the others.
+     *
+     * <p><b>Comparison is exact.</b> The unique constraint is case-sensitive, so
+     * "Java" and "java" are genuinely different rows and changing between them
+     * is a real edit that must be applied. That is deliberately not the same as
+     * the request-level de-duplication below, which stays case-insensitive so a
+     * student cannot enter both spellings at once.
+     */
+    private <E extends Enum<E>> boolean replacePreferenceValues(CandidateProfile profile, PreferenceType type,
+                                                                List<String> values, Class<E> constrainedTo) {
+        List<String> requested = normalisePreferenceValues(values, constrainedTo);
+        List<CandidatePreferenceValue> existing =
+                preferenceValueRepository.findByCandidateIdAndValueType(profile.getId(), type);
+
+        // The constraint guarantees one row per value, so this cannot collide.
+        Map<String, CandidatePreferenceValue> existingByValue = new HashMap<>();
+        for (CandidatePreferenceValue row : existing) {
+            existingByValue.put(row.getValue(), row);
         }
-        List<CandidatePreferenceValue> rows = new ArrayList<>();
+
+        List<CandidatePreferenceValue> inserts = new ArrayList<>();
+        Set<String> retained = new HashSet<>();
+        boolean reordered = false;
+        for (int position = 0; position < requested.size(); position++) {
+            String value = requested.get(position);
+            CandidatePreferenceValue row = existingByValue.get(value);
+            if (row == null) {
+                inserts.add(CandidatePreferenceValue.of(profile, type, value, position));
+                continue;
+            }
+            retained.add(value);
+            if (row.getDisplayOrder() != position) {
+                reordered = true;
+                // Managed entity: this is a dirty-checked UPDATE. display_order
+                // is in no unique constraint, so reordering cannot collide, and
+                // without it a student reordering their list would see nothing
+                // happen — the values are equal, so nothing else would change.
+                row.setDisplayOrder(position);
+            }
+        }
+
+        List<CandidatePreferenceValue> removals = existing.stream()
+                .filter(row -> !retained.contains(row.getValue()))
+                .toList();
+
+        if (!removals.isEmpty()) {
+            preferenceValueRepository.deleteAll(removals);
+        }
+        if (!inserts.isEmpty()) {
+            preferenceValueRepository.saveAll(inserts);
+        }
+        // Reported from the same comparison that decided what to write, so the
+        // answer cannot drift from what actually happened. Reordering counts:
+        // the values are equal but the stored order is not, and Phase 15A
+        // treats that as a real edit.
+        return !inserts.isEmpty() || !removals.isEmpty() || reordered;
+    }
+
+    /**
+     * Applies the scalar preferences and says whether any of them moved.
+     *
+     * <p>Compared against the values already stored, using the same
+     * normalisation the setters apply, so a payload that round-trips a
+     * previously saved value reads as unchanged rather than as an edit.
+     */
+    private boolean applyPreferenceScalars(CandidatePreferences preferences, PreferencesPayload payload) {
+        String currency = trimToNull(payload.salaryCurrency());
+        String period = trimToNull(payload.salaryPeriod());
+
+        boolean changed = numberChanged(preferences.getSalaryMin(), payload.salaryMin())
+                || numberChanged(preferences.getSalaryMax(), payload.salaryMax())
+                || !java.util.Objects.equals(preferences.getSalaryCurrency(), currency)
+                || !java.util.Objects.equals(preferences.getSalaryPeriod(), period)
+                || preferences.isOpenToRelocation() != payload.openToRelocation()
+                || numberChanged(preferences.getMinExperienceYears(), payload.minExperienceYears())
+                || numberChanged(preferences.getMaxExperienceYears(), payload.maxExperienceYears())
+                || preferences.isImmediateAlerts() != payload.immediateAlerts()
+                || preferences.isDailyDigest() != payload.dailyDigest();
+
+        preferences.setSalaryMin(payload.salaryMin());
+        preferences.setSalaryMax(payload.salaryMax());
+        preferences.setSalaryCurrency(currency);
+        preferences.setSalaryPeriod(period);
+        preferences.setOpenToRelocation(payload.openToRelocation());
+        preferences.setMinExperienceYears(payload.minExperienceYears());
+        preferences.setMaxExperienceYears(payload.maxExperienceYears());
+        preferences.setImmediateAlerts(payload.immediateAlerts());
+        preferences.setDailyDigest(payload.dailyDigest());
+        return changed;
+    }
+
+    /**
+     * Whether a decimal preference actually moved.
+     *
+     * <p>{@code BigDecimal.equals} compares scale as well as value, so a client
+     * echoing back "1200000.00" where "1200000" was stored would read as an
+     * edit and cost a rescore for nothing. Numeric comparison is the honest
+     * question here.
+     */
+    private boolean numberChanged(java.math.BigDecimal stored, java.math.BigDecimal incoming) {
+        if (stored == null || incoming == null) {
+            return stored != incoming;
+        }
+        return stored.compareTo(incoming) != 0;
+    }
+
+    /**
+     * The request as it will be stored: trimmed, canonicalised, truncated and
+     * de-duplicated, in the order the student gave.
+     *
+     * <p>Unchanged rules, lifted out of the replacement above so the difference
+     * is computed against exactly what would have been written.
+     */
+    private <E extends Enum<E>> List<String> normalisePreferenceValues(List<String> values,
+                                                                       Class<E> constrainedTo) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        List<String> normalised = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        int order = 0;
         for (String raw : values) {
             String value = trimToNull(raw);
             if (value == null) {
@@ -425,9 +581,9 @@ public class CandidateProfileService {
             if (!seen.add(value.toLowerCase(Locale.ROOT))) {
                 continue;
             }
-            rows.add(CandidatePreferenceValue.of(profile, type, value, order++));
+            normalised.add(value);
         }
-        preferenceValueRepository.saveAll(rows);
+        return normalised;
     }
 
     /**

@@ -71,7 +71,9 @@ class SampleSeedingIsolationTest {
 
     private SampleSourceSeeder seederWith(boolean seedSampleJobs, boolean allowPopulated) {
         CareerFluxProperties properties = new CareerFluxProperties(null, null, null, null, null,
-                new CareerFluxProperties.Demo(seedSampleJobs, allowPopulated));
+                new CareerFluxProperties.Demo(seedSampleJobs, allowPopulated),
+                null /* rate limits: not exercised here */,
+                true /* background work: not exercised here */);
         return new SampleSourceSeeder(sources, registryService, lifecycleService,
                 ingestionService, jobs, properties);
     }

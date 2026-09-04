@@ -153,13 +153,13 @@ export default function PlacementOfficerDashboard() {
               />
               <Panel title="Company requirements">
                 <p className="text-muted">
-                  Entering a company's hiring requirement and ranking students against it is the
-                  next phase of CareerFlux. It is not built yet, so nothing is shown here rather
-                  than an empty list that looks broken.
-                </p>
-                <Link className="btn btn--secondary" to="/app/students">
-                  Browse students meanwhile
-                </Link>
+                    Write down what a company asked for, then find the students who match
+                    it. Technical fit and formal eligibility are shown separately, and
+                    nobody is shortlisted until a person decides to.
+                  </p>
+                  <Link className="btn btn--secondary" to="/app/requirements">
+                    Open company requirements
+                  </Link>
               </Panel>
             </div>
           </section>

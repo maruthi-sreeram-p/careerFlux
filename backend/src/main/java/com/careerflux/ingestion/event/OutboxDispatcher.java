@@ -8,6 +8,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.careerflux.common.TextUtils;
+import com.careerflux.config.BackgroundWorkGate;
 import com.careerflux.config.CareerFluxProperties;
 import com.careerflux.ingestion.domain.PipelineEvent;
 import com.careerflux.ingestion.domain.PipelineEventStatus;
@@ -43,12 +44,15 @@ public class OutboxDispatcher {
     private final PipelineEventRepository eventRepository;
     private final Map<String, PipelineEventHandler> handlersByTopic;
     private final CareerFluxProperties properties;
+    private final BackgroundWorkGate gate;
 
     public OutboxDispatcher(PipelineEventRepository eventRepository,
                             List<PipelineEventHandler> handlers,
-                            CareerFluxProperties properties) {
+                            CareerFluxProperties properties,
+                            BackgroundWorkGate gate) {
         this.eventRepository = eventRepository;
         this.properties = properties;
+        this.gate = gate;
         this.handlersByTopic = handlers.stream()
                 .collect(Collectors.toMap(PipelineEventHandler::topic, Function.identity(),
                         (first, second) -> {
@@ -60,7 +64,7 @@ public class OutboxDispatcher {
 
     @Scheduled(fixedDelay = 2000, initialDelay = 5000)
     public void drain() {
-        if (!properties.ingestion().schedulerEnabled()) {
+        if (!gate.permitsScheduledIngestion()) {
             return;
         }
         drainOnce();
@@ -125,6 +129,11 @@ public class OutboxDispatcher {
     @Scheduled(cron = "0 45 3 * * *")
     @Transactional
     public void pruneProcessed() {
+        // Deletes rows, so it answers to the master switch. It used to run
+        // regardless, which meant a "frozen" system still discarded history.
+        if (!gate.permitsBackgroundWork()) {
+            return;
+        }
         int removed = eventRepository.deleteProcessedBefore(
                 Instant.now().minus(Duration.ofDays(PROCESSED_RETENTION_DAYS)));
         if (removed > 0) {

@@ -19,12 +19,16 @@ import CandidateDiscovery from './pages/CandidateDiscovery';
 import RequirementDetail from './pages/RequirementDetail';
 import RequirementNew from './pages/RequirementNew';
 import Requirements from './pages/Requirements';
+import Shortlist from './pages/Shortlist';
 import Students from './pages/Students';
 import Sources from './pages/Sources';
 import SourceDetail from './pages/SourceDetail';
 import Profile from './pages/Profile';
 import Notifications from './pages/Notifications';
+import MyPlacements from './pages/MyPlacements';
 import AdminOps from './pages/admin/AdminOps';
+import AdminInstitutions from './pages/admin/AdminInstitutions';
+import CollegeAdministration from './pages/admin/CollegeAdministration';
 import AdminSources from './pages/admin/AdminSources';
 import NotFound from './pages/NotFound';
 
@@ -168,6 +172,14 @@ export default function App() {
                 <Route path="jobs/:jobId" element={<JobDetail />} />
                 <Route path="saved" element={<Saved />} />
                 <Route
+                  path="placements"
+                  element={
+                    <RequireStudent>
+                      <MyPlacements />
+                    </RequireStudent>
+                  }
+                />
+                <Route
                   path="students"
                   element={
                     <RequireStaff>
@@ -207,6 +219,14 @@ export default function App() {
                     </RequirePermission>
                   }
                 />
+                <Route
+                  path="requirements/:requirementId/shortlist"
+                  element={
+                    <RequirePermission permission="PLACEMENT_DRIVE_VIEW">
+                      <Shortlist />
+                    </RequirePermission>
+                  }
+                />
                 <Route path="sources" element={<Sources />} />
                 <Route path="sources/:sourceId" element={<SourceDetail />} />
                 <Route path="profile" element={<Profile />} />
@@ -224,6 +244,22 @@ export default function App() {
                   element={
                     <RequireAdmin>
                       <AdminSources />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="institution"
+                  element={
+                    <RequirePermission permission="DEPARTMENT_MANAGE">
+                      <CollegeAdministration />
+                    </RequirePermission>
+                  }
+                />
+                <Route
+                  path="admin/institutions"
+                  element={
+                    <RequireAdmin>
+                      <AdminInstitutions />
                     </RequireAdmin>
                   }
                 />

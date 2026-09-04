@@ -61,6 +61,7 @@ public class AdminSourceController {
     private final SourceHealthService healthService;
     private final IngestionService ingestionService;
     private final SourceDiscoveryService discoveryService;
+    private final com.careerflux.source.discovery.CompanyDiscoveryService companyDiscoveryService;
     private final CurrentUser currentUser;
 
     public AdminSourceController(SourceRegistryService registryService,
@@ -69,8 +70,10 @@ public class AdminSourceController {
                                  SourceHealthService healthService,
                                  IngestionService ingestionService,
                                  SourceDiscoveryService discoveryService,
+                                 com.careerflux.source.discovery.CompanyDiscoveryService companyDiscoveryService,
                                  CurrentUser currentUser) {
         this.discoveryService = discoveryService;
+        this.companyDiscoveryService = companyDiscoveryService;
         this.registryService = registryService;
         this.lifecycleService = lifecycleService;
         this.queryService = queryService;
@@ -114,6 +117,107 @@ public class AdminSourceController {
 
     /** Empty or absent means "use the market seed list". */
     public record DiscoverRequest(java.util.List<String> domains, java.util.List<String> companyNames) {
+    }
+
+    /**
+     * Finds the domains behind company names, or discovers boards for domains an
+     * operator has confirmed.
+     *
+     * <p>Two phases through one endpoint, chosen by whether {@code
+     * confirmedDomains} is present, because they are two halves of one operator
+     * task and splitting them across two endpoints would invite a client to skip
+     * the first.
+     *
+     * <ul>
+     *   <li><b>No confirmed domains</b> — resolve only. Returns what each name
+     *       looks like it is, and registers nothing.
+     *   <li><b>Confirmed domains</b> — probe exactly those and register the ones
+     *       with a readable board, through the same path a typed domain takes.
+     * </ul>
+     *
+     * <p>A resolved domain is never probed in the same call that produced it.
+     * The guess and the request to somebody else's servers are separated by a
+     * person, deliberately.
+     */
+    @PostMapping("/discover-by-company")
+    @Operation(summary = "Resolve company names to domains, then discover boards for confirmed domains")
+    public CompanyDiscoveryView discoverByCompany(@Valid @RequestBody DiscoverByCompanyRequest request) {
+        if (request.confirmedDomains() != null && !request.confirmedDomains().isEmpty()) {
+            var run = companyDiscoveryService.discoverConfirmed(
+                    request.confirmedDomains(), request.companyNames(), currentUser.describe());
+            return CompanyDiscoveryView.afterDiscovery(run);
+        }
+        var report = companyDiscoveryService.resolve(request.companyNames());
+        return CompanyDiscoveryView.afterResolution(report);
+    }
+
+    /**
+     * Company names to resolve, and optionally the domains already confirmed.
+     *
+     * <p>Both lists are present so a client can resolve and then confirm without
+     * holding server state between the two calls.
+     */
+    public record DiscoverByCompanyRequest(
+            java.util.List<String> companyNames,
+            java.util.List<String> confirmedDomains) {
+    }
+
+    /**
+     * What came back, in the four groups the operator acts on differently.
+     *
+     * <p>{@code registered} is only ever populated by a confirmed-domain call, so
+     * a resolve can be read without wondering whether it changed anything.
+     */
+    public record CompanyDiscoveryView(
+            java.util.List<ResolvedCompanyView> resolved,
+            java.util.List<ResolvedCompanyView> ambiguous,
+            java.util.List<ResolvedCompanyView> notFound,
+            java.util.List<SourceDiscoveryService.DiscoveredSource> registered,
+            java.util.List<String> alreadyKnown,
+            java.util.List<String> withoutBoard) {
+
+        static CompanyDiscoveryView afterResolution(
+                com.careerflux.source.discovery.CompanyDiscoveryService.CompanyResolutionReport report) {
+            return new CompanyDiscoveryView(
+                    report.resolved().stream().map(ResolvedCompanyView::of).toList(),
+                    report.ambiguous().stream().map(ResolvedCompanyView::of).toList(),
+                    report.notFound().stream().map(ResolvedCompanyView::of).toList(),
+                    java.util.List.of(), java.util.List.of(), java.util.List.of());
+        }
+
+        static CompanyDiscoveryView afterDiscovery(SourceDiscoveryService.DiscoveryRun run) {
+            return new CompanyDiscoveryView(
+                    java.util.List.of(), java.util.List.of(), java.util.List.of(),
+                    run.registered(), run.alreadyKnown(), run.withoutBoard());
+        }
+    }
+
+    /** One company name and the domains CareerFlux believes belong to it. */
+    public record ResolvedCompanyView(String companyName, String slug, String outcome,
+                                      String detail, java.util.List<CandidateView> candidates) {
+
+        static ResolvedCompanyView of(com.careerflux.source.discovery.CompanyResolver.Resolution resolution) {
+            return new ResolvedCompanyView(
+                    resolution.companyName(),
+                    resolution.slug(),
+                    resolution.outcome().name(),
+                    resolution.detail(),
+                    resolution.candidates().stream().map(CandidateView::of).toList());
+        }
+    }
+
+    /**
+     * A proposed domain and why it is being proposed.
+     *
+     * <p>The evidence travels with the candidate because an operator is being
+     * asked to authorise an outbound request, and "we already knew this" and "we
+     * guessed and the site agreed" deserve different amounts of trust.
+     */
+    public record CandidateView(String domain, String evidence, String detail) {
+
+        static CandidateView of(com.careerflux.source.discovery.CompanyResolver.Candidate candidate) {
+            return new CandidateView(candidate.domain(), candidate.evidence().name(), candidate.detail());
+        }
     }
 
     @PostMapping("/{sourceId}/classify")

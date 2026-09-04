@@ -190,6 +190,27 @@ export function salaryLabel(
   const symbol = salary?.currency
     ? (CURRENCY_SYMBOLS[salary.currency] ?? `${salary.currency} `)
     : '';
+  // Indian salaries are quoted in lakhs per annum, never in thousands. A
+  // student reading "₹1000k" has to stop and convert; every posting they have
+  // ever seen said "10 LPA". One lakh is 100,000. The crore boundary is not
+  // handled because no campus offer reaches it.
+  if (salary?.currency === 'INR') {
+    const lakhs = (value: number) => {
+      const scaled = value / 100000;
+      return Number.isInteger(scaled) ? String(scaled) : scaled.toFixed(1);
+    };
+    // One symbol and one unit across the range, which is how it is written:
+    // "₹6–9 LPA", not "₹6 L–₹9 L".
+    const amount =
+      min !== null && max !== null
+        ? `${lakhs(min)}–${lakhs(max)}`
+        : lakhs((min ?? max) as number);
+    if (salary?.period === 'MONTHLY') {
+      return `${symbol}${amount} L / month`;
+    }
+    return `${symbol}${amount} LPA`;
+  }
+
   const compact = (value: number) =>
     value >= 1000 ? `${Math.round(value / 1000)}k` : String(Math.round(value));
 

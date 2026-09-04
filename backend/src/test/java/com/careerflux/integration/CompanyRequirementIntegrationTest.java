@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.careerflux.institution.domain.Institution;
@@ -18,6 +20,8 @@ import com.careerflux.user.UserRole;
 import com.careerflux.user.UserStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -63,6 +67,9 @@ class CompanyRequirementIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Autowired
     private UserRepository userRepository;
@@ -412,5 +419,54 @@ class CompanyRequirementIntegrationTest {
                 .andExpect(status().is(expected))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
+    }
+
+    @Test
+    @DisplayName("skills are listed once, however many departments the requirement targets")
+    void skillsAreNotDuplicatedByDepartments() throws Exception {
+        // Fetching skills and departments in one entity graph joins two
+        // collections, and SQL answers that with a cartesian product: with two
+        // departments every skill came back twice, both in this response and in
+        // what the scorer was handed. Departments are a Set and quietly absorbed
+        // their half of it, so only the skills looked wrong.
+        String officer = officer("dupe-officer@example.com");
+
+        String created = mockMvc.perform(post("/api/requirements")
+                        .header("Authorization", "Bearer " + officer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"Cartesian Ltd","roleTitle":"Backend Developer",
+                                 "departmentIds":["%s","%s"],
+                                 "skills":[{"skill":"Java","tier":"REQUIRED"},
+                                           {"skill":"SQL","tier":"REQUIRED"}]}
+                                """.formatted(institutions.exampleCse().getId(),
+                                institutions.exampleMech().getId())))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(created).get("id").asText();
+
+        // Without this the test cannot see the bug. The class is @Transactional,
+        // so the create and the read below share one persistence context and the
+        // GET is answered from the first-level cache — the join that produces the
+        // cartesian product never runs. Clearing forces a real re-read, which is
+        // what a second HTTP request does in production. An earlier version of
+        // this test passed against the unfixed code for exactly this reason.
+        entityManager.flush();
+        entityManager.clear();
+
+        String body = mockMvc.perform(get("/api/requirements/" + id)
+                        .header("Authorization", "Bearer " + officer))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> required = new ArrayList<>();
+        objectMapper.readTree(body).get("requiredSkills")
+                .forEach(node -> required.add(node.get("skill").asText()));
+
+        assertThat(required)
+                .describedAs("two departments must not double the skill list")
+                .containsExactlyInAnyOrder("Java", "SQL")
+                .doesNotHaveDuplicates();
+        assertThat(objectMapper.readTree(body).get("departments")).hasSize(2);
     }
 }

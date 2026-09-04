@@ -50,7 +50,32 @@ public enum Permission {
 
     // --- Placement ----------------------------------------------------------
     PLACEMENT_DRIVE_VIEW,
+    /**
+     * Author a company requirement: create it, edit it, publish it, close it.
+     *
+     * <p>Deciding what the college is hiring for, which is an institution-wide
+     * act. Creation applies no departmental scope — a requirement may target any
+     * department or none at all — so this belongs to whoever speaks for the whole
+     * placement office.
+     */
     PLACEMENT_DRIVE_MANAGE,
+    /**
+     * Put a candidate forward for a requirement, or take one off.
+     *
+     * <p>Separate from {@link #PLACEMENT_DRIVE_MANAGE} because the two answer
+     * different questions and need different reach. Authoring a requirement is
+     * unscoped; shortlisting is scoped, and already is — every write runs through
+     * {@code DiscoveryScope} against the caller's own {@code AccessScope}, so a
+     * coordinator holding this can only ever act on the students they can already
+     * see, and a request naming somebody else's student is answered as not-found.
+     *
+     * <p>They were one permission until a coordinator needed to shortlist within
+     * their department. Granting the drive permission would have worked, and would
+     * also have handed every coordinator the ability to write and publish company
+     * requirements for the whole college — authority nobody asked for, acquired as
+     * a side effect. Splitting them lets the narrow thing be granted narrowly.
+     */
+    PLACEMENT_SHORTLIST_MANAGE,
     /** Decide who is officially eligible for a drive, as distinct from who matches. */
     PLACEMENT_ELIGIBILITY_MANAGE,
     ANNOUNCEMENT_SEND,

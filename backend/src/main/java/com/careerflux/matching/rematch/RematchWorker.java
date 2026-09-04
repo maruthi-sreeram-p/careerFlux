@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 
 import com.careerflux.matching.service.MatchScorer;
+import com.careerflux.config.BackgroundWorkGate;
 import com.careerflux.matching.service.MatchingService;
 
 import org.slf4j.Logger;
@@ -45,18 +46,27 @@ public class RematchWorker {
     private final RematchRequestRepository requests;
     private final MatchingService matchingService;
     private final TransactionTemplate transactionTemplate;
+    private final BackgroundWorkGate gate;
 
     public RematchWorker(RematchRequestRepository requests,
                          MatchingService matchingService,
-                         PlatformTransactionManager transactionManager) {
+                         PlatformTransactionManager transactionManager,
+                         BackgroundWorkGate gate) {
         this.requests = requests;
         this.matchingService = matchingService;
+        this.gate = gate;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Scheduled(fixedDelayString = "${careerflux.matching.worker-interval-ms:5000}", initialDelay = 10_000)
     public void drain() {
+        // Answers to the master switch, not to scheduler-enabled: rescoring after
+        // a student edits their profile is product behaviour that should survive
+        // a corpus freeze, which is what application.yml already promised.
+        if (!gate.permitsBackgroundWork()) {
+            return;
+        }
         RematchRequest claimed = claimNext();
         if (claimed == null) {
             return;
@@ -126,6 +136,9 @@ public class RematchWorker {
      */
     @Scheduled(fixedDelay = 300_000, initialDelay = 60_000)
     public void recoverStalled() {
+        if (!gate.permitsBackgroundWork()) {
+            return;
+        }
         transactionTemplate.execute(status -> {
             List<RematchRequest> stalled = requests.findStalledSince(Instant.now().minus(STALLED_AFTER));
             for (RematchRequest request : stalled) {

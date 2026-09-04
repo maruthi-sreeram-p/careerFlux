@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -44,6 +45,7 @@ import com.careerflux.requirement.domain.RequirementStatus;
 import com.careerflux.requirement.repository.CompanyRequirementRepository;
 import com.careerflux.security.access.AccessGuard;
 import com.careerflux.security.access.AccessScope;
+import com.careerflux.shortlist.domain.PlacementStage;
 import com.careerflux.shortlist.repository.ShortlistRepository;
 import com.careerflux.user.Permission;
 import com.careerflux.user.User;
@@ -134,11 +136,19 @@ public class CandidateDiscoveryService {
                     + ".");
         }
 
-        List<UUID> cohort = discoveryScope.studentIds(requirement, institutionId, scope);
+        DiscoveryScope.Criteria criteria =
+                discoveryScope.criteriaFor(requirement, institutionId, scope);
         ScorableRole role = ScorableRoles.of(requirement);
 
         // One lookup for the whole page rather than a query per row.
-        Set<UUID> onShortlist = new LinkedHashSet<>(shortlists.findCandidateIds(requirementId));
+        // Who is on the list and how far each has got, in one read. The
+        // keys are exactly the old id set, so everything that asked
+        // "is this candidate shortlisted" still asks the same question.
+        Map<UUID, PlacementStage> onShortlist = stagesFor(requirementId);
+        List<CandidateProfile> cohort = criteria.empty() ? List.of()
+                : profiles.findForDiscoveryScoped(criteria.institutionId(),
+                        criteria.allDepartments(), criteria.departmentIds(),
+                        criteria.anyBatch(), criteria.graduationYear());
         List<CandidateView> scored = score(cohort, requirement, role, onShortlist);
 
         List<CandidateView> filtered = scored.stream()
@@ -173,9 +183,10 @@ public class CandidateDiscoveryService {
                 requirement.getMinCgpa(),
                 scopeLabel(scope),
                 cohort.size(),
-                // No verified numeric CGPA exists anywhere in CareerFlux yet, so
-                // the screen can explain the UNKNOWNs once rather than per row.
-                false,
+                // Whether this requirement's cohort has any verified CGPA at
+                // all, so the screen can explain a page full of UNKNOWNs once
+                // rather than on every row.
+                scored.stream().anyMatch(candidate -> candidate.cgpa() != null),
                 onShortlist.size(),
                 filtered.subList(from, to),
                 pageNumber, pageSize, filtered.size(), totalPages);
@@ -209,18 +220,25 @@ public class CandidateDiscoveryService {
                 .findByIdAndInstitutionId(requirementId, institutionId)
                 .orElseThrow(() -> NotFoundException.of("Company requirement", requirementId));
 
-        Set<UUID> onShortlist = new LinkedHashSet<>(shortlists.findCandidateIds(requirementId));
+        // Who is on the list and how far each has got, in one read. The
+        // keys are exactly the old id set, so everything that asked
+        // "is this candidate shortlisted" still asks the same question.
+        Map<UUID, PlacementStage> onShortlist = stagesFor(requirementId);
 
         // Narrowed to what this caller may see. A coordinator opening a
         // shortlist their officer built sees the part of it inside their own
         // department, not the whole college's.
+        //
+        // A shortlist is tens of people, not thousands, so loading it by id is
+        // the right shape here — the parameter-count problem that drove
+        // discovery onto scoped predicates does not arise at this size.
         Set<UUID> visible = new LinkedHashSet<>(
                 discoveryScope.studentIds(requirement, institutionId, scope));
 
-        List<UUID> cohort = profiles.findAllById(onShortlist).stream()
-                .map(profile -> profile.getUser().getId())
-                .filter(visible::contains)
-                .toList();
+        List<CandidateProfile> cohort = onShortlist.isEmpty() ? List.of()
+                : profiles.findAllById(onShortlist.keySet()).stream()
+                        .filter(profile -> visible.contains(profile.getUser().getId()))
+                        .toList();
 
         ScorableRole role = ScorableRoles.of(requirement);
         List<CandidateView> scored = score(cohort, requirement, role, onShortlist).stream()
@@ -239,7 +257,7 @@ public class CandidateDiscoveryService {
                 requirement.getMinCgpa(),
                 scopeLabel(scope),
                 cohort.size(),
-                false,
+                scored.stream().anyMatch(candidate -> candidate.cgpa() != null),
                 onShortlist.size(),
                 scored,
                 0, scored.size(), scored.size(), scored.isEmpty() ? 0 : 1);
@@ -256,13 +274,26 @@ public class CandidateDiscoveryService {
      * skills and preferences are loaded in bulk and the snapshots assembled in
      * memory.
      */
-    private List<CandidateView> score(List<UUID> cohort, CompanyRequirement requirement,
-                                      ScorableRole role, Set<UUID> onShortlist) {
-        if (cohort.isEmpty()) {
+    /** Candidate id to current stage, for the candidates on this requirement. */
+    private Map<UUID, PlacementStage> stagesFor(UUID requirementId) {
+        Map<UUID, PlacementStage> stages = new LinkedHashMap<>();
+        for (Object[] row : shortlists.findCandidateStages(requirementId)) {
+            stages.put((UUID) row[0], (PlacementStage) row[1]);
+        }
+        return stages;
+    }
+
+    /** Null for somebody nobody shortlisted: they are not in the workflow. */
+    private static String stageNameOf(PlacementStage stage) {
+        return stage == null ? null : stage.name();
+    }
+
+    private List<CandidateView> score(List<CandidateProfile> found, CompanyRequirement requirement,
+                                      ScorableRole role, Map<UUID, PlacementStage> onShortlist) {
+        if (found.isEmpty()) {
             return List.of();
         }
 
-        List<CandidateProfile> found = profiles.findForDiscovery(cohort);
         List<UUID> profileIds = found.stream().map(CandidateProfile::getId).toList();
 
         Map<UUID, Set<String>> skillsByCandidate = candidateSkills.findByCandidateIdIn(profileIds)
@@ -289,7 +320,8 @@ public class CandidateDiscoveryService {
                     FormalEligibility.evaluate(card, requirement, verifiedCgpa(profile));
 
             results.add(toView(profile, card, outcome, role,
-                    onShortlist.contains(profile.getId())));
+                    onShortlist.containsKey(profile.getId()),
+                    stageNameOf(onShortlist.get(profile.getId()))));
         }
         return results;
     }
@@ -338,22 +370,26 @@ public class CandidateDiscoveryService {
     /**
      * A verified numeric CGPA, or null.
      *
-     * <p>Always null today, and that is the honest answer rather than a gap in
-     * the implementation. {@code CandidateEducation.grade} is free text — it may
-     * hold "8.1", "First Class", "82%" or nothing — and reading a company's
-     * hiring bar off a string like that would put a student's place on a drive
-     * on a guess. When a verified numeric field exists, this method is where it
-     * arrives, and nothing else has to change.
+     * <p>Verified means an institution recorded it. A student's own figure is
+     * kept on their profile and shown back to them, and is not consulted here —
+     * a student must not be able to answer a company's stated minimum about
+     * themselves.
+     *
+     * <p>Nothing is parsed or inferred. {@code CandidateEducation.grade} is
+     * still free text — it may hold "8.1", "First Class", "82%" or nothing — and
+     * it is never read: a hiring bar decided from a string like that would put a
+     * student's place on a drive on a guess.
      */
     private BigDecimal verifiedCgpa(CandidateProfile profile) {
-        return null;
+        return profile.getVerifiedCgpa();
     }
 
     // ------------------------------------------------------------------ views
 
     private CandidateView toView(CandidateProfile profile, MatchScorer.Scorecard card,
                                  FormalEligibility.Outcome outcome, ScorableRole role,
-                                 boolean shortlisted) {
+                                 boolean shortlisted,
+                                 String placementStage) {
         User user = profile.getUser();
 
         // Preferred skills the candidate does have: the tier's full list minus
@@ -408,7 +444,8 @@ public class CandidateDiscoveryService {
                 dimensions,
                 strengths,
                 gaps,
-                shortlisted);
+                shortlisted,
+                placementStage);
     }
 
     /** The scorer's own words. Nothing here is composed by the client. */

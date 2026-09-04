@@ -28,7 +28,9 @@ import com.careerflux.source.domain.SourceState;
 import com.careerflux.source.domain.SourceType;
 import com.careerflux.source.domain.TosStatus;
 import com.careerflux.source.repository.JobSourceRepository;
+import com.careerflux.support.IngestionTestData;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,27 @@ class IngestionPipelineIntegrationTest {
     private PipelineEventRepository eventRepository;
 
     private JobSource source;
+
+
+    @Autowired
+    private IngestionTestData testData;
+
+    /**
+     * Effective only once ingestion commits independently.
+     *
+     * <p>This class isolates itself by rolling back, which covers everything
+     * ingestion writes today because it all joins the test's transaction. When
+     * the fetch moves out of that transaction the ingested rows will commit on
+     * their own and the rollback will stop reaching them. The cleanup runs in its
+     * own transaction, so it removes exactly those and cannot see — or disturb —
+     * the rows the rollback still owns.
+     */
+    @AfterEach
+    void removeAnythingIngestionCommittedOnItsOwn() {
+        if (source != null) {
+            testData.deleteSource(source.getId());
+        }
+    }
 
     @BeforeEach
     void setUp() {

@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -34,17 +35,50 @@ public class KafkaEventBus implements PipelineEventBus {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
-    private final Map<String, PipelineEventHandler> handlersByTopic;
+
+    /**
+     * Handlers are resolved when a message arrives, not when this bean is built.
+     *
+     * <p>Injecting them directly formed a cycle and stopped the whole
+     * application: one handler notifies candidates, notifying publishes an
+     * event, and publishing is this bus. Spring refuses circular references by
+     * default, so the {@code kafka} profile could not start at all — including
+     * the profile docker-compose gives the backend.
+     *
+     * <p>The in-process transport never hit this because it writes to an outbox
+     * and a separate dispatcher resolves handlers afterwards. Deferring the
+     * lookup gives the Kafka path the same property: publishing needs nothing
+     * but the template, and consuming happens long after the context is built.
+     */
+    private final ObjectProvider<PipelineEventHandler> handlerProvider;
+
+    /** Built on first use, then reused. Handlers are singletons and do not change. */
+    private volatile Map<String, PipelineEventHandler> handlersByTopic;
 
     public KafkaEventBus(KafkaTemplate<String, String> kafkaTemplate,
                          ObjectMapper objectMapper,
-                         List<PipelineEventHandler> handlers) {
+                         ObjectProvider<PipelineEventHandler> handlerProvider) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
-        this.handlersByTopic = handlers.stream()
-                .collect(Collectors.toMap(PipelineEventHandler::topic, Function.identity(),
-                        (first, second) -> first));
-        log.info("Kafka transport active for topics: {}", handlersByTopic.keySet());
+        this.handlerProvider = handlerProvider;
+        log.info("Kafka transport active.");
+    }
+
+    private Map<String, PipelineEventHandler> handlers() {
+        Map<String, PipelineEventHandler> resolved = handlersByTopic;
+        if (resolved == null) {
+            synchronized (this) {
+                resolved = handlersByTopic;
+                if (resolved == null) {
+                    resolved = handlerProvider.stream()
+                            .collect(Collectors.toMap(PipelineEventHandler::topic,
+                                    Function.identity(), (first, second) -> first));
+                    handlersByTopic = resolved;
+                    log.info("Kafka handlers resolved for topics: {}", resolved.keySet());
+                }
+            }
+        }
+        return resolved;
     }
 
     @Override
@@ -73,7 +107,7 @@ public class KafkaEventBus implements PipelineEventBus {
             PipelineTopics.NOTIFICATION_CREATED
     }, groupId = "careerflux-ingestion")
     public void consume(org.apache.kafka.clients.consumer.ConsumerRecord<String, String> record) {
-        PipelineEventHandler handler = handlersByTopic.get(record.topic());
+        PipelineEventHandler handler = handlers().get(record.topic());
         if (handler == null) {
             return;
         }

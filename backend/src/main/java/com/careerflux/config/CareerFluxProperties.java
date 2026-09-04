@@ -20,7 +20,25 @@ public record CareerFluxProperties(
         // @DefaultValue so the section exists even when nothing configures it.
         // Without it Spring binds null, and the seeder's own safety check throws
         // on startup — a guard that crashes is not a guard.
-        @DefaultValue Demo demo) {
+        @DefaultValue Demo demo,
+
+        /** Request ceilings. Same reason for {@code @DefaultValue}: a limiter
+         *  that binds to null is a limiter that does not run. */
+        @DefaultValue RateLimit rateLimit,
+
+        /**
+         * Master switch for every scheduled worker, read through
+         * {@link BackgroundWorkGate}.
+         *
+         * <p>Top level rather than under {@code ingestion} because it governs
+         * more than ingestion: the rematch queue, stalled-run recovery and both
+         * retention sweeps answer to it as well.
+         *
+         * <p>Defaults to true so an existing deployment behaves exactly as it
+         * did before this switch existed. Set it to false for a genuine freeze —
+         * that is the only setting under which nothing scheduled writes.
+         */
+        @DefaultValue("true") boolean backgroundWorkEnabled) {
 
     public record Security(Jwt jwt, Cors cors) {
     }
@@ -52,6 +70,59 @@ public record CareerFluxProperties(
              * meant to fill with fixtures.
              */
             @DefaultValue("false") boolean allowSeedingIntoPopulatedCorpus) {
+    }
+
+    /**
+     * How many requests one caller may make, per endpoint group.
+     *
+     * <p>These are ceilings on abuse, not on use. Every value is set well above
+     * what the busiest legitimate placement officer does in a morning, so a
+     * limit being reached is evidence of a script rather than of a person.
+     *
+     * <p>Counting is in memory, in this JVM. That is correct while the pilot
+     * runs one backend instance and stops being correct the moment a second one
+     * is added — see {@code RateLimiter} for what that costs and what would
+     * replace it.
+     */
+    public record RateLimit(
+            /** Off only for a deployment that has put a limiter in front of the app. */
+            @DefaultValue("true") boolean enabled,
+
+            /**
+             * Ceiling on how many distinct callers are tracked at once.
+             *
+             * <p>The authenticated buckets are bounded by the number of accounts;
+             * this exists for the login bucket, whose key includes an address the
+             * caller chooses and is therefore attacker-controlled.
+             */
+            @DefaultValue("50000") int maxTrackedKeys,
+
+            /** Sign-in attempts per client address and login identity. */
+            @DefaultValue("10") int loginAttempts,
+            @DefaultValue("PT5M") Duration loginWindow,
+
+            /** Resume uploads per account. Bounds disk, not AI — AI has its own daily quota. */
+            @DefaultValue("10") int resumeUploads,
+            @DefaultValue("PT1H") Duration resumeUploadWindow,
+
+            /**
+             * Candidate discovery per account. The heaviest read in the product.
+             *
+             * <p>Above the shortlist rhythm on purpose: the browser re-runs
+             * discovery each time a candidate is shortlisted, so a ceiling set
+             * for reads alone would throttle a placement officer part-way
+             * through a drive.
+             */
+            @DefaultValue("60") int discoveryRequests,
+            @DefaultValue("PT1M") Duration discoveryWindow,
+
+            /** Requirement creation per account. Human-paced by nature. */
+            @DefaultValue("20") int requirementCreations,
+            @DefaultValue("PT1H") Duration requirementWindow,
+
+            /** Shortlist additions and withdrawals per account. Deliberately loose: these are clicked in bursts. */
+            @DefaultValue("120") int shortlistMutations,
+            @DefaultValue("PT1M") Duration shortlistWindow) {
     }
 
     public record Jwt(

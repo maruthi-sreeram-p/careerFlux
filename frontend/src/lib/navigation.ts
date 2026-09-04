@@ -117,6 +117,13 @@ function studentNav(): NavGroup[] {
       ],
     },
     {
+      // Distinct from "Applications". Those are jobs the student found and
+      // applied to themselves; these are roles their college put them forward
+      // for, and to a student those are not the same thing at all.
+      label: 'Through your college',
+      items: [{ to: '/app/placements', label: 'Placements', icon: 'Building' }],
+    },
+    {
       label: 'You',
       items: [
         { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
@@ -189,6 +196,14 @@ function officerNav(): NavGroup[] {
 function collegeAdminNav(): NavGroup[] {
   return [
     { items: [{ to: '/app', label: 'Dashboard', icon: 'Dashboard', end: true }] },
+    {
+      // Departments, batches and staff on one screen, because setting a college
+      // up is one sitting rather than three. No Company requirements entry: this
+      // role holds neither PLACEMENT_DRIVE_MANAGE nor PLACEMENT_SHORTLIST_MANAGE,
+      // so the link would lead somewhere the server refuses.
+      label: 'Institution',
+      items: [{ to: '/app/institution', label: 'Departments & staff', icon: 'Layers' }],
+    },
     { label: 'You', items: [{ to: '/app/notifications', label: 'Alerts', icon: 'Bell' }] },
   ];
 }
@@ -196,6 +211,13 @@ function collegeAdminNav(): NavGroup[] {
 function platformNav(): NavGroup[] {
   return [
     { items: [{ to: '/app', label: 'Operations', icon: 'Terminal', end: true }] },
+    {
+      // Onboarding a college is the first thing a new deployment does, and
+      // until it happens nobody else can sign in at all. Its own group rather
+      // than sitting under Intelligence, which is about job sources.
+      label: 'Colleges',
+      items: [{ to: '/app/admin/institutions', label: 'Institutions', icon: 'Building' }],
+    },
     {
       label: 'Intelligence',
       items: [

@@ -60,11 +60,45 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
             """)
     List<Object[]> topSkills(@Param("userIds") Collection<UUID> userIds, Pageable pageable);
 
-    /** Profiles for a set of student accounts, with the user already loaded. */
+    /**
+     * Profiles for a set of student accounts, with everything scoring reads.
+     *
+     * <p>{@code preferences} is fetched deliberately. It is a lazy one-to-one on
+     * the inverse side, which Hibernate cannot proxy — it has to query to learn
+     * whether the row exists at all — so touching it while building a snapshot
+     * costs one statement per student. Against two thousand students that was
+     * two thousand round trips hiding behind a single method call.
+     */
     @Query("""
             select p from CandidateProfile p join fetch p.user u left join fetch u.department
-            left join fetch u.batch
+            left join fetch u.batch left join fetch p.preferences
             where p.user.id in :userIds
             """)
     List<CandidateProfile> findForDiscovery(@Param("userIds") Collection<UUID> userIds);
+
+    /**
+     * The cohort's profiles, selected by scope rather than by a list of ids.
+     *
+     * <p>One fixed query shape however large the college is. The id-list form
+     * below is still right for a page of twenty-five, but handing it two
+     * thousand parameters made the database rebuild a plan per distinct length:
+     * 83 seconds for the first 2,000-id call against the college fixture, and
+     * 70 milliseconds once that exact shape had been seen before.
+     */
+    @Query("""
+            select p from CandidateProfile p
+            join fetch p.user u
+            left join fetch u.department d
+            left join fetch u.batch b
+            left join fetch p.preferences
+            where u.institution.id = :institutionId
+              and u.role = com.careerflux.user.UserRole.STUDENT
+              and (:allDepartments = true or d.id in :departmentIds)
+              and (:anyBatch = true or b.graduationYear = :graduationYear)
+            """)
+    List<CandidateProfile> findForDiscoveryScoped(@Param("institutionId") UUID institutionId,
+                                                  @Param("allDepartments") boolean allDepartments,
+                                                  @Param("departmentIds") Collection<UUID> departmentIds,
+                                                  @Param("anyBatch") boolean anyBatch,
+                                                  @Param("graduationYear") Integer graduationYear);
 }

@@ -1,6 +1,7 @@
 package com.careerflux.candidate.domain;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -82,6 +83,37 @@ public class CandidateProfile extends BaseEntity {
 
     @Column(name = "profile_completeness", nullable = false)
     private int profileCompleteness;
+
+    /**
+     * The student's cumulative grade average, or null when nobody has recorded
+     * one. Null is a real state and is not zero: a student with no CGPA on file
+     * is unknown, not failing.
+     *
+     * <p>This is deliberately here rather than on {@code CandidateEducation}.
+     * That is an ordered list of qualifications — school, higher secondary,
+     * degree — with nothing marking which is current, and reading a hiring bar
+     * off "the first row" would be a guess. This field is the student's standing
+     * in their current enrolment at this college, alongside their department and
+     * batch.
+     */
+    @Column(name = "cgpa", precision = 4, scale = 2)
+    private BigDecimal cgpa;
+
+    /** The maximum of the scale {@link #cgpa} is expressed on. Ten in India. */
+    @Column(name = "cgpa_scale", nullable = false, precision = 4, scale = 2)
+    private BigDecimal cgpaScale = Cgpa.DEFAULT_SCALE;
+
+    /** Who recorded it, which is what decides whether eligibility may read it. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cgpa_source", length = 24)
+    private CgpaSource cgpaSource;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cgpa_recorded_by")
+    private User cgpaRecordedBy;
+
+    @Column(name = "cgpa_recorded_at")
+    private Instant cgpaRecordedAt;
 
     @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<CandidateSkill> skills = new ArrayList<>();
@@ -234,5 +266,53 @@ public class CandidateProfile extends BaseEntity {
         if (preferences != null) {
             preferences.setCandidate(this);
         }
+    }
+
+    public BigDecimal getCgpa() {
+        return cgpa;
+    }
+
+    public BigDecimal getCgpaScale() {
+        return cgpaScale == null ? Cgpa.DEFAULT_SCALE : cgpaScale;
+    }
+
+    public void setCgpaScale(BigDecimal cgpaScale) {
+        this.cgpaScale = cgpaScale;
+    }
+
+    public CgpaSource getCgpaSource() {
+        return cgpaSource;
+    }
+
+    public User getCgpaRecordedBy() {
+        return cgpaRecordedBy;
+    }
+
+    public Instant getCgpaRecordedAt() {
+        return cgpaRecordedAt;
+    }
+
+    /**
+     * The CGPA eligibility may compare against, or null.
+     *
+     * <p>Verified means an institution recorded it. A student's own figure is
+     * kept and shown to them, and never answers a company's stated minimum —
+     * otherwise a student would be deciding their own eligibility for a drive.
+     */
+    public BigDecimal getVerifiedCgpa() {
+        return cgpaSource != null && cgpaSource.isVerified() ? cgpa : null;
+    }
+
+    /**
+     * Records a CGPA, or clears it.
+     *
+     * <p>Clearing wipes the provenance too: a value with no source could not be
+     * judged, and a source with no value means nothing.
+     */
+    public void recordCgpa(BigDecimal value, CgpaSource source, User by) {
+        this.cgpa = value;
+        this.cgpaSource = value == null ? null : source;
+        this.cgpaRecordedBy = value == null ? null : by;
+        this.cgpaRecordedAt = value == null ? null : Instant.now();
     }
 }

@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.List;
 
+import com.careerflux.config.BackgroundWorkGate;
 import com.careerflux.config.CareerFluxProperties;
 import com.careerflux.ingestion.domain.IngestionTrigger;
 import com.careerflux.job.domain.Job;
@@ -35,7 +36,14 @@ public class IngestionScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionScheduler.class);
     private static final int SOURCES_PER_CYCLE = 5;
-    private static final Duration SYNC_INTERVAL = Duration.ofHours(4);
+    /**
+     * The shortest interval between two scheduled attempts on one source.
+     *
+     * <p>Visible because it is a contract, not just a tuning knob: it is the
+     * guarantee that lets a parsed {@code Retry-After} be honoured without any
+     * deferral machinery, and a test asserts the two stay consistent.
+     */
+    public static final Duration SYNC_INTERVAL = Duration.ofHours(4);
     private static final int STALE_JOB_DAYS = 45;
     private static final int EXPIRY_BATCH = 200;
 
@@ -45,25 +53,28 @@ public class IngestionScheduler {
     private final MatchingService matchingService;
     private final com.careerflux.candidate.repository.CandidateProfileRepository profileRepository;
     private final CareerFluxProperties properties;
+    private final BackgroundWorkGate gate;
 
     public IngestionScheduler(JobSourceRepository sourceRepository,
                               JobRepository jobRepository,
                               IngestionService ingestionService,
                               MatchingService matchingService,
                               com.careerflux.candidate.repository.CandidateProfileRepository profileRepository,
-                              CareerFluxProperties properties) {
+                              CareerFluxProperties properties,
+                              BackgroundWorkGate gate) {
         this.sourceRepository = sourceRepository;
         this.jobRepository = jobRepository;
         this.ingestionService = ingestionService;
         this.matchingService = matchingService;
         this.profileRepository = profileRepository;
         this.properties = properties;
+        this.gate = gate;
     }
 
     /** Syncs the sources whose last attempt is oldest, a few at a time. */
     @Scheduled(fixedDelayString = "PT20M", initialDelayString = "PT1M")
     public void syncDueSources() {
-        if (!properties.ingestion().schedulerEnabled()) {
+        if (!gate.permitsScheduledIngestion()) {
             return;
         }
         List<JobSource> due = sourceRepository.findDueForSync(
@@ -92,7 +103,7 @@ public class IngestionScheduler {
     @Scheduled(cron = "0 15 4 * * *")
     @Transactional
     public void expireStaleJobs() {
-        if (!properties.ingestion().schedulerEnabled()) {
+        if (!gate.permitsScheduledIngestion()) {
             return;
         }
         Instant threshold = Instant.now().minus(STALE_JOB_DAYS, ChronoUnit.DAYS);
@@ -113,7 +124,7 @@ public class IngestionScheduler {
      */
     @Scheduled(cron = "0 0 5 * * *")
     public void recomputeMatches() {
-        if (!properties.ingestion().schedulerEnabled()) {
+        if (!gate.permitsScheduledIngestion()) {
             return;
         }
         var candidates = profileRepository.findAllOnboarded();

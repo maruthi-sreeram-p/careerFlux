@@ -12,11 +12,13 @@ import com.careerflux.auth.AuthDtos.ResetPasswordRequest;
 import com.careerflux.auth.AuthDtos.SessionUser;
 import com.careerflux.candidate.service.CandidateProfileService;
 import com.careerflux.security.CurrentUser;
+import com.careerflux.security.ratelimit.RateLimiter;
 import com.careerflux.user.UserRepository;
 
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 import org.springframework.core.env.Environment;
@@ -37,17 +39,20 @@ public class AuthController {
     private final CurrentUser currentUser;
     private final UserRepository userRepository;
     private final CandidateProfileService candidateProfileService;
+    private final RateLimiter rateLimiter;
     private final boolean devProfile;
 
     public AuthController(AuthService authService,
                           CurrentUser currentUser,
                           UserRepository userRepository,
                           CandidateProfileService candidateProfileService,
+                          RateLimiter rateLimiter,
                           Environment environment) {
         this.authService = authService;
         this.currentUser = currentUser;
         this.userRepository = userRepository;
         this.candidateProfileService = candidateProfileService;
+        this.rateLimiter = rateLimiter;
         this.devProfile = environment.matchesProfiles("dev", "demo");
     }
 
@@ -57,9 +62,27 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
+    /**
+     * Signing in, charged against a ceiling before the password is checked.
+     *
+     * <p>The charge happens here rather than in a filter because the key needs
+     * the address being tried, which is in the request body; see
+     * {@link com.careerflux.security.ratelimit.RateLimitFilter} for why that is
+     * not worth buffering every request for. It still runs ahead of everything
+     * that matters: no account lookup, no BCrypt, and no token involved.
+     *
+     * <p>The client address comes from the socket, never from
+     * {@code X-Forwarded-For}. That header is written by whoever sent the
+     * request unless a proxy is trusted to overwrite it, and honouring it here
+     * would let an attacker mint a fresh allowance per attempt by changing one
+     * header. If a reverse proxy is ever put in front of this application, the
+     * proxy must strip the client-supplied header and Spring must be configured
+     * to trust it, in that order.
+     */
     @PostMapping("/login")
     @SecurityRequirements
-    public AuthResponse login(@Valid @RequestBody LoginRequest request) {
+    public AuthResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        rateLimiter.checkLogin(http.getRemoteAddr(), request.email());
         return authService.login(request);
     }
 

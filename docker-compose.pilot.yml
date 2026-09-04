@@ -1,0 +1,124 @@
+# ---------------------------------------------------------------------------
+# CareerFlux — pilot overlay
+#
+# Used with the base file, never instead of it:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.pilot.yml --profile full up -d
+#
+# The base file is built for a laptop. It carries a known database password so
+# that `docker compose up` works with no setup, publishes every port for
+# convenience, and points the backend at development origins. All of that is
+# right for development and wrong for a college.
+#
+# Everything sensitive is redeclared here with the `:?` form, so compose refuses
+# to start when a value is missing rather than quietly falling back to the
+# development one.
+#
+# Put the real values in a `.env` beside this file (gitignored) or export them.
+# See .env.pilot.example for the list, and docs/DEPLOYMENT.md for the procedure.
+# ---------------------------------------------------------------------------
+services:
+  postgres:
+    environment:
+      # No default. A pilot that inherits the laptop password is the failure
+      # this overlay exists to prevent.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the pilot}
+    # `!override`, not a plain `ports:`. Compose merges sequences by APPENDING,
+    # so without the tag this loopback binding would have been added to the base
+    # file's 0.0.0.0 mapping rather than replacing it — the database would have
+    # looked restricted in this file and still been reachable from the network.
+    ports: !override
+      # Loopback only. The backend reaches the database by service name over the
+      # compose network; nothing outside the host has any business connecting.
+      # Keeping it bound at all is for the operator running psql and pg_dump.
+      - '127.0.0.1:5432:5432'
+
+  kafka:
+    ports: !override
+      # Same reasoning, and the same append trap. The backend uses the INTERNAL
+      # listener on kafka:29092, which is not published at all.
+      - '127.0.0.1:9092:9092'
+
+  backend:
+    environment:
+      # Signing key for every session. The built-in fallback is published in
+      # this repository and the application refuses it outside dev/test, but
+      # failing here — before anything starts — is a clearer error.
+      CAREERFLUX_JWT_SECRET: ${CAREERFLUX_JWT_SECRET:?set CAREERFLUX_JWT_SECRET (openssl rand -base64 48)}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:?set DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for the pilot}
+
+      # Where the college's browser actually loads the app from. Never '*'.
+      #
+      # In this topology the browser never makes a cross-origin call — nginx
+      # serves the app and proxies /api on the same origin — so CORS is not what
+      # is holding the door shut. It is set correctly anyway, because it is what
+      # would hold the door shut if the frontend were ever hosted separately.
+      CAREERFLUX_CORS_ORIGINS: ${CAREERFLUX_CORS_ORIGINS:?set CAREERFLUX_CORS_ORIGINS to the pilot frontend origin}
+
+      # Believe X-Forwarded-For, because in this topology every request arrives
+      # through the frontend nginx, which overwrites that header with the real
+      # peer address. Without this the backend would see the nginx container's
+      # address for every user and the sign-in limiter would lose its per-source
+      # component. Only correct while nothing can reach port 8080 directly —
+      # which is why it is not published below.
+      CAREERFLUX_FORWARD_HEADERS: framework
+
+      # Stated, not inherited. The default is this same path, but it is derived
+      # from the container's working directory; naming it here means a future
+      # WORKDIR change cannot silently move resumes off the mounted volume and
+      # make every upload disappear on the next restart.
+      CAREERFLUX_RESUME_DIR: /app/data/resumes
+
+      # Optional. Absent means resume parsing and match narratives use their
+      # deterministic fallbacks, which is a supported mode and not a fault.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+      # First boot only, to create the platform operator. Unset them afterwards
+      # so a restart does not keep the password in the container environment.
+      CAREERFLUX_ADMIN_EMAIL: ${CAREERFLUX_ADMIN_EMAIL:-}
+      CAREERFLUX_ADMIN_PASSWORD: ${CAREERFLUX_ADMIN_PASSWORD:-}
+
+      # Stated rather than inherited. Demo *data* and demo *accounts* are
+      # separate switches — conflating them once put fixture postings into a
+      # corpus of real ones — and scheduled ingestion stays off until the
+      # college asks for it.
+      CAREERFLUX_DEMO_SEED_SAMPLE_JOBS: 'false'
+      CAREERFLUX_DEMO_ALLOW_SEEDING_INTO_POPULATED_CORPUS: 'false'
+      CAREERFLUX_INGESTION_SCHEDULER_ENABLED: 'false'
+
+      # No `demo` profile. It exists to create demo accounts and has no place
+      # on a college's instance.
+      SPRING_PROFILES_ACTIVE: postgres,kafka
+
+    # The base file publishes 8080 for a developer with a REST client. A pilot
+    # must not: nginx reaches the backend over the compose network, so a
+    # published port would only add a second, unproxied way in — one that skips
+    # the security headers and, worse, would let a caller set X-Forwarded-For
+    # themselves now that the backend is configured to believe it.
+    #
+    # `!reset` deletes the key outright, which is exactly right here: the
+    # backend should publish nothing. Elsewhere in this file the tag is
+    # `!override`, which replaces an inherited list — a plain `ports:` would
+    # append to it, and the loopback binding would sit alongside the base
+    # file's 0.0.0.0 one rather than instead of it.
+    ports: !reset []
+
+  frontend:
+    # The public entrance, and the only container that needs one.
+    #
+    # Bound to loopback because TLS terminates in front of this: a reverse proxy
+    # on the host, or a hosting platform. Nothing here holds a certificate, so
+    # publishing it on 0.0.0.0 would serve the college plain HTTP over the
+    # network. See docs/DEPLOYMENT.md.
+    #
+    # Set CAREERFLUX_FRONTEND_BIND=0.0.0.0 only if something else is genuinely
+    # terminating TLS and forwarding to this host's port.
+    ports: !override
+      - '${CAREERFLUX_FRONTEND_BIND:-127.0.0.1}:${CAREERFLUX_FRONTEND_PORT:-8081}:80'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost/healthz || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

@@ -54,7 +54,13 @@ public class CandidateMapper {
                         .sorted(Comparator.comparingInt(CandidateEducation::getDisplayOrder))
                         .map(this::toEducationItem).toList(),
                 toPreferences(profile.getPreferences(), preferenceValues),
-                resume == null ? null : toResumeSummary(resume));
+                resume == null ? null : toResumeSummary(resume),
+                // Null when nobody has recorded one. The screen says "not
+                // provided" rather than showing a zero that looks measured.
+                profile.getCgpa(),
+                profile.getCgpaScale(),
+                profile.getCgpaSource() == null ? null : profile.getCgpaSource().name(),
+                profile.getVerifiedCgpa() != null);
     }
 
     public SkillItem toSkillItem(CandidateSkill skill) {

@@ -7,6 +7,10 @@
 spring:
   application:
     name: careerflux
+  lifecycle:
+    # How long in-flight work has to finish once shutdown begins. Candidate
+    # discovery over a full college is the longest request the system serves.
+    timeout-per-shutdown-phase: 25s
   profiles:
     default: dev
   jpa:
@@ -60,6 +64,23 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Whether to believe X-Forwarded-* when working out the client's address and
+  # scheme.
+  #
+  # `none` by default, which is the safe answer for a backend a client can reach
+  # directly: the header is written by whoever sent the request, so trusting it
+  # unconditionally would let one attacker present a fresh address per request
+  # and walk straight past the sign-in rate limiter.
+  #
+  # Set to `framework` only when every route to this application passes through
+  # a proxy that OVERWRITES the header rather than appending to it. The pilot's
+  # nginx does exactly that, and the pilot compose overlay sets this.
+  forward-headers-strategy: ${CAREERFLUX_FORWARD_HEADERS:none}
+  # Finish what is already in flight before the port closes. Without this a
+  # container stop or a rolling deploy severs requests mid-response — which for
+  # a placement officer means a half-written shortlist decision and no way to
+  # tell whether it was recorded.
+  shutdown: graceful
   error:
     include-message: never
     include-stacktrace: never
@@ -82,7 +103,13 @@ springdoc:
 careerflux:
   security:
     jwt:
-      # Dev-only fallback. Production startup fails fast if this is left at the default.
+      # Dev-only fallback, and it is published in this repository — a token
+      # signed with it can be forged by anyone who can read the source. The
+      # application refuses to start with this value under any profile other
+      # than dev or test; see JwtService. It was previously accepted anywhere,
+      # because only its length was checked.
+      #
+      # Generate a real one with: openssl rand -base64 48
       secret: ${CAREERFLUX_JWT_SECRET:dev-only-insecure-secret-change-me-0123456789abcdef}
       access-token-ttl: PT2H
       refresh-token-ttl: P14D
@@ -90,6 +117,68 @@ careerflux:
       allowed-origins: ${CAREERFLUX_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   storage:
     resume-dir: ${CAREERFLUX_RESUME_DIR:./data/resumes}
+  rate-limit:
+    # Ceilings on abuse, not on use. Every value sits well above what the
+    # busiest placement officer does in a morning, so reaching one is evidence
+    # of a script rather than of a person.
+    #
+    # Counted in this JVM's memory. That is exactly right while the deployment
+    # runs one backend instance and silently wrong the moment it runs two --
+    # see RateLimiter for what changes and what would have to replace it.
+    enabled: ${CAREERFLUX_RATE_LIMIT_ENABLED:true}
+    # Bounds the map. Only the sign-in key is attacker-controlled; the rest are
+    # bounded by the number of accounts.
+    max-tracked-keys: 50000
+
+    # Sign-in, per client address and login identity. BCrypt at cost 12 makes
+    # each attempt about a quarter-second of CPU, so this bounds guessing and
+    # machine load at the same time.
+    login-attempts: 10
+    login-window: PT5M
+
+    # Resume upload, per account. Bounds 8 MB files arriving on disk. AI
+    # extraction has its own daily quota and is not duplicated here.
+    resume-uploads: 10
+    resume-upload-window: PT1H
+
+    # Candidate discovery, per account. The heaviest read in the product, and
+    # the one value here that is not the reviewed starting figure.
+    #
+    # 30/min was the recommendation. It breaks a real workflow: shortlisting a
+    # candidate invalidates the discovery query, so the browser re-runs
+    # discovery once per shortlist decision. A placement officer working down a
+    # prepared list would have been throttled at the thirtieth student, in the
+    # middle of a drive, by a ceiling meant to stop scripts. Shortlisting itself
+    # is allowed 120/min, so the two were inconsistent.
+    #
+    # 60 keeps a brisk session working while still bounding a script. The real
+    # fix is upstream -- re-scoring two thousand students to reflect one
+    # shortlist click is wasteful whether or not anything limits it -- and that
+    # belongs to the discovery code, not to this file.
+    discovery-requests: 60
+    discovery-window: PT1M
+
+    # Requirement creation, per account.
+    requirement-creations: 20
+    requirement-window: PT1H
+
+    # Shortlist changes, per account. Loose on purpose: these are clicked in
+    # bursts while a placement team works through a list together.
+    shortlist-mutations: 120
+    shortlist-window: PT1M
+  # Master switch for every scheduled worker, enforced by BackgroundWorkGate.
+  #
+  # true  (default) - workers run, subject to ingestion.scheduler-enabled for the
+  #                   ingestion and source-traffic subset.
+  # false           - nothing scheduled runs and nothing scheduled writes. This
+  #                   is the setting for a genuine freeze: it also stops the
+  #                   rematch queue, stalled-run recovery, and the pipeline-event
+  #                   and health-history retention sweeps, all of which used to
+  #                   run regardless of scheduler-enabled.
+  #
+  # Left at the default here so behaviour is unchanged from before the switch
+  # existed. A pilot that must not move at all should set this to false.
+  background-work-enabled: true
   ingestion:
     # The in-process bus is the default transport. Run with the `kafka` profile
     # to route the exact same pipeline events through Spring Kafka instead.
@@ -101,9 +190,10 @@ careerflux:
     # drift apart mid-audit. Nothing is deleted and no source is touched; only
     # scheduled execution stops.
     #
-    # This single flag gates scheduled ingestion, stale-job expiry, the nightly
-    # match recompute, source health checks and the outbox dispatcher. Queued
-    # rematches are unaffected and still drain.
+    # This flag gates scheduled ingestion, stale-job expiry, the nightly match
+    # recompute, source health checks and the outbox dispatcher. Queued rematches
+    # are unaffected and still drain, along with the two retention sweeps -- see
+    # careerflux.background-work-enabled below for the switch that stops those.
     #
     # Set back to true once the classifier is approved and the corpus backfilled.
     scheduler-enabled: false
@@ -131,3 +221,9 @@ logging:
   level:
     com.careerflux: INFO
     org.hibernate.SQL: WARN
+  # [correlationId] on every line, from CorrelationIdFilter for HTTP requests and
+  # from the run's own id for ingestion. Empty brackets simply mean the work was
+  # not started by either -- startup, for instance -- rather than a lost id.
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([%X{correlationId:-}]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n%wEx"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{correlationId:-}] %-40.40logger{39} : %m%n%wEx"

@@ -107,10 +107,23 @@ describe('student navigation', () => {
       '/app/discover',
       '/app/saved',
       '/app/saved?tab=applied',
+      '/app/placements',
       '/app/notifications',
       '/app/profile',
       '/app/profile?tab=Preferences',
     ]);
+  });
+
+  it('separates what the college put them forward for from what they applied to', () => {
+    // "Applications" are jobs the student found and applied to themselves.
+    // "Placements" are roles their college put them forward for. Collapsing the
+    // two would tell a student they applied to something they did not.
+    const items = navigationFor(STUDENT).flatMap((group) => group.items);
+    const placements = items.find((item) => item.to === '/app/placements');
+    const applications = items.find((item) => item.to === '/app/saved?tab=applied');
+    expect(placements?.label).toBe('Placements');
+    expect(applications?.label).toBe('Applications');
+    expect(placements?.label).not.toBe(applications?.label);
   });
 
   it('never offers a student anything institutional or administrative', () => {
@@ -144,6 +157,30 @@ describe('institutional navigation', () => {
     // a refusal, so it is not offered.
     expect(COLLEGE_ADMIN.permissions).not.toContain('STUDENT_READ_SCOPED');
     expect(navigationTargets(COLLEGE_ADMIN)).not.toContain('/app/students');
+  });
+
+  it('offers a college admin the institution screen their permissions back', () => {
+    // Departments, batches and staff are the three things this role can
+    // actually change, and until now there was no way to reach any of them:
+    // every one of its permissions had an endpoint behind it and none had a
+    // link.
+    expect(navigationTargets(COLLEGE_ADMIN)).toContain('/app/institution');
+    expect(COLLEGE_ADMIN.permissions).toContain('DEPARTMENT_MANAGE');
+    expect(COLLEGE_ADMIN.permissions).toContain('BATCH_MANAGE');
+    expect(COLLEGE_ADMIN.permissions).toContain('STAFF_MANAGE');
+  });
+
+  it('does not offer a college admin the placement workflow they cannot use', () => {
+    // They hold neither PLACEMENT_DRIVE_MANAGE nor PLACEMENT_SHORTLIST_MANAGE,
+    // so a requirements link would lead somewhere the server refuses.
+    expect(COLLEGE_ADMIN.permissions).not.toContain('PLACEMENT_SHORTLIST_MANAGE');
+    expect(navigationTargets(COLLEGE_ADMIN)).not.toContain('/app/requirements');
+  });
+
+  it('does not offer the institution screen to anyone who cannot administer one', () => {
+    for (const person of [STUDENT, COORDINATOR, OFFICER, PLATFORM_ADMIN]) {
+      expect(navigationTargets(person)).not.toContain('/app/institution');
+    }
   });
 
   it('keeps the platform operator on platform concerns', () => {

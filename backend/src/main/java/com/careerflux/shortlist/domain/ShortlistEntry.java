@@ -8,6 +8,9 @@ import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.user.User;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Version;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -60,6 +63,38 @@ public class ShortlistEntry {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    /**
+     * Where this candidate has reached in the drive.
+     *
+     * <p>Every row starts here, because being put forward is the first thing
+     * that happens. Nothing advances it except an authorised person deciding to.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stage", nullable = false, length = 32)
+    private PlacementStage stage = PlacementStage.SHORTLISTED;
+
+    /**
+     * When the stage last moved, or null if it never has.
+     *
+     * <p>Deliberately not defaulted to {@code createdAt}: a row that has only
+     * ever been shortlisted has not had a stage change, and saying it did would
+     * claim a decision nobody made.
+     */
+    @Column(name = "stage_changed_at")
+    private Instant stageChangedAt;
+
+    /**
+     * Guards two people acting on the same candidate at once.
+     *
+     * <p>Both would otherwise read the same stage, both find the transition
+     * legal, and both write — leaving one row and two history entries claiming
+     * to be the move. The second writer loses here instead, and is told the
+     * candidate has already moved.
+     */
+    @Version
+    @Column(name = "row_version", nullable = false)
+    private long rowVersion;
+
     public UUID getId() {
         return id;
     }
@@ -90,5 +125,25 @@ public class ShortlistEntry {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public PlacementStage getStage() {
+        return stage;
+    }
+
+    public void setStage(PlacementStage stage) {
+        this.stage = stage;
+    }
+
+    public Instant getStageChangedAt() {
+        return stageChangedAt;
+    }
+
+    public void setStageChangedAt(Instant stageChangedAt) {
+        this.stageChangedAt = stageChangedAt;
+    }
+
+    public long getRowVersion() {
+        return rowVersion;
     }
 }

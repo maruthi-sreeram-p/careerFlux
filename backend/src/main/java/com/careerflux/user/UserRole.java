@@ -17,6 +17,7 @@ import static com.careerflux.user.Permission.JOB_MARKET_VIEW;
 import static com.careerflux.user.Permission.PLACEMENT_DRIVE_MANAGE;
 import static com.careerflux.user.Permission.PLACEMENT_DRIVE_VIEW;
 import static com.careerflux.user.Permission.PLACEMENT_ELIGIBILITY_MANAGE;
+import static com.careerflux.user.Permission.PLACEMENT_SHORTLIST_MANAGE;
 import static com.careerflux.user.Permission.SELF_ACCOUNT_DELETE;
 import static com.careerflux.user.Permission.SELF_AI_USE;
 import static com.careerflux.user.Permission.SELF_JOBS_MANAGE;
@@ -46,6 +47,14 @@ import static com.careerflux.user.Permission.SYSTEM_HEALTH_VIEW;
  * because administering a college is not a reason to read its students' career
  * profiles. If an administrator also needs that, they are given the placement
  * officer role as well.
+ *
+ * <p><b>Shortlisting and authoring a requirement are separate permissions.</b>
+ * A coordinator holds {@code PLACEMENT_SHORTLIST_MANAGE} and can put their own
+ * department's students forward; they do not hold
+ * {@code PLACEMENT_DRIVE_MANAGE} and cannot create, edit, publish or close a
+ * company requirement. The distinction matters because requirement authoring is
+ * unscoped by design — a requirement may target any department or none — while
+ * shortlisting is checked against the caller's own scope on every write.
  */
 public enum UserRole {
 
@@ -65,6 +74,13 @@ public enum UserRole {
             ANALYTICS_VIEW,
             JOB_MARKET_VIEW,
             PLACEMENT_DRIVE_VIEW,
+            // Shortlisting, but not authoring. A coordinator decides who from
+            // their department goes forward; what the college is hiring for is
+            // not theirs to write. The scope that makes this safe is not in this
+            // list — every shortlist write is checked against the coordinator's
+            // own AccessScope, so this permission reaches exactly the students
+            // STUDENT_READ_SCOPED already lets them see.
+            PLACEMENT_SHORTLIST_MANAGE,
             ANNOUNCEMENT_SEND)),
 
     /** Runs placement for the whole institution. */
@@ -76,6 +92,7 @@ public enum UserRole {
             JOB_MARKET_VIEW,
             PLACEMENT_DRIVE_VIEW,
             PLACEMENT_DRIVE_MANAGE,
+            PLACEMENT_SHORTLIST_MANAGE,
             PLACEMENT_ELIGIBILITY_MANAGE,
             ANNOUNCEMENT_SEND,
             AUDIT_READ_INSTITUTION)),

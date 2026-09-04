@@ -31,7 +31,9 @@ class RobotsTxtServiceTest {
                             "CareerFluxBot/0.1 (+https://careerflux.local/bot)",
                             Duration.ofSeconds(20), 20, Duration.ofHours(6)),
                     null,
-                    new CareerFluxProperties.Demo(false, false)));
+                    new CareerFluxProperties.Demo(false, false),
+                    null /* rate limits: not exercised here */,
+                    true /* background work: not exercised here */));
 
     @Test
     @DisplayName("a 404 means no rules were published")

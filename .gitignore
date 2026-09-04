@@ -1,9 +1,10 @@
 # --- Secrets ------------------------------------------------------------------
-# Only .env.example is tracked. A real .env, and anything that looks like a key,
-# stays out of the repository.
+# Only the *.example templates are tracked. A real .env, and anything that looks
+# like a key, stays out of the repository.
 .env
 .env.*
 !.env.example
+!.env.pilot.example
 *.pem
 *.key
 secrets.*

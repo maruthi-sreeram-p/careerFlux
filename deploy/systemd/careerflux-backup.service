@@ -1,0 +1,27 @@
+# CareerFlux backup — one run.
+#
+# Install alongside careerflux-backup.timer. See docs/DEPLOYMENT.md.
+# Adjust the paths and the User to match the pilot host; the user must be able
+# to run `docker` and to write to the backup directory.
+
+[Unit]
+Description=CareerFlux database and resume backup
+# Pointless to run before Docker is up; the script talks to it for both copies.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=careerflux
+WorkingDirectory=/opt/careerflux
+Environment=CAREERFLUX_BACKUP_DIR=/var/backups/careerflux
+ExecStart=/opt/careerflux/scripts/backup.sh
+
+# The script exits non-zero on a truncated dump or a failed archive, so a
+# failure is visible in `systemctl status` rather than buried in a log nobody
+# opens.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

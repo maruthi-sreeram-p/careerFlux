@@ -23,6 +23,7 @@ import com.careerflux.source.domain.RobotsStatus;
 import com.careerflux.source.domain.SourceAccessPolicy;
 import com.careerflux.source.domain.SourceState;
 import com.careerflux.source.domain.SourceType;
+import com.careerflux.source.net.SafeUrlValidator;
 import com.careerflux.source.domain.TosStatus;
 import com.careerflux.source.repository.CompanyRepository;
 import com.careerflux.source.repository.JobSourceRepository;
@@ -51,24 +52,32 @@ public class SourceRegistryService {
     private final SourceLifecycleService lifecycleService;
     private final RobotsTxtService robotsTxtService;
     private final AuditService auditService;
+    private final SafeUrlValidator urlValidator;
 
     public SourceRegistryService(JobSourceRepository sourceRepository,
                                  CompanyRepository companyRepository,
                                  AdapterRegistry adapterRegistry,
                                  SourceLifecycleService lifecycleService,
                                  RobotsTxtService robotsTxtService,
-                                 AuditService auditService) {
+                                 AuditService auditService,
+                                 SafeUrlValidator urlValidator) {
         this.sourceRepository = sourceRepository;
         this.companyRepository = companyRepository;
         this.adapterRegistry = adapterRegistry;
         this.lifecycleService = lifecycleService;
         this.robotsTxtService = robotsTxtService;
         this.auditService = auditService;
+        this.urlValidator = urlValidator;
     }
 
     @Transactional
     public JobSource register(RegistrationRequest request, String actor) {
         String baseUrl = normalizeUrl(request.baseUrl());
+        // Checked here as well as in the transport, so an operator submitting a
+        // bad URL is told immediately rather than having it accepted and then
+        // failing quietly on the first sync. Throws UnsafeUrlException, which is
+        // already a 400.
+        urlValidator.validate(baseUrl);
         if (sourceRepository.existsByBaseUrl(baseUrl)) {
             throw new ConflictException("A source with that URL is already registered.");
         }
@@ -230,17 +239,59 @@ public class SourceRegistryService {
                 .orElseThrow(() -> NotFoundException.of("Source", sourceId));
     }
 
+    /**
+     * Finds a company by its slug, or creates it.
+     *
+     * <p>The slug is the identity, so "Meesho", "meesho" and "  MEESHO  " are one
+     * company and discovery cannot fork an employer into duplicates.
+     *
+     * <p><b>Gaps are filled; facts are never overwritten.</b> Most companies in
+     * the registry were created as a side effect of ingestion, from whatever
+     * string a posting carried, with no website and therefore no domain. When
+     * discovery later learns the domain, recording it on the existing row is the
+     * whole point — the registry could not otherwise answer "which sources belong
+     * to this employer". But a domain already recorded is left exactly as it is:
+     * one is a correction somebody made, and quietly replacing it with a guessed
+     * candidate would be the silent mutation this system is careful to avoid.
+     */
     @Transactional
     public Company findOrCreateCompany(String name, String website) {
         String slug = TextUtils.slugify(name);
-        return companyRepository.findBySlug(slug).orElseGet(() -> {
-            Company company = new Company();
-            company.setName(TextUtils.truncate(name.strip(), 200));
-            company.setSlug(slug);
+        Optional<Company> existing = companyRepository.findBySlug(slug);
+        if (existing.isPresent()) {
+            return fillCompanyGaps(existing.get(), website);
+        }
+        Company company = new Company();
+        company.setName(TextUtils.truncate(name.strip(), 200));
+        company.setSlug(slug);
+        company.setWebsite(TextUtils.truncate(website, 300));
+        company.setDomain(domainOf(website));
+        return companyRepository.save(company);
+    }
+
+    /** Adds a website and domain to a company that has none. Returns it either way. */
+    private Company fillCompanyGaps(Company company, String website) {
+        if (!TextUtils.hasText(website)) {
+            return company;
+        }
+        boolean changed = false;
+        if (!TextUtils.hasText(company.getWebsite())) {
             company.setWebsite(TextUtils.truncate(website, 300));
-            company.setDomain(domainOf(website));
+            changed = true;
+        }
+        if (!TextUtils.hasText(company.getDomain())) {
+            String domain = domainOf(website);
+            if (TextUtils.hasText(domain)) {
+                company.setDomain(domain);
+                changed = true;
+            }
+        }
+        if (changed) {
+            log.info("Recorded domain '{}' for existing company '{}'",
+                    company.getDomain(), company.getName());
             return companyRepository.save(company);
-        });
+        }
+        return company;
     }
 
     private SourceAccessPolicy requirePolicy(JobSource source) {

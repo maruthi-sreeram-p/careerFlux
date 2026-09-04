@@ -545,7 +545,9 @@ class MatchScorerScenarioTest {
         return new CareerFluxProperties(null, null, null, null,
                 new CareerFluxProperties.Matching(70, 70, 85, 95, 400, 20_000,
                         40, 20, 15, 10, 10, 5, 2.0, 5000),
-                new CareerFluxProperties.Demo(false, false));
+                new CareerFluxProperties.Demo(false, false),
+                null /* rate limits: not exercised here */,
+                true /* background work: not exercised here */);
     }
 
     private static List<String> componentLabels(MatchScorer.Scorecard card, ComponentKind kind) {

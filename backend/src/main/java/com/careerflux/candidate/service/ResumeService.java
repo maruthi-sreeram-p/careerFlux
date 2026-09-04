@@ -2,6 +2,8 @@ package com.careerflux.candidate.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.careerflux.ai.ResumeExtractionService;
@@ -71,6 +73,7 @@ public class ResumeService {
         if (file.getSize() > MAX_BYTES) {
             throw new BadRequestException("That file is larger than the 8 MB limit.");
         }
+        requireResumeDocument(file);
 
         CandidateProfile profile = profileService.requireByUserId(userId);
         byte[] content = readBytes(file);
@@ -175,5 +178,49 @@ public class ResumeService {
     }
 
     public record DownloadableResume(String filename, String contentType, byte[] content) {
+    }
+
+    /**
+     * The document types a resume is actually written in.
+     *
+     * <p>Nothing else is accepted. The stored file is already given a generated
+     * name under the candidate's own directory, and downloads are forced to
+     * attachment, so an arbitrary upload was not directly executable — but there
+     * was no reason to hold one, and the text extractor should never be handed
+     * bytes nobody expected.
+     *
+     * <p>The extension and the declared type must agree with the same document
+     * kind, since the client controls both and either alone can lie.
+     */
+    private static final Map<String, Set<String>> ACCEPTED_DOCUMENTS = Map.of(
+            ".pdf", Set.of("application/pdf"),
+            ".doc", Set.of("application/msword"),
+            ".docx", Set.of(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            ".txt", Set.of("text/plain"),
+            ".rtf", Set.of("application/rtf", "text/rtf"),
+            ".odt", Set.of("application/vnd.oasis.opendocument.text"));
+
+    private static void requireResumeDocument(MultipartFile file) {
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+        int dot = name.lastIndexOf(46);
+        String extension = dot < 0 ? "" : name.substring(dot).toLowerCase(java.util.Locale.ROOT);
+
+        Set<String> expectedTypes = ACCEPTED_DOCUMENTS.get(extension);
+        if (expectedTypes == null) {
+            throw new BadRequestException("A resume must be a PDF, Word, ODT, RTF or text "
+                    + "document. That file type is not accepted.");
+        }
+        String declared = file.getContentType();
+        if (declared != null && !declared.isBlank()) {
+            String bare = declared.split(";")[0].trim().toLowerCase(java.util.Locale.ROOT);
+            // A generic type is what several browsers send for .doc and .odt, so
+            // it is tolerated; a type that names a different kind of file is not.
+            boolean generic = bare.equals("application/octet-stream");
+            if (!generic && !expectedTypes.contains(bare)) {
+                throw new BadRequestException("That file says it is " + bare
+                        + ", which does not match a " + extension + " document.");
+            }
+        }
     }
 }

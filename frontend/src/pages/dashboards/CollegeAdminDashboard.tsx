@@ -135,8 +135,9 @@ export default function CollegeAdminDashboard() {
             <Stat label="Signed in as" value={user?.email ?? '—'} />
           </div>
           <p className="text-muted">
-            Managing departments, batches, staff accounts and institution settings from this screen
-            is not built yet. The figures above are read-only for now.
+              Departments, batches and staff accounts are managed through the institution
+              API. Students appear here once they register with a college email address; put
+              them in a department and a batch so company requirements can target them.
           </p>
         </Panel>
       </section>

@@ -1,0 +1,13 @@
+# CareerFlux backup, for a host without systemd (or where cron is simply the
+# convention). Install with `crontab -e` as the user that can run docker.
+#
+# Same six-hour schedule as the systemd timer — use one mechanism or the other,
+# never both, or two dumps will race for the same filename second.
+#
+# cron runs with a minimal environment, so the PATH is set explicitly: without
+# it `docker` is frequently not found and the job fails silently every six
+# hours.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CAREERFLUX_BACKUP_DIR=/var/backups/careerflux
+
+0 */6 * * * /opt/careerflux/scripts/backup.sh >> /var/log/careerflux-backup.log 2>&1

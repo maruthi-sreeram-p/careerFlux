@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 
+import com.careerflux.source.net.SafeRedirects;
+import com.careerflux.source.net.SafeUrlValidator;
 import com.careerflux.source.service.SourceRateLimiter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,14 +24,35 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
+    /** Enough hops for a canonical-host or trailing-slash redirect, and no more. */
+    private static final int MAX_REDIRECTS = 3;
+
+    /**
+     * The largest job-board response CareerFlux will read.
+     *
+     * <p>Generous on purpose: a board with the 200-posting ceiling this pipeline
+     * requests, each with a full HTML description, lands comfortably inside it,
+     * so no legitimate source is truncated. What the ceiling stops is a source
+     * that never stops sending — whether it is broken, hostile, or simply
+     * serving something that is not a job board — from consuming heap until the
+     * read timeout, on a thread that is holding a database transaction.
+     *
+     * <p>An oversized body is a failure, never a truncation. Cutting JSON short
+     * produces a parse error that reads like a provider schema change, and the
+     * operator would go looking for the wrong problem.
+     */
+    private static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
+
     private final RestClient restClient;
     private final SourceRateLimiter rateLimiter;
+    private final SafeUrlValidator urlValidator;
     protected final ObjectMapper objectMapper;
 
     protected AbstractHttpJobAdapter(RestClient restClient, SourceRateLimiter rateLimiter,
-                                     ObjectMapper objectMapper) {
+                                     SafeUrlValidator urlValidator, ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.rateLimiter = rateLimiter;
+        this.urlValidator = urlValidator;
         this.objectMapper = objectMapper;
     }
 
@@ -42,36 +65,120 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
     protected FetchedJson getJson(SourceConfiguration configuration, String url) {
         if (!rateLimiter.acquire(configuration.sourceId(), configuration.rateLimitPerMinute(),
                 configuration.crawlDelaySeconds())) {
-            throw new AdapterException("Rate limit for this source is saturated; skipping this attempt.");
+            // Our own pacing declined to send anything. Nothing happened to the
+            // source, so this must never be recorded against its health.
+            throw AdapterException.of("Rate limit for this source is saturated; skipping this attempt.",
+                    null, FailureClassification.NOT_ATTEMPTED);
         }
 
         long startedAt = System.nanoTime();
         try {
-            var response = restClient.get()
-                    .uri(url)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, res) -> {
-                        // Inspected below so the status reaches the health record.
-                    })
-                    .toEntity(String.class);
+            String target = url;
+            org.springframework.http.ResponseEntity<byte[]> response = null;
+            int status = 0;
+
+            // The transport no longer follows redirects on its own, because a
+            // redirect followed inside the connection is a request nobody
+            // validated. Hops are taken here instead, each one checked, and a
+            // chain that will not settle is refused rather than followed further.
+            for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                response = restClient.get()
+                        .uri(target)
+                        .retrieve()
+                        .onStatus(HttpStatusCode::isError, (request, res) -> {
+                            // Inspected below so the status reaches the health record.
+                        })
+                        .toEntity(byte[].class);
+                status = response.getStatusCode().value();
+
+                // Refused before the bytes are turned into a String, so an
+                // oversized body costs one array rather than two.
+                long declared = response.getHeaders().getContentLength();
+                if (declared > MAX_BODY_BYTES) {
+                    throw AdapterException.of("Source declared a body of " + declared
+                            + " bytes, above the " + MAX_BODY_BYTES + " byte ceiling.", status,
+                            FailureClassification.MALFORMED_RESPONSE);
+                }
+
+                if (!response.getStatusCode().is3xxRedirection()) {
+                    break;
+                }
+                String location = response.getHeaders().getFirst("Location");
+                if (location == null || location.isBlank()) {
+                    throw AdapterException.of("Source redirected without saying where.", status,
+                            FailureClassification.UPSTREAM_PERMANENT);
+                }
+                if (hop == MAX_REDIRECTS) {
+                    throw AdapterException.of("Source redirected too many times.", status,
+                            FailureClassification.UPSTREAM_PERMANENT);
+                }
+                target = SafeRedirects.resolve(target, location, urlValidator).toString();
+            }
 
             int latencyMs = (int) ((System.nanoTime() - startedAt) / 1_000_000);
-            int status = response.getStatusCode().value();
             if (status >= 400) {
-                throw new AdapterException("Source returned HTTP " + status + ".", status);
+                throw classify(status, response.getHeaders().getFirst("Retry-After"));
             }
-            String body = response.getBody();
-            if (body == null || body.isBlank()) {
-                throw new AdapterException("Source returned an empty body.", status);
+            byte[] raw = response.getBody();
+            if (raw == null || raw.length == 0) {
+                throw AdapterException.of("Source returned an empty body.", status,
+                        FailureClassification.EMPTY_RESPONSE);
+            }
+            // A source that sent no Content-Length is checked on what actually
+            // arrived, so the ceiling holds for chunked responses too.
+            if (raw.length > MAX_BODY_BYTES) {
+                throw AdapterException.of("Source returned " + raw.length
+                        + " bytes, above the " + MAX_BODY_BYTES + " byte ceiling.", status,
+                        FailureClassification.MALFORMED_RESPONSE);
+            }
+            String body = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                throw AdapterException.of("Source returned an empty body.", status,
+                        FailureClassification.EMPTY_RESPONSE);
             }
             return new FetchedJson(objectMapper.readTree(body), status, latencyMs, body);
+        } catch (com.careerflux.common.error.UnsafeUrlException unsafe) {
+            // A source that redirects somewhere we will not go is a source
+            // problem, reported like any other unreachable source rather than
+            // surfacing as a request error to whoever triggered the sync.
+            throw new AdapterException("Source redirected somewhere CareerFlux will not follow: "
+                    + unsafe.getMessage(), null, FailureClassification.POLICY_BLOCK, null, unsafe);
         } catch (AdapterException ex) {
             throw ex;
         } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
-            throw new AdapterException("Source returned a body that is not valid JSON.", null, ex);
+            throw new AdapterException("Source returned a body that is not valid JSON.", null,
+                    FailureClassification.MALFORMED_RESPONSE, null, ex);
         } catch (RuntimeException ex) {
-            throw new AdapterException("Could not reach the source: " + ex.getMessage(), null, ex);
+            // A dropped connection or a read that timed out. The source may
+            // answer perfectly well on the next scheduled attempt.
+            throw new AdapterException("Could not reach the source: " + ex.getMessage(), null,
+                    FailureClassification.UPSTREAM_TRANSIENT, null, ex);
         }
+    }
+
+    /**
+     * Turns a failing status into a classified exception.
+     *
+     * <p>The distinction that matters is whether trying again unchanged could
+     * work. 429 and 5xx say yes; 404 and 401 say no. 408 is a timeout the server
+     * noticed before we did, so it belongs with the transient ones.
+     */
+    private AdapterException classify(int status, String retryAfterHeader) {
+        if (status == 429) {
+            java.time.Duration retryAfter =
+                    RetryAfterParser.backoffFor(retryAfterHeader, java.time.Clock.systemUTC());
+            log.info("Source asked us to slow down (HTTP 429); honouring a {}s backoff",
+                    retryAfter.toSeconds());
+            return new AdapterException("Source returned HTTP 429 and asked us to wait "
+                    + retryAfter.toSeconds() + "s.", status,
+                    FailureClassification.UPSTREAM_THROTTLED, retryAfter, null);
+        }
+        if (status == 408 || status >= 500) {
+            return AdapterException.of("Source returned HTTP " + status + ".", status,
+                    FailureClassification.UPSTREAM_TRANSIENT);
+        }
+        return AdapterException.of("Source returned HTTP " + status + ".", status,
+                FailureClassification.UPSTREAM_PERMANENT);
     }
 
     /**
@@ -87,10 +194,7 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
             return SourceHealthResult.healthy(fetched.httpStatus(), fetched.latencyMs(), count);
         } catch (AdapterException ex) {
             int latencyMs = (int) ((System.nanoTime() - startedAt) / 1_000_000);
-            if (ex.getHttpStatus() == null) {
-                return SourceHealthResult.unreachable(ex.getMessage());
-            }
-            return SourceHealthResult.failing(ex.getHttpStatus(), latencyMs, ex.getMessage());
+            return SourceHealthResult.from(ex, latencyMs);
         } catch (RuntimeException ex) {
             return SourceHealthResult.unreachable("Unexpected failure: " + ex.getMessage());
         }

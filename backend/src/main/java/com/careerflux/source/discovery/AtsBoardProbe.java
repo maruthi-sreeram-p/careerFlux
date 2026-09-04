@@ -15,6 +15,8 @@ import com.careerflux.source.adapter.GreenhouseAdapter;
 import com.careerflux.source.adapter.LeverAdapter;
 import com.careerflux.source.domain.AtsProvider;
 import com.careerflux.source.domain.DiscoveryMethod;
+import com.careerflux.source.net.SafeRedirects;
+import com.careerflux.source.net.SafeUrlValidator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -70,12 +72,28 @@ public class AtsBoardProbe {
     /** Words that appear in a domain but never in a board token. */
     private static final Set<String> TOKEN_NOISE = Set.of("www", "the", "inc", "ltd", "pvt", "technologies");
 
+    /**
+     * How much of a careers page is read before giving up on it.
+     *
+     * <p>Discovery looks for a board link in the markup, which appears within
+     * the first few hundred kilobytes of any real page. Without a ceiling, one
+     * host streaming an endless response would hold a discovery run open until
+     * the read timeout and consume heap the whole time.
+     */
+    private static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+    /** A canonical-host or trailing-slash hop is normal; a chain is not. */
+    private static final int MAX_REDIRECTS = 3;
+
     private final RestClient restClient;
+    private final SafeUrlValidator urlValidator;
     private final ObjectMapper objectMapper;
 
-    public AtsBoardProbe(RestClient.Builder restClientBuilder, ObjectMapper objectMapper) {
+    public AtsBoardProbe(RestClient.Builder restClientBuilder, SafeUrlValidator urlValidator,
+                         ObjectMapper objectMapper) {
+        this.urlValidator = urlValidator;
         this.restClient = restClientBuilder
-                .requestFactory(timeoutFactory())
+                .requestFactory(timeoutFactory(urlValidator))
                 .defaultHeader("User-Agent", "CareerFlux/0.1 (+source discovery; contact placement office)")
                 .build();
         this.objectMapper = objectMapper;
@@ -231,21 +249,54 @@ public class AtsBoardProbe {
     }
 
     /** Returns the body, or null for any failure. Discovery treats every failure as "not here". */
+    /**
+     * Fetches a page, following only redirects that pass validation, and reads
+     * at most {@link #MAX_BODY_BYTES}.
+     *
+     * <p>Returns null for anything that does not work out. Discovery probes
+     * hosts that never agreed to be probed, so an unreachable host, an error
+     * status, a refused redirect and an oversized body are all just "no board
+     * here" — the next path or the next domain is tried instead.
+     */
     private String fetchText(String url) {
+        String target = url;
         try {
-            var response = restClient.get()
-                    .uri(url)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, res) -> {
-                        // Handled by inspecting the status below.
-                    })
-                    .toEntity(String.class);
-            if (response.getStatusCode().isError()) {
-                return null;
+            for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                var response = restClient.get()
+                        .uri(target)
+                        .retrieve()
+                        .onStatus(HttpStatusCode::isError, (request, res) -> {
+                            // Handled by inspecting the status below.
+                        })
+                        .toEntity(byte[].class);
+
+                if (response.getStatusCode().is3xxRedirection()) {
+                    String location = response.getHeaders().getFirst("Location");
+                    if (location == null || location.isBlank() || hop == MAX_REDIRECTS) {
+                        return null;
+                    }
+                    // Revalidated from scratch: the remote server chose this
+                    // destination, not the operator.
+                    target = SafeRedirects.resolve(target, location, urlValidator).toString();
+                    continue;
+                }
+                if (response.getStatusCode().isError()) {
+                    return null;
+                }
+                byte[] body = response.getBody();
+                if (body == null) {
+                    return null;
+                }
+                if (body.length > MAX_BODY_BYTES) {
+                    log.debug("Discovery ignored {}: body of {} bytes exceeds the {} byte ceiling",
+                            target, body.length, MAX_BODY_BYTES);
+                    return null;
+                }
+                return new String(body, java.nio.charset.StandardCharsets.UTF_8);
             }
-            return response.getBody();
+            return null;
         } catch (RuntimeException unreachable) {
-            log.debug("Discovery could not fetch {}: {}", url, unreachable.getMessage());
+            log.debug("Discovery could not fetch {}: {}", target, unreachable.getMessage());
             return null;
         }
     }
@@ -264,8 +315,9 @@ public class AtsBoardProbe {
         return host.matches("[a-z0-9.-]+\\.[a-z]{2,}") ? host : "";
     }
 
-    private static org.springframework.http.client.ClientHttpRequestFactory timeoutFactory() {
-        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+    private static org.springframework.http.client.ClientHttpRequestFactory timeoutFactory(
+            SafeUrlValidator urlValidator) {
+        var factory = new com.careerflux.source.net.SafeClientHttpRequestFactory(urlValidator);
         // Discovery walks many domains, most of which will not answer. Short
         // timeouts keep one unreachable host from stalling a whole run.
         factory.setConnectTimeout(Duration.ofSeconds(5));

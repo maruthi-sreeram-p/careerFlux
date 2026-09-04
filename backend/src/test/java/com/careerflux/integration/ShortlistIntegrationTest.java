@@ -350,23 +350,51 @@ class ShortlistIntegrationTest {
         }
 
         @Test
-        @DisplayName("a coordinator may read a shortlist but not change one")
-        void coordinatorIsReadOnly() throws Exception {
-            // PLACEMENT_COORDINATOR holds PLACEMENT_DRIVE_VIEW and not
-            // PLACEMENT_DRIVE_MANAGE. Shortlisting is a placement write, so the
-            // existing role model puts it out of their reach. This test records
-            // that boundary rather than asserting it is the right product call —
-            // granting coordinators the manage permission is a one-line change,
-            // and it is a decision about who runs a drive, not a bug.
+        @DisplayName("a coordinator shortlists inside their department and nowhere else")
+        void coordinatorShortlistsWithinScope() throws Exception {
+            // This used to assert a flat 403. A coordinator held
+            // PLACEMENT_DRIVE_VIEW and not PLACEMENT_DRIVE_MANAGE, and
+            // shortlisting was gated on the latter — so the person who knows the
+            // students best could not put any of them forward.
+            //
+            // The permission was split rather than widened. Shortlisting now
+            // needs PLACEMENT_SHORTLIST_MANAGE, which a coordinator holds;
+            // authoring a requirement still needs PLACEMENT_DRIVE_MANAGE, which
+            // they do not. What confines them is unchanged and is asserted
+            // below: the scope check, not the permission.
             String officer = officer("sl-coord-officer@example.com");
-            UUID candidate = candidateId("coord-candidate@example.com");
+            UUID mine = candidateIn("coord-own-candidate@example.com",
+                    institutions.exampleCse(), institutions.exampleBatch2027());
+            UUID theirs = candidateIn("coord-other-candidate@example.com",
+                    institutions.exampleMech(), institutions.exampleBatch2027());
             String id = openRequirement(officer);
             String coordinator = coordinatorScopedToCse("sl-coord@example.com");
 
             mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + coordinator))
                     .andExpect(status().isOk());
+
             mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + coordinator)
-                            .contentType(MediaType.APPLICATION_JSON).content(body(candidate)))
+                            .contentType(MediaType.APPLICATION_JSON).content(body(mine)))
+                    .andExpect(status().isCreated());
+
+            // Not-found rather than forbidden: a coordinator must not be able to
+            // confirm that a student exists in a department they cannot see.
+            mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + coordinator)
+                            .contentType(MediaType.APPLICATION_JSON).content(body(theirs)))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("a coordinator still cannot author or publish a requirement")
+        void coordinatorCannotAuthorRequirements() throws Exception {
+            // The other half of the split, and the reason it was a split rather
+            // than a grant.
+            String coordinator = coordinatorScopedToCse("sl-coord-author@example.com");
+
+            mockMvc.perform(post("/api/requirements")
+                            .header("Authorization", "Bearer " + coordinator)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(simpleRequirement()))
                     .andExpect(status().isForbidden());
         }
     }

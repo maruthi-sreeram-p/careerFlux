@@ -24,4 +24,8 @@ public interface ResumeRepository extends JpaRepository<Resume, UUID> {
     /** Students in the cohort who have uploaded at least one resume. */
     @Query("select count(distinct r.candidate.id) from Resume r where r.candidate.id in :candidateIds")
     long countCandidatesWithResume(@Param("candidateIds") Collection<UUID> candidateIds);
+
+    /** Which of these candidates have a resume, in one query rather than one each. */
+    @Query("select distinct r.candidate.id from Resume r where r.candidate.id in :candidateIds")
+    List<UUID> findCandidateIdsWithResume(@Param("candidateIds") Collection<UUID> candidateIds);
 }

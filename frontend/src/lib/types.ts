@@ -123,6 +123,12 @@ export interface ResumeSummary {
 
 export interface CandidateProfile {
   id: string;
+  /** Null when nobody has recorded one. Absent is not zero. */
+  cgpa?: number | null;
+  cgpaScale?: number | null;
+  /** STUDENT or INSTITUTION; only the latter is used for eligibility. */
+  cgpaSource?: 'STUDENT' | 'INSTITUTION' | null;
+  cgpaVerified?: boolean;
   fullName: string;
   email: string;
   headline: string | null;
@@ -653,6 +659,38 @@ export interface DepartmentView {
   studentCount: number;
 }
 
+export interface BatchView {
+  id: string;
+  name: string;
+  graduationYear: number;
+  studentCount: number;
+}
+
+/**
+ * A member of placement staff, as an administrator sees them.
+ *
+ * `institutionWide` is true when no scope row narrows the account: an officer or
+ * an administrator covers the whole college. `scopeLabels` lists the department
+ * codes a coordinator is responsible for.
+ */
+export interface StaffRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: string;
+  institutionWide: boolean;
+  scopeLabels: string[];
+}
+
+/** What creating a staff account returns. Never the password. */
+export interface StaffCreated {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  scope: string;
+}
+
 /* ---------------------------------------------------- Candidate discovery */
 
 export interface DiscoveryDimension {
@@ -700,6 +738,58 @@ export interface DiscoveredCandidate {
   dimensions: DiscoveryDimension[];
   strengths: DiscoveryReason[];
   gaps: DiscoveryReason[];
+  /** Whether the placement team has already chosen to put this student forward. */
+  shortlisted: boolean;
+  /** Where they have got to in the drive. Null unless shortlisted. */
+  placementStage: PlacementStage | null;
+}
+
+/**
+ * The six states a shortlisted candidate can be in.
+ *
+ * <p>Decided by the server; see PlacementStage.java. NOT_PROCEEDING is the
+ * college's decision and DECLINED is the student's, and they are kept apart
+ * because afterwards that is the only thing anybody asks.
+ */
+export type PlacementStage =
+  | 'SHORTLISTED'
+  | 'INVITED'
+  | 'INTERESTED'
+  | 'SELECTED'
+  | 'NOT_PROCEEDING'
+  | 'DECLINED';
+
+/** One move in a candidate's placement history. Append-only on the server. */
+export interface StageChange {
+  id: string;
+  fromStage: PlacementStage | null;
+  toStage: PlacementStage;
+  actorLabel: string | null;
+  actorKind: 'STAFF' | 'STUDENT';
+  note: string | null;
+  occurredAt: string;
+}
+
+/**
+ * One drive, as the student it is about sees it.
+ *
+ * <p>Notably missing: match scores, eligibility verdicts and skill gaps. Those
+ * are the college's working notes about a person and the server does not return
+ * them here.
+ */
+export interface MyPlacement {
+  requirementId: string;
+  companyName: string;
+  roleTitle: string;
+  location: string | null;
+  workMode: string | null;
+  requirementStatus: string;
+  stage: PlacementStage;
+  stageLabel: string;
+  awaitingYou: boolean;
+  closed: boolean;
+  shortlistedAt: string | null;
+  stageChangedAt: string | null;
 }
 
 export interface CandidatePage {
@@ -716,6 +806,8 @@ export interface CandidatePage {
   consideredStudents: number;
   /** False while CareerFlux holds no verified numeric CGPA, so the page explains the UNKNOWNs once. */
   cgpaAvailable: boolean;
+  /** Read from the shortlist table, never accumulated in the browser. */
+  shortlistedCount: number;
   content: DiscoveredCandidate[];
   page: number;
   size: number;
@@ -727,4 +819,104 @@ export interface DiscoveryQuery {
   eligibility?: string;
   minScore?: number;
   sort?: string;
+  /** Undefined shows everyone; true or false narrows to one side. */
+  shortlisted?: boolean;
+}
+
+/** What the server returns after a shortlist decision is recorded. */
+export interface ShortlistResult {
+  candidateId: string;
+  shortlisted: boolean;
+  shortlistedCount: number;
+}
+
+/** A student's academic record as the server returns it after a change. */
+export interface AcademicRecord {
+  cgpa: number | null;
+  cgpaScale: number | null;
+  source: 'STUDENT' | 'INSTITUTION' | null;
+  verified: boolean;
+  recordedByName: string | null;
+  recordedAt: string | null;
+}
+
+/** A college as the platform operator sees it in the onboarding list. */
+export interface InstitutionSummary {
+  id: string;
+  name: string;
+  slug: string;
+  emailDomains: string | null;
+  status: string;
+  createdAt: string;
+}
+
+/** What onboarding returns. No password, no session, no token. */
+export interface ProvisionedInstitution extends InstitutionSummary {
+  registrationCode: string | null;
+  collegeAdminId: string | null;
+  collegeAdminEmail: string | null;
+}
+
+/** What a platform operator may state when onboarding a college. */
+export interface ProvisionInstitutionInput {
+  name: string;
+  emailDomains?: string;
+  shortName?: string;
+  city?: string;
+  registrationCode?: string;
+  initialAdmin?: { fullName: string; email: string; password: string };
+}
+
+/* ------------------------------------------------- Company source discovery */
+
+/**
+ * What the resolver concluded about one typed company name.
+ *
+ * <p>Three outcomes, three different next steps for the operator: confirm,
+ * choose, or type a domain in. Decided by the server; see CompanyResolver.java.
+ */
+export type ResolutionOutcome = 'RESOLVED' | 'AMBIGUOUS' | 'NOT_FOUND';
+
+/** Why a domain is being proposed. Shown so an operator can weigh it. */
+export type CandidateEvidence = 'REGISTRY' | 'SEED_LIST' | 'VERIFIED_SITE';
+
+export interface DomainCandidate {
+  domain: string;
+  evidence: CandidateEvidence;
+  detail: string;
+}
+
+export interface ResolvedCompany {
+  companyName: string;
+  slug: string;
+  outcome: ResolutionOutcome;
+  detail: string;
+  candidates: DomainCandidate[];
+}
+
+/** One source that discovery registered, straight from the existing service. */
+export interface DiscoveredSource {
+  sourceId: string;
+  name: string;
+  domain: string;
+  provider: string;
+  boardToken: string;
+  howFound: string;
+  detail: string;
+}
+
+/**
+ * The reply to both phases of discover-by-company.
+ *
+ * <p>A resolve fills the first three lists and leaves the rest empty; a
+ * confirmed-domain call does the opposite. Keeping one shape means the screen
+ * does not have to model two endpoints.
+ */
+export interface CompanyDiscoveryResult {
+  resolved: ResolvedCompany[];
+  ambiguous: ResolvedCompany[];
+  notFound: ResolvedCompany[];
+  registered: DiscoveredSource[];
+  alreadyKnown: string[];
+  withoutBoard: string[];
 }

@@ -87,7 +87,13 @@ public final class CandidateDtos {
             List<ExperienceItem> experiences,
             List<EducationItem> education,
             PreferencesPayload preferences,
-            ResumeSummary resume) {
+            ResumeSummary resume,
+            /* Null means nobody has recorded one. An absent CGPA is not zero. */
+            BigDecimal cgpa,
+            BigDecimal cgpaScale,
+            /* STUDENT or INSTITUTION; only the latter is used for eligibility. */
+            String cgpaSource,
+            boolean cgpaVerified) {
     }
 
     public record ProfileUpdateRequest(
@@ -104,6 +110,30 @@ public final class CandidateDtos {
             @Valid List<SkillItem> skills,
             @Valid List<ExperienceItem> experiences,
             @Valid List<EducationItem> education) {
+    }
+
+    /**
+     * A CGPA being recorded.
+     *
+     * <p>Bounds are checked against the institution's own scale rather than
+     * annotated with a hardcoded ten, so a college on a different scale is not
+     * refused by a constant. A null value clears the record, which is different
+     * from recording a zero.
+     */
+    public record AcademicUpdateRequest(BigDecimal cgpa) {
+    }
+
+    /**
+     * @param verified whether an institution recorded this, which is the only
+     *                 form eligibility will read
+     */
+    public record AcademicRecord(
+            BigDecimal cgpa,
+            BigDecimal cgpaScale,
+            String source,
+            boolean verified,
+            String recordedByName,
+            java.time.Instant recordedAt) {
     }
 
     public record ResumeSummary(

@@ -40,7 +40,9 @@ import com.careerflux.source.repository.JobSourceRepository;
 import com.careerflux.support.TestInstitutions;
 import com.careerflux.user.User;
 import com.careerflux.user.UserRepository;
+import com.careerflux.support.IngestionTestData;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -103,6 +105,30 @@ class MatchingAndNotificationIntegrationTest {
 
     private CandidateProfile candidate;
 
+
+    /** Kept so the cleanup below can find what this test ingested. */
+    private JobSource ingestedSource;
+
+    @Autowired
+    private IngestionTestData testData;
+
+    /**
+     * Effective only once ingestion commits independently.
+     *
+     * <p>This class isolates itself by rolling back, which covers everything
+     * ingestion writes today because it all joins the test's transaction. When
+     * the fetch moves out of that transaction the ingested rows will commit on
+     * their own and the rollback will stop reaching them. The cleanup runs in its
+     * own transaction, so it removes exactly those and cannot see — or disturb —
+     * the rows the rollback still owns.
+     */
+    @AfterEach
+    void removeAnythingIngestionCommittedOnItsOwn() {
+        if (ingestedSource != null) {
+            testData.deleteSource(ingestedSource.getId());
+        }
+    }
+
     @BeforeEach
     void setUp() {
         JobSource source = new JobSource();
@@ -126,6 +152,7 @@ class MatchingAndNotificationIntegrationTest {
         policy.setAccessPolicy(AccessPolicyType.PUBLIC_FEED);
         source.setAccessPolicy(policy);
         sourceRepository.saveAndFlush(source);
+        this.ingestedSource = source;
 
         ingestionService.ingest(source, IngestionTrigger.MANUAL);
 

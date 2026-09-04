@@ -9,6 +9,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -34,6 +35,19 @@ public class GlobalExceptionHandler {
         ApiError body = ApiError.of(ex.getStatus().value(), ex.getCode(), ex.getMessage(), request.getRequestURI())
                 .withDetails(Map.of("blockers", ex.getBlockers()));
         return ResponseEntity.status(ex.getStatus()).body(body);
+    }
+
+    /**
+     * More specific than the AppException handler below, and registered for the
+     * sake of one header: Retry-After turns "try later" into "try in 42
+     * seconds", which is the difference between a client that backs off and a
+     * client that spins.
+     */
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiError> handleRateLimited(TooManyRequestsException ex, HttpServletRequest request) {
+        return ResponseEntity.status(ex.getStatus())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.getRetryAfterSeconds()))
+                .body(ApiError.of(ex.getStatus().value(), ex.getCode(), ex.getMessage(), request.getRequestURI()));
     }
 
     @ExceptionHandler(AppException.class)

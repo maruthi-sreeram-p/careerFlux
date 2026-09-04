@@ -62,7 +62,13 @@ public final class DiscoveryDtos {
             List<ReasonView> gaps,
             /* Whether the placement team has already chosen to put this student
                forward. A decision someone made, not a property of the score. */
-            boolean shortlisted) {
+            boolean shortlisted,
+            /* How far that decision has got: SHORTLISTED, INVITED, INTERESTED,
+               SELECTED, NOT_PROCEEDING or DECLINED. Null for a candidate nobody
+               has shortlisted, because they are not in the workflow at all.
+               A workflow attribute sitting beside the score, never derived from
+               it. */
+            String placementStage) {
     }
 
     /**

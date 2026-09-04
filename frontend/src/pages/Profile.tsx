@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '../components/layout/AppShell';
+import { AcademicPanel } from '../components/profile/AcademicPanel';
 import { Icon } from '../components/ui/Icon';
 import { OptionGrid, TokenInput } from '../components/ui/TokenInput';
 import {
@@ -180,6 +181,8 @@ function ProfileTab({ profile }: { profile: CandidateProfile }) {
         </p>
         <TokenInput values={skills} onChange={setSkills} maxValues={40} label="Skills" />
       </Panel>
+
+      <AcademicPanel profile={profile} />
 
       <Panel title="Links">
         <div className="grid grid--two" style={{ gap: 'var(--space-4)' }}>

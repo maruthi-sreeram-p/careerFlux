@@ -17,6 +17,7 @@ import {
   useToast,
 } from '../../components/ui/primitives';
 import { ApiError, api } from '../../lib/api';
+import { AddCompanyDialog } from '../../components/admin/AddCompanyDialog';
 import { useAdapters, useAdminSourceAction, useSources } from '../../lib/queries';
 import { relativeTime } from '../../lib/format';
 import type { SourceSummary } from '../../lib/types';
@@ -310,6 +311,7 @@ function ActionRow({ source }: { source: SourceSummary }) {
 export default function AdminSources() {
   const sources = useSources([], 0, 100);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
 
   return (
     <div className="page page--wide">
@@ -317,10 +319,18 @@ export default function AdminSources() {
         title="Source registry"
         subtitle="Register, classify and review sources. Every action here is recorded against your account in the audit log."
         actions={
-          <Button variant="primary" size="sm" onClick={() => setRegisterOpen(true)}>
-            <Icon.Plus size={14} />
-            Register source
-          </Button>
+          <div className="row gap-2">
+            {/* By name for the common case; by URL when the operator already
+                knows the endpoint. Both land in the same registry at the same
+                state, behind the same policy gate. */}
+            <Button variant="primary" size="sm" onClick={() => setAddCompanyOpen(true)}>
+              <Icon.Plus size={14} />
+              Add company
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setRegisterOpen(true)}>
+              Register source
+            </Button>
+          </div>
         }
       />
 
@@ -350,6 +360,7 @@ export default function AdminSources() {
       </p>
 
       <RegisterDialog open={registerOpen} onClose={() => setRegisterOpen(false)} />
+      <AddCompanyDialog open={addCompanyOpen} onClose={() => setAddCompanyOpen(false)} />
     </div>
   );
 }

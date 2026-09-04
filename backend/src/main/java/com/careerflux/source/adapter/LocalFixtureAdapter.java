@@ -100,8 +100,7 @@ public class LocalFixtureAdapter implements JobSourceAdapter {
             JsonNode root = readFixture(configuration.externalIdentifier());
             JsonNode jobs = root.get("jobs");
             int count = jobs == null ? 0 : jobs.size();
-            return new SourceHealthResult(SourceHealthStatus.HEALTHY, 200, 0, count,
-                    "Local fixture read successfully.");
+            return SourceHealthResult.healthy(200, 0, count);
         } catch (AdapterException ex) {
             return SourceHealthResult.unreachable(ex.getMessage());
         }

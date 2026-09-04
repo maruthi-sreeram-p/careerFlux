@@ -3,8 +3,17 @@ import { Link, useParams } from 'react-router-dom';
 
 import { PageHeader } from '../components/layout/AppShell';
 import { Badge, Chip, Panel } from '../components/ui/primitives';
-import { useCandidateDiscovery } from '../lib/queries';
+import {
+  useAddToShortlist,
+  useCandidateDiscovery,
+  useRemoveFromShortlist,
+} from '../lib/queries';
+import { useAuth } from '../lib/auth';
+import { can } from '../lib/types';
 import type { DiscoveredCandidate } from '../lib/types';
+import { Button, useToast } from '../components/ui/primitives';
+import { CgpaLine } from '../components/profile/CgpaLine';
+import { StageBadge } from '../components/placement/StageControls';
 
 /**
  * The placement team's workspace for one company requirement.
@@ -32,6 +41,12 @@ const SORTS = [
   { id: 'match', label: 'Best match' },
   { id: 'eligibility', label: 'Eligibility' },
   { id: 'experience', label: 'Experience' },
+];
+
+const SHORTLIST_FILTERS: { id: string; label: string; value: boolean | undefined }[] = [
+  { id: 'all', label: 'All', value: undefined },
+  { id: 'yes', label: 'Shortlisted', value: true },
+  { id: 'no', label: 'Not shortlisted', value: false },
 ];
 
 const SCORE_FLOORS = [
@@ -99,7 +114,85 @@ function SkillList({
   );
 }
 
-function CandidateRow({ candidate }: { candidate: DiscoveredCandidate }) {
+function ShortlistAction({
+  candidate,
+  requirementId,
+  editable,
+}: {
+  candidate: DiscoveredCandidate;
+  requirementId: string;
+  editable: boolean;
+}) {
+  const toast = useToast();
+  const add = useAddToShortlist();
+  const remove = useRemoveFromShortlist();
+  const busy = add.isPending || remove.isPending;
+
+  if (!editable) {
+    // A coordinator can read a shortlist but not change one, and the
+    // requirement must be open. State without a control, rather than a button
+    // that would be refused.
+    return candidate.shortlisted ? (
+      <StageBadge stage={candidate.placementStage ?? 'SHORTLISTED'} />
+    ) : null;
+  }
+
+  const act = async (shortlisting: boolean) => {
+    const mutation = shortlisting ? add : remove;
+    try {
+      await mutation.mutateAsync({ requirementId, candidateId: candidate.candidateId });
+      toast.show(
+        shortlisting ? 'Candidate shortlisted.' : 'Candidate removed from shortlist.',
+        'success',
+      );
+    } catch (error) {
+      toast.show(
+        error instanceof Error ? error.message : 'That decision could not be recorded.',
+        'error',
+      );
+    }
+  };
+
+  // No optimistic state. The server decides, and only then does this change.
+  if (candidate.shortlisted) {
+    const stage = candidate.placementStage ?? 'SHORTLISTED';
+    // Once a drive has actually started moving for somebody, the place to work
+    // is the shortlist screen, where the stage and its history are. Removing
+    // them from here would discard that trail without showing it first.
+    const started = stage !== 'SHORTLISTED';
+    return (
+      <span className="row gap-2">
+        <StageBadge stage={stage} />
+        {started ? (
+          <Link className="btn btn--ghost" to={`/app/requirements/${requirementId}/shortlist`}>
+            Open
+          </Link>
+        ) : (
+          <Button variant="ghost" onClick={() => act(false)} disabled={busy}>
+            {remove.isPending ? 'Removing…' : 'Remove'}
+          </Button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <Button variant="secondary" onClick={() => act(true)} disabled={busy}>
+      {add.isPending ? 'Shortlisting…' : 'Shortlist'}
+    </Button>
+  );
+}
+
+function CandidateRow({
+  candidate,
+  requirementId,
+  editable,
+  minCgpa,
+}: {
+  candidate: DiscoveredCandidate;
+  requirementId: string;
+  editable: boolean;
+  minCgpa: number | null;
+}) {
   const [open, setOpen] = useState(false);
   const scored = candidate.compatibility !== null;
   const lowConfidence =
@@ -162,10 +255,18 @@ function CandidateRow({ candidate }: { candidate: DiscoveredCandidate }) {
         matched={candidate.matchedPreferredSkills}
         missing={candidate.missingPreferredSkills}
       />
+      <CgpaLine candidate={candidate} minCgpa={minCgpa} />
 
-      <button type="button" className="candidate__toggle" onClick={() => setOpen((was) => !was)}>
-        {open ? 'Hide breakdown' : 'Why this score?'}
-      </button>
+      <div className="candidate__foot">
+        <button type="button" className="candidate__toggle" onClick={() => setOpen((was) => !was)}>
+          {open ? 'Hide breakdown' : 'Why this score?'}
+        </button>
+        <ShortlistAction
+          candidate={candidate}
+          requirementId={requirementId}
+          editable={editable}
+        />
+      </div>
 
       {open && (
         <div className="candidate__breakdown">
@@ -216,11 +317,14 @@ export default function CandidateDiscovery() {
   const [eligibility, setEligibility] = useState('');
   const [sort, setSort] = useState('match');
   const [minScore, setMinScore] = useState(0);
+  const [shortlistFilter, setShortlistFilter] = useState('all');
+  const { user } = useAuth();
 
   const discovery = useCandidateDiscovery(requirementId, {
     eligibility: eligibility || undefined,
     minScore: minScore || undefined,
     sort,
+    shortlisted: SHORTLIST_FILTERS.find((entry) => entry.id === shortlistFilter)?.value,
   });
 
   if (discovery.isError) {
@@ -241,6 +345,14 @@ export default function CandidateDiscovery() {
   }
 
   const data = discovery.data;
+  // Shortlisting is a placement write, and the requirement has to be open.
+  // Shortlisting, not authoring. A coordinator holds this and not
+  // PLACEMENT_DRIVE_MANAGE, which is what lets them put their own
+  // department's students forward without being able to write the
+  // requirement. The server enforces both the permission and the scope;
+  // this only decides whether the button is worth showing.
+  const mayDecide = can(user, 'PLACEMENT_SHORTLIST_MANAGE')
+      && data?.requirementStatus === 'OPEN';
 
   return (
     <>
@@ -328,6 +440,18 @@ export default function CandidateDiscovery() {
           ))}
         </div>
         <div className="row wrap gap-2">
+          <span className="text-faint">Shortlist</span>
+          {SHORTLIST_FILTERS.map((filter) => (
+            <Chip
+              key={filter.id}
+              selected={shortlistFilter === filter.id}
+              onClick={() => setShortlistFilter(filter.id)}
+            >
+              {filter.label}
+            </Chip>
+          ))}
+        </div>
+        <div className="row wrap gap-2">
           <span className="text-faint">Sort</span>
           {SORTS.map((option) => (
             <Chip key={option.id} selected={sort === option.id} onClick={() => setSort(option.id)}>
@@ -348,7 +472,10 @@ export default function CandidateDiscovery() {
           <p className="text-muted discovery__count">
             {data.totalElements} of {data.consideredStudents}{' '}
             {data.consideredStudents === 1 ? 'student' : 'students'} in scope
-            {eligibility || minScore ? ' match these filters' : ''} · {data.scopeLabel}
+            {eligibility || minScore || shortlistFilter !== 'all' ? ' match these filters' : ''} ·{' '}
+            {data.scopeLabel}
+            {' · '}
+            <strong>{data.shortlistedCount}</strong> shortlisted
           </p>
 
           {data.content.length === 0 ? (
@@ -362,7 +489,13 @@ export default function CandidateDiscovery() {
           ) : (
             <div className="discovery__list">
               {data.content.map((candidate) => (
-                <CandidateRow key={candidate.candidateId} candidate={candidate} />
+                <CandidateRow
+                  key={candidate.candidateId}
+                  candidate={candidate}
+                  requirementId={requirementId!}
+                  editable={mayDecide}
+                  minCgpa={data.minCgpa}
+                />
               ))}
             </div>
           )}
