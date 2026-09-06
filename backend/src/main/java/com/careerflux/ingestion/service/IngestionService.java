@@ -551,7 +551,7 @@ public class IngestionService {
                 run.getSource() == null ? "?" : run.getSource().getName(),
                 status, run.getRawCount(), run.getNewCount(), run.getUpdatedCount(),
                 run.getDuplicateCount(), run.getClosedCount(), run.getErrorCount());
-        return run;
+        return runRepository.save(run);
     }
 
     private void emit(String topic, String key, Object payload) {
