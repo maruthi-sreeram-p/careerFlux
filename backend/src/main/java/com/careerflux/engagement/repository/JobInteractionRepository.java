@@ -24,6 +24,9 @@ public interface JobInteractionRepository extends JpaRepository<JobInteraction, 
 
     List<JobInteraction> findByCandidateIdAndJobIdIn(UUID candidateId, Collection<UUID> jobIds);
 
+    /** Every interaction for one student, newest first, for the placement timeline. */
+    List<JobInteraction> findByCandidateIdOrderByCreatedAtDesc(UUID candidateId);
+
     @Query("select i.job.id from JobInteraction i where i.candidate.id = :candidateId "
             + "and i.interactionType = :type")
     List<UUID> findJobIdsByType(UUID candidateId, InteractionType type);

@@ -255,28 +255,23 @@ class IngestionTransactionBoundaryTest {
             }).when(normalizer).normalize(org.mockito.ArgumentMatchers.any(),
                     org.mockito.ArgumentMatchers.any());
 
-            IngestionRun run;
-            try {
-                run = ingestionService.ingest(source, IngestionTrigger.MANUAL);
-            } catch (RuntimeException commitFailed) {
-                // The other face of the same defect: the caller may instead see
-                // the failure surface at commit, long after the run "finished".
-                assertThat(persistedJobs())
-                        .describedAs("nothing survives, however the failure surfaces")
-                        .isZero();
-                return;
-            }
+            IngestionRun run = ingestionService.ingest(source, IngestionTrigger.MANUAL);
 
+            // Slice 5 gave each posting its own transaction, so the rollback-only
+            // mark reaches only the posting that earned it. This assertion is the
+            // inverse of the one originally recorded here: the run no longer dies
+            // at commit, and what it reports is now what the database holds.
             assertThat(run.getStatus())
-                    .describedAs("the run claims it partly succeeded")
-                    .isIn(IngestionStatus.PARTIAL, IngestionStatus.SUCCEEDED);
-            assertThat(run.getRawCount())
-                    .describedAs("and claims it processed postings")
+                    .describedAs("one posting failed, so the run is partial")
+                    .isEqualTo(IngestionStatus.PARTIAL);
+            assertThat(run.getErrorCount()).isEqualTo(1);
+            assertThat(persistedJobs())
+                    .describedAs("and the postings around the failure survived it, which is "
+                            + "exactly what used to be thrown away")
                     .isPositive();
             assertThat(persistedJobs())
-                    .describedAs("yet every posting was discarded, including the ones "
-                            + "that processed cleanly before the failure")
-                    .isZero();
+                    .describedAs("every posting but the failed one")
+                    .isEqualTo(run.getRawCount() - 1);
         }
 
         @Test

@@ -1,5 +1,6 @@
 package com.careerflux.institution.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -41,10 +42,67 @@ public final class InstitutionDtos {
             String onboardingStage,
             int profileCompleteness,
             boolean resumeUploaded,
+            /** As the institution records it, on their own scale. */
+            BigDecimal cgpa,
+            BigDecimal cgpaScale,
+            /** The same figure on a ten-point scale, which is what filters compare. */
+            BigDecimal normalisedCgpa,
             Instant joinedAt) {
     }
 
     public record StudentPage(List<StudentRow> content, int page, int size, long totalElements, int totalPages) {
+    }
+
+    /** One of a student's stored skills, named as the taxonomy names it. */
+    public record StudentSkillRef(UUID id, String name, String slug) {
+    }
+
+    /**
+     * Where a student stands with one company requirement.
+     *
+     * <p>Per requirement, deliberately. A student can be SELECTED by one company
+     * and SHORTLISTED by another at the same time, and flattening that into a
+     * single "placement status" would have to choose one of them to discard.
+     */
+    public record StudentPlacement(
+            UUID requirementId,
+            String companyName,
+            String roleTitle,
+            String stage,
+            Instant stageChangedAt) {
+    }
+
+    /**
+     * One dated, placement-relevant thing that happened.
+     *
+     * <p>Composed from records that already exist — resumes, job interactions,
+     * shortlist stage changes — rather than from an audit log. System audit
+     * events are not included: they are keyed by actor and entity rather than by
+     * student, and showing a placement officer everything the platform recorded
+     * about a person is surveillance rather than placement work.
+     */
+    public record StudentActivityEntry(Instant at, String type, String summary) {
+    }
+
+    /**
+     * A student as a placement officer needs to see them.
+     *
+     * <p>Wraps the directory row rather than repeating it, the same way JobDetail
+     * wraps JobSummary. Still no phone number, no resume content, and no
+     * credentials of any kind.
+     */
+    public record StudentDetail(
+            StudentRow summary,
+            String headline,
+            String location,
+            BigDecimal cgpa,
+            BigDecimal cgpaScale,
+            BigDecimal normalisedCgpa,
+            String cgpaSource,
+            List<StudentSkillRef> skills,
+            List<String> preferences,
+            List<StudentPlacement> placements,
+            List<StudentActivityEntry> activity) {
     }
 
     /** What the caller is allowed to see, so the UI can say so plainly. */

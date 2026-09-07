@@ -567,9 +567,63 @@ export interface StudentRow {
   batchName: string | null;
   primaryRole: string | null;
   onboardingStage: string | null;
-  profileCompleteness: number | null;
+  /** Always a number: the server sends 0 for a student with no profile yet. */
+  profileCompleteness: number;
   resumeUploaded: boolean;
+  /** The stored value on the institution's own scale, or null if never recorded. */
+  cgpa: string | null;
+  cgpaScale: string | null;
+  /** The same figure on a ten-point scale, which is what filters compare. */
+  normalisedCgpa: string | null;
   joinedAt: string | null;
+}
+
+export interface StudentSkillRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface StudentPlacement {
+  requirementId: string;
+  companyName: string;
+  roleTitle: string;
+  stage: string;
+  stageChangedAt: string | null;
+}
+
+export interface StudentActivityEntry {
+  at: string | null;
+  type: string;
+  summary: string;
+}
+
+export interface StudentDetail {
+  summary: StudentRow;
+  headline: string | null;
+  location: string | null;
+  cgpa: string | null;
+  cgpaScale: string | null;
+  normalisedCgpa: string | null;
+  cgpaSource: string | null;
+  skills: StudentSkillRef[];
+  preferences: string[];
+  placements: StudentPlacement[];
+  activity: StudentActivityEntry[];
+}
+
+/** Everything the Students page can ask the directory for. */
+export interface StudentQueryParams {
+  q?: string;
+  departmentId?: string;
+  batchId?: string;
+  minCgpa?: number;
+  skills?: string[];
+  minProfileCompleteness?: number;
+  resumeUploaded?: boolean;
+  sort?: string;
+  page?: number;
+  size?: number;
 }
 
 export interface StudentPage {

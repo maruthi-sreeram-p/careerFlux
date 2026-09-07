@@ -20,6 +20,8 @@ import RequirementDetail from './pages/RequirementDetail';
 import RequirementNew from './pages/RequirementNew';
 import Requirements from './pages/Requirements';
 import Shortlist from './pages/Shortlist';
+import StudentDetail from './pages/StudentDetail';
+import Account from './pages/Account';
 import Students from './pages/Students';
 import Sources from './pages/Sources';
 import SourceDetail from './pages/SourceDetail';
@@ -188,6 +190,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="students/:userId"
+                  element={
+                    <RequireStaff>
+                      <StudentDetail />
+                    </RequireStaff>
+                  }
+                />
+                <Route
                   path="requirements"
                   element={
                     <RequirePermission permission="PLACEMENT_DRIVE_VIEW">
@@ -230,6 +240,7 @@ export default function App() {
                 <Route path="sources" element={<Sources />} />
                 <Route path="sources/:sourceId" element={<SourceDetail />} />
                 <Route path="profile" element={<Profile />} />
+                <Route path="account" element={<Account />} />
                 <Route path="notifications" element={<Notifications />} />
                 <Route
                   path="admin"

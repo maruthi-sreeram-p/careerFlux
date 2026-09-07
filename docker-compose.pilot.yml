@@ -89,7 +89,16 @@ services:
 
       # No `demo` profile. It exists to create demo accounts and has no place
       # on a college's instance.
-      SPRING_PROFILES_ACTIVE: postgres,kafka
+      #
+      # And no `kafka` profile either. That profile only switches the pipeline
+      # event transport from the in-process transactional outbox to a broker,
+      # and the outbox is the better answer at this size: it commits events in
+      # the same transaction as the data they describe, so there is no window in
+      # which a job exists and its event does not. A broker would add a service
+      # to run, monitor, back up and lose, in exchange for throughput a college
+      # of a hundred students will not reach. Kafka stays in the project and can
+      # be switched back on by adding it here.
+      SPRING_PROFILES_ACTIVE: postgres
 
     # The base file publishes 8080 for a developer with a REST client. A pilot
     # must not: nginx reaches the backend over the compose network, so a
@@ -103,6 +112,17 @@ services:
     # append to it, and the loopback binding would sit alongside the base
     # file's 0.0.0.0 one rather than instead of it.
     ports: !reset []
+
+    # Waiting only on the database. The base file also waits for Kafka, which
+    # would hold the pilot's start-up hostage to a broker it no longer talks to.
+    #
+    # The kafka service is still defined in the base file and will still be
+    # started, because it declares no compose profile. Nothing connects to it.
+    # To leave it stopped as well:
+    #   docker compose ... up -d --scale kafka=0
+    depends_on: !override
+      postgres:
+        condition: service_healthy
 
   frontend:
     # The public entrance, and the only container that needs one.

@@ -196,8 +196,10 @@ public class IngestionService {
         }
         // ------------------------------------------------------------------------
 
-        List<RawJobPosting> postings = raw;
-        return transaction.execute(status -> processFetched(source, postings, run, tally));
+        // No transaction around this call. processFetched opens one per posting
+        // and one for finalization; wrapping it here would put them all back
+        // inside a single outer transaction and undo exactly what M2 fixed.
+        return processFetched(source, raw, run, tally);
     }
 
     /** What a fetch that never returned postings leaves behind. */
@@ -233,10 +235,18 @@ public class IngestionService {
     private IngestionRun processFetched(JobSource source, List<RawJobPosting> raw,
                                         IngestionRun run, IngestionTally tally) {
         tally.recordRaw(raw.size());
+        // Announces the fetch, not any posting, so it belongs to no posting's
+        // transaction. The event bus is itself transactional, so with none open
+        // here this commits on its own — which is honest: the fetch really did
+        // return this many postings, whatever becomes of them individually.
         emit(PipelineTopics.JOB_RAW, run.getCorrelationId(),
                 new RawBatchEvent(source.getId(), source.getName(), raw.size(), run.getCorrelationId()));
 
-        List<Skill> dictionary = skillRepository.findAll();
+        // Read once, in a transaction of its own. Only the canonical name and
+        // slug are read back from these, so they are safe to keep using after it
+        // closes; the skills actually attached to a job are re-resolved inside
+        // that job's own transaction.
+        List<Skill> dictionary = transaction.execute(status -> skillRepository.findAll());
         Set<String> seenExternalIds = new HashSet<>();
         List<String> errors = new ArrayList<>();
 
@@ -245,13 +255,21 @@ public class IngestionService {
                 tally.recordError();
                 continue;
             }
-            // Before processing, deliberately. A posting the source is still
-            // advertising must count as seen even if we then fail to process it,
-            // or closeVanished below would close a job that never went away.
+            // Before processing, deliberately, and outside the posting's
+            // transaction so it survives that transaction being rolled back. A
+            // posting the source is still advertising must count as seen even if
+            // we then fail to process it, or closeVanished below would close a
+            // job that never went away.
             seenExternalIds.add(posting.externalId());
             try {
-                PostingOutcome outcome =
-                        processOne(source, posting, run.getCorrelationId(), dictionary, tally);
+                // One transaction per posting. This is the M2 fix: a posting that
+                // fails to persist marks only its own transaction rollback-only,
+                // so the postings before it stay committed and the ones after it
+                // are unaffected. Under a single transaction the loop went on
+                // doing work that was already doomed, and the final commit threw
+                // away every posting that had succeeded.
+                PostingOutcome outcome = transaction.execute(status ->
+                        processOne(source, posting, run.getCorrelationId(), dictionary, tally));
                 log.trace("Posting {} from {} resolved as {}",
                         posting.externalId(), source.getName(), outcome);
             } catch (RuntimeException ex) {
@@ -264,15 +282,34 @@ public class IngestionService {
             }
         }
 
+        return transaction.execute(status ->
+                finalizeRun(source, raw.size(), run, tally, seenExternalIds, errors));
+    }
+
+    /**
+     * Closes what vanished, updates the source, and writes the run down.
+     *
+     * <p>Its own transaction, and deliberately not part of any posting's. These
+     * are statements about the run as a whole — how many jobs went away, that the
+     * source answered us, what the totals were — and none of them should be
+     * undone because one posting out of two hundred failed to persist.
+     */
+    private IngestionRun finalizeRun(JobSource source, int rawCount, IngestionRun run,
+                                     IngestionTally tally, Set<String> seenExternalIds,
+                                     List<String> errors) {
         tally.recordClosed(closeVanished(source, seenExternalIds));
 
         source.setSyncSuccessCount(source.getSyncSuccessCount() + 1);
         source.setLastSuccessfulSyncAt(Instant.now());
         source.setConsecutiveFailures(0);
         source.setJobsIngestedTotal(source.getJobsIngestedTotal() + tally.newCount());
+        // Explicit: the source has been detached since before the fetch.
         sourceRepository.save(source);
 
-        healthService.record(source, SourceHealthResult.healthy(200, 0, raw.size()));
+        // A posting we could not persist is our problem, not the source's. It
+        // answered the request perfectly well, so its health is recorded as
+        // healthy and its failure counters are left alone.
+        healthService.record(source, SourceHealthResult.healthy(200, 0, rawCount));
 
         IngestionStatus status = tally.isClean() ? IngestionStatus.SUCCEEDED : IngestionStatus.PARTIAL;
         return finishRun(run, tally, status, errors.isEmpty() ? null : String.join("; ", errors));

@@ -13,6 +13,7 @@ import com.careerflux.institution.dto.InstitutionDtos.BatchView;
 import com.careerflux.institution.dto.InstitutionDtos.DepartmentView;
 import com.careerflux.institution.dto.InstitutionDtos.ScopeView;
 import com.careerflux.institution.dto.InstitutionDtos.StaffRow;
+import com.careerflux.institution.dto.InstitutionDtos.StudentDetail;
 import com.careerflux.institution.dto.InstitutionDtos.StudentPage;
 import com.careerflux.institution.dto.InstitutionDtos.StudentRow;
 import com.careerflux.candidate.dto.CandidateDtos.AcademicRecord;
@@ -22,6 +23,7 @@ import com.careerflux.institution.dto.OverviewDtos.InstitutionOverview;
 import com.careerflux.institution.service.InstitutionAdministrationService;
 import com.careerflux.institution.service.InstitutionOverviewService;
 import com.careerflux.institution.service.StudentDirectoryService;
+import com.careerflux.institution.service.StudentDirectoryService.StudentFilter;
 
 import io.swagger.v3.oas.annotations.Operation;
 
@@ -79,19 +81,35 @@ public class InstitutionController {
         return directoryService.myScope();
     }
 
+    /**
+     * Search and filter the directory.
+     *
+     * <p>Every parameter is optional, so the original {@code ?page&size} call
+     * still means what it did: the whole scope, alphabetically.
+     */
     @GetMapping("/students")
-    @Operation(summary = "Students within the caller's scope")
+    @Operation(summary = "Search, filter and sort students within the caller's scope")
     @PreAuthorize("hasAuthority('STUDENT_READ_SCOPED')")
-    public StudentPage students(@RequestParam(defaultValue = "0") int page,
+    public StudentPage students(@RequestParam(required = false) String q,
+                                @RequestParam(required = false) UUID departmentId,
+                                @RequestParam(required = false) UUID batchId,
+                                @RequestParam(required = false) Double minCgpa,
+                                @RequestParam(required = false) List<String> skills,
+                                @RequestParam(required = false) Integer minProfileCompleteness,
+                                @RequestParam(required = false) Boolean resumeUploaded,
+                                @RequestParam(required = false) String sort,
+                                @RequestParam(defaultValue = "0") int page,
                                 @RequestParam(defaultValue = "25") int size) {
-        return directoryService.students(page, size);
+        StudentFilter filter = new StudentFilter(q, departmentId, batchId, minCgpa, skills,
+                minProfileCompleteness, resumeUploaded);
+        return directoryService.students(filter, page, size, sort);
     }
 
     @GetMapping("/students/{userId}")
-    @Operation(summary = "One student, if they fall inside the caller's scope")
+    @Operation(summary = "One student in full, if they fall inside the caller's scope")
     @PreAuthorize("hasAuthority('STUDENT_READ_SCOPED')")
-    public StudentRow student(@PathVariable UUID userId) {
-        return directoryService.student(userId);
+    public StudentDetail student(@PathVariable UUID userId) {
+        return directoryService.studentDetail(userId);
     }
 
     /**

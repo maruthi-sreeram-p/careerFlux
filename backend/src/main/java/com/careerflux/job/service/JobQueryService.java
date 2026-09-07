@@ -101,16 +101,22 @@ public class JobQueryService {
         // of "%" canonicalises to nothing, so it is text but not a search, and
         // the two answers produced different orderings for the same results.
         boolean searchable = JobSearchRanking.parse(filter.query()) != null;
-        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(size, MAX_PAGE_SIZE),
-                sortOf(sort, searchable));
+        // Both ends are clamped. A negative page was already handled; a size of
+        // zero reached PageRequest and came back as a 500 for what is only a
+        // malformed request.
+        int pageSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+        Pageable pageable = PageRequest.of(Math.max(0, page), pageSize, sortOf(sort, searchable));
 
         Page<Job> results = jobRepository.findAll(specificationFor(filter, profile), pageable);
-        List<Job> jobs = results.getContent();
 
-        List<JobSummary> summaries = decorate(jobs, profile, filter.hideDismissed());
-        List<JobSummary> filtered = applyMatchFilter(summaries, filter);
+        // Every filter is in the query above, so the page is already the answer.
+        // The match floor and the dismissed list used to be applied to these rows
+        // afterwards, which cannot reach a job the page never selected: the first
+        // page of a high floor came back empty while the count promised
+        // thousands, and the jobs that qualified sat forty pages away.
+        List<JobSummary> summaries = decorate(results.getContent(), profile, false);
 
-        return new JobPage(filtered, results.getNumber(), results.getSize(),
+        return new JobPage(summaries, results.getNumber(), results.getSize(),
                 results.getTotalElements(), results.getTotalPages());
     }
 
@@ -259,16 +265,6 @@ public class JobQueryService {
         return summaries;
     }
 
-    private List<JobSummary> applyMatchFilter(List<JobSummary> summaries, JobFilter filter) {
-        if (filter.minMatchScore() == null) {
-            return summaries;
-        }
-        return summaries.stream()
-                .filter(summary -> summary.match() != null
-                        && summary.match().overall() >= filter.minMatchScore())
-                .toList();
-    }
-
     private Specification<Job> specificationFor(JobFilter filter, CandidateProfile profile) {
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -283,7 +279,12 @@ public class JobQueryService {
                 predicates.add(ranking.toPredicate(root, builder));
             }
             if (TextUtils.hasText(filter.location())) {
-                String needle = "%" + filter.location().toLowerCase(Locale.ROOT) + "%";
+                // Trimmed, because this goes straight into a LIKE pattern: an
+                // untrimmed "Bengaluru " asks for the space too and matches
+                // nothing. The search box already trims via canonicalize; the
+                // location box has to do the same or pasting a value silently
+                // empties the results.
+                String needle = "%" + filter.location().strip().toLowerCase(Locale.ROOT) + "%";
                 predicates.add(builder.or(
                         builder.like(builder.lower(root.get("city")), needle),
                         builder.like(builder.lower(root.get("locationRaw")), needle)));
@@ -317,6 +318,34 @@ public class JobQueryService {
                 var observations = root.join("observations");
                 predicates.add(builder.equal(observations.get("source").get("id"), filter.sourceId()));
                 query.distinct(true);
+            }
+
+            // The candidate-scoped filters, as subqueries rather than joins, so a
+            // job cannot appear twice and the count query stays correct.
+            if (filter.minMatchScore() != null) {
+                if (profile == null) {
+                    // Nobody to score against. Asking for a match floor without a
+                    // candidate profile matches nothing, which is what filtering
+                    // the summaries afterwards also did.
+                    predicates.add(builder.disjunction());
+                } else {
+                    jakarta.persistence.criteria.Subquery<UUID> scored = query.subquery(UUID.class);
+                    var match = scored.from(JobMatch.class);
+                    scored.select(match.get("job").get("id"))
+                            .where(builder.equal(match.get("candidate").get("id"), profile.getId()),
+                                    builder.greaterThanOrEqualTo(match.get("overallScore"),
+                                            filter.minMatchScore()));
+                    predicates.add(root.get("id").in(scored));
+                }
+            }
+            if (filter.hideDismissed() && profile != null) {
+                jakarta.persistence.criteria.Subquery<UUID> dismissed = query.subquery(UUID.class);
+                var interaction = dismissed.from(JobInteraction.class);
+                dismissed.select(interaction.get("job").get("id"))
+                        .where(builder.equal(interaction.get("candidate").get("id"), profile.getId()),
+                                builder.equal(interaction.get("interactionType"),
+                                        InteractionType.DISMISSED));
+                predicates.add(builder.not(root.get("id").in(dismissed)));
             }
 
             // Ordering belongs on the result query only. Spring Data reuses this

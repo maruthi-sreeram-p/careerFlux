@@ -31,7 +31,9 @@ import type {
   SourceDetail,
   SourceStats,
   SourceSummary,
+  StudentDetail,
   StudentPage,
+  StudentQueryParams,
   SystemStats,
   InstitutionSummary,
   ProvisionedInstitution,
@@ -342,12 +344,51 @@ export function useInstitutionOverview(enabled = true) {
   });
 }
 
-export function useInstitutionStudents(page = 0, size = 25, enabled = true) {
+/**
+ * Turns the Students page's state into a query string.
+ *
+ * <p>Empty values are dropped rather than sent blank, so an unused filter never
+ * reaches the server and the query key stays stable while the officer types.
+ */
+function studentQueryString(params: StudentQueryParams): string {
+  const search = new URLSearchParams();
+  if (params.q?.trim()) search.set('q', params.q.trim());
+  if (params.departmentId) search.set('departmentId', params.departmentId);
+  if (params.batchId) search.set('batchId', params.batchId);
+  if (params.minCgpa) search.set('minCgpa', String(params.minCgpa));
+  if (params.minProfileCompleteness) {
+    search.set('minProfileCompleteness', String(params.minProfileCompleteness));
+  }
+  if (params.resumeUploaded !== undefined) {
+    search.set('resumeUploaded', String(params.resumeUploaded));
+  }
+  if (params.sort) search.set('sort', params.sort);
+  // Repeated rather than comma-joined: several skills mean ALL of them, and the
+  // server reads one parameter per skill.
+  (params.skills ?? []).forEach((skill) => search.append('skills', skill));
+  search.set('page', String(params.page ?? 0));
+  search.set('size', String(params.size ?? 25));
+  return search.toString();
+}
+
+export function useInstitutionStudents(params: StudentQueryParams = {}, enabled = true) {
+  const query = studentQueryString(params);
   return useQuery({
-    queryKey: ['institution', 'students', page, size],
-    queryFn: ({ signal }) =>
-      api.get<StudentPage>(`/api/institution/students?page=${page}&size=${size}`, signal),
+    queryKey: ['institution', 'students', query],
+    queryFn: ({ signal }) => api.get<StudentPage>(`/api/institution/students?${query}`, signal),
     enabled,
+    // Keeps the previous page on screen while the next one loads, so paging and
+    // typing do not blank the table between keystrokes.
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useStudentDetail(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['institution', 'student', userId],
+    queryFn: ({ signal }) =>
+      api.get<StudentDetail>(`/api/institution/students/${userId}`, signal),
+    enabled: Boolean(userId),
   });
 }
 

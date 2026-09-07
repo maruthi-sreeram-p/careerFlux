@@ -504,32 +504,36 @@ class IngestionFetchBoundaryTest {
         @DisplayName("TEST F — when processing rolls back, its events roll back with it")
         void eventsRollBackWithTheData() {
             // The outbox only means anything if an event cannot outlive the data
-            // it announces. Moving the fetch out of the transaction makes this
-            // easy to get wrong: JOB_RAW is known as soon as the fetch returns,
-            // and publishing it there would commit an announcement of postings
-            // that the processing transaction then discards.
-            long eventsBefore = eventRepository.count();
+            // it announces. What that entails changed in Slice 5: the unit is no
+            // longer the batch but the posting, so a failure removes one
+            // posting's data and one posting's events, and leaves the rest of
+            // both. The invariant to hold on to is the agreement between them,
+            // which is what this now asserts.
             AtomicInteger seen = new AtomicInteger();
+            AtomicReference<String> poisoned = new AtomicReference<>();
             doAnswer(invocation -> {
                 Object result = invocation.callRealMethod();
+                com.careerflux.source.adapter.RawJobPosting incoming = invocation.getArgument(0);
                 if (seen.incrementAndGet() == 2) {
+                    poisoned.set(incoming.externalId());
                     poisonTheTransaction();
                 }
                 return result;
             }).when(normalizer).normalize(any(), any());
 
-            try {
-                ingestionService.ingest(source, IngestionTrigger.MANUAL);
-            } catch (RuntimeException expected) {
-                // The failure may surface at commit; either way the assertion below holds.
-            }
+            IngestionRun run = ingestionService.ingest(source, IngestionTrigger.MANUAL);
 
+            assertThat(poisoned.get()).describedAs("a posting was actually poisoned").isNotNull();
+            String failedKey = source.getId() + ":" + poisoned.get();
+            assertThat(eventRepository.findAll().stream()
+                    .filter(event -> failedKey.equals(event.getEventKey()))
+                    .count())
+                    .describedAs("the failed posting's data rolled back, so its events had to go with it")
+                    .isZero();
             assertThat(observationRepository.findBySourceIdAndActiveTrue(source.getId()))
-                    .describedAs("no job data survived")
-                    .isEmpty();
-            assertThat(eventRepository.count())
-                    .describedAs("and no pipeline event survived to describe data that does not exist")
-                    .isEqualTo(eventsBefore);
+                    .describedAs("while everything around it survived")
+                    .isNotEmpty();
+            assertThat(run.getErrorCount()).isEqualTo(1);
         }
 
         @Test

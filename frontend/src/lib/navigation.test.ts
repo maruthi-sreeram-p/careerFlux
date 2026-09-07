@@ -111,6 +111,7 @@ describe('student navigation', () => {
       '/app/notifications',
       '/app/profile',
       '/app/profile?tab=Preferences',
+      '/app/account',
     ]);
   });
 

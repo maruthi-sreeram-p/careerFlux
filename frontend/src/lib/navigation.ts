@@ -129,6 +129,7 @@ function studentNav(): NavGroup[] {
         { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
         { to: '/app/profile', label: 'Career profile', icon: 'User', end: true },
         { to: '/app/profile?tab=Preferences', label: 'Preferences', icon: 'Sliders' },
+        { to: '/app/account', label: 'Account', icon: 'User' },
       ],
     },
   ];
@@ -159,7 +160,13 @@ function coordinatorNav(): NavGroup[] {
         { to: '/app/sources', label: 'Sources', icon: 'Radar' },
       ],
     },
-    { label: 'You', items: [{ to: '/app/notifications', label: 'Alerts', icon: 'Bell' }] },
+    {
+      label: 'You',
+      items: [
+        { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
+        { to: '/app/account', label: 'Account', icon: 'User' },
+      ],
+    },
   ];
 }
 
@@ -181,7 +188,13 @@ function officerNav(): NavGroup[] {
         { to: '/app/sources', label: 'Sources', icon: 'Radar' },
       ],
     },
-    { label: 'You', items: [{ to: '/app/notifications', label: 'Alerts', icon: 'Bell' }] },
+    {
+      label: 'You',
+      items: [
+        { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
+        { to: '/app/account', label: 'Account', icon: 'User' },
+      ],
+    },
   ];
 }
 
@@ -204,7 +217,13 @@ function collegeAdminNav(): NavGroup[] {
       label: 'Institution',
       items: [{ to: '/app/institution', label: 'Departments & staff', icon: 'Layers' }],
     },
-    { label: 'You', items: [{ to: '/app/notifications', label: 'Alerts', icon: 'Bell' }] },
+    {
+      label: 'You',
+      items: [
+        { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
+        { to: '/app/account', label: 'Account', icon: 'User' },
+      ],
+    },
   ];
 }
 
@@ -225,7 +244,13 @@ function platformNav(): NavGroup[] {
         { to: '/app/sources', label: 'Sources', icon: 'Radar' },
       ],
     },
-    { label: 'You', items: [{ to: '/app/notifications', label: 'Alerts', icon: 'Bell' }] },
+    {
+      label: 'You',
+      items: [
+        { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
+        { to: '/app/account', label: 'Account', icon: 'User' },
+      ],
+    },
   ];
 }
 

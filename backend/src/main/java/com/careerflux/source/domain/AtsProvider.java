@@ -8,6 +8,9 @@ public enum AtsProvider {
     SMARTRECRUITERS,
     RECRUITEE,
     WORKDAY,
+    WORKABLE,
+    BREEZY,
+    ORACLE_HCM,
     OTHER,
     NONE,
     UNKNOWN

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '../components/layout/AppShell';
 import { AcademicPanel } from '../components/profile/AcademicPanel';
+import { PasswordPanel } from '../components/profile/PasswordPanel';
 import { Icon } from '../components/ui/Icon';
 import { OptionGrid, TokenInput } from '../components/ui/TokenInput';
 import {
@@ -655,6 +656,15 @@ export default function Profile() {
       {tab === 'Profile' && <ProfileTab key={`profile-${version}`} profile={data} />}
       {tab === 'Preferences' && <PreferencesTab key={`prefs-${version}`} profile={data} />}
       {tab === 'Resume' && <ResumeTab key={`resume-${version}`} profile={data} />}
+
+      {/*
+        Below the tabs rather than inside one. Changing a password is an account
+        action, not a part of the career profile the tabs describe, and burying
+        it in a tab is how people end up unable to find it.
+      */}
+      <div style={{ marginTop: 'var(--space-6)' }}>
+        <PasswordPanel />
+      </div>
     </div>
   );
 }

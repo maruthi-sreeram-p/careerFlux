@@ -38,7 +38,7 @@ No secret values appear here.
                               |
    ┌──────────────────────────────────────────────────────────┐
    │  careerflux-backend         Spring Boot, port 8080       │
-   │  profiles: postgres,kafka                                │
+   │  profiles: postgres                                      │
    │  NO published port — reachable only through nginx        │
    └──────────────────────────────────────────────────────────┘
               |                    |                    |
@@ -242,6 +242,38 @@ plausible fixtures is how demonstration data ends up mistaken for real records.
 
 ---
 
+## Security headers
+
+The frontend nginx sets these on every response it serves — the SPA shell, the
+hashed assets, and the fallback that makes a deep link survive a refresh:
+
+| Header | Value |
+|---|---|
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | `default-src 'self'` plus Google Fonts, `data:` images, and nothing else |
+
+The CSP is written against what the built bundle actually loads and was verified
+by serving `dist/` with the header and watching for violations: the landing page,
+a deep link and the sign-in form all render clean. It needs neither
+`'unsafe-inline'` nor `'unsafe-eval'`, which is the point — the app keeps its
+tokens in `localStorage`, so an injected script would be able to read them, and
+`script-src 'self'` is what stops one running.
+
+Two things will break it, both deliberate to notice:
+
+- **Splitting the frontend and API onto different origins.** `connect-src 'self'`
+  assumes the same-origin `/api` proxy in this repository. A split deployment
+  must add the API origin.
+- **Adding a third-party script** — analytics, a chat widget, a font host other
+  than Google's. Each needs its origin in the matching directive.
+
+`Strict-Transport-Security` is **not** set here, on purpose. Only the TLS
+terminator knows whether the request was really HTTPS; see below.
+
+---
+
 ## HTTPS
 
 **Nothing in this repository terminates TLS, holds a certificate, or knows the
@@ -297,12 +329,18 @@ consumer group is `careerflux-ingestion` and the producer uses `acks=all`.
 > events in it are lost with it. It is a single point of failure and is not
 > presented as anything else.
 
-That is survivable because Kafka is not on the critical path. Discovery, the
-student directory, requirements and shortlisting all keep serving with the broker
-down, and the consumer reconnects by itself. If the broker is unhealthy for long
-enough to matter, drop `,kafka` from `SPRING_PROFILES_ACTIVE` and restart: the
-same pipeline runs through the in-process transactional outbox, with the same
-topic names and the same handlers.
+That is survivable because Kafka is not on the critical path — and the pilot no
+longer takes the path at all. `SPRING_PROFILES_ACTIVE` is `postgres`, so pipeline
+events go through the in-process transactional outbox, with the same topic names
+and the same handlers. The outbox is the better fit at this size for a reason
+beyond one less service to run: it writes the event in the same transaction as
+the data it describes, so there is no window in which a job exists and the event
+announcing it does not.
+
+The broker is still defined in the base compose file and will still start, since
+it declares no compose profile; nothing connects to it. To leave it stopped,
+add `--scale kafka=0` to the `up` command. To go back to Kafka, add `,kafka` to
+`SPRING_PROFILES_ACTIVE` and restore the backend's `depends_on`.
 
 Check it with the command in the runbook.
 
@@ -467,8 +505,11 @@ Accepted for a first pilot. All of them are real:
   queuing under load rather than failing.
 - **No RTO has been agreed.** Mechanical restore takes seconds; detection and
   cutover are human and unmeasured.
-- **No Content-Security-Policy** on the static server. Needs writing against the
-  real bundle and origin.
+- **HSTS is not set here**, and must not be until HTTPS is genuinely enforced for
+  the domain — see "HTTPS". It belongs on the TLS terminator, which is the only
+  component that knows the scheme was really secure. Add
+  `includeSubDomains` only once every subdomain is on HTTPS, and `preload` only
+  deliberately: it is effectively irreversible.
 - **No monitoring or alerting.** The backup marker file is the only automatic
   evidence of anything.
 

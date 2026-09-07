@@ -186,9 +186,11 @@ class InstitutionalAuthorizationIntegrationTest {
             mockMvc.perform(get("/api/institution/students/" + cse.userId)
                             .header("Authorization", bearer(token)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.email").value("cse-visible@example.com"))
+                    // The row moved under "summary" when the detail view gained
+                    // skills, placements and activity around it.
+                    .andExpect(jsonPath("$.summary.email").value("cse-visible@example.com"))
                     // The staff view carries readiness, not contact details.
-                    .andExpect(jsonPath("$.departmentName").value("Computer Science"));
+                    .andExpect(jsonPath("$.summary.departmentName").value("Computer Science"));
         }
 
         @Test
