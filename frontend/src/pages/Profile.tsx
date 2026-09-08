@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { PageHeader } from '../components/layout/AppShell';
 import { AcademicPanel } from '../components/profile/AcademicPanel';
+import { ProposalReviewPanel } from '../components/profile/ProposalReviewPanel';
 import { PasswordPanel } from '../components/profile/PasswordPanel';
 import { Icon } from '../components/ui/Icon';
 import { OptionGrid, TokenInput } from '../components/ui/TokenInput';
@@ -20,6 +21,7 @@ import {
 } from '../components/ui/primitives';
 import { ApiError } from '../lib/api';
 import {
+  usePendingProposal,
   useProfile,
   useRematch,
   useSavePreferences,
@@ -413,6 +415,7 @@ function PreferencesTab({ profile }: { profile: CandidateProfile }) {
 
 function ResumeTab({ profile }: { profile: CandidateProfile }) {
   const upload = useUploadResume();
+  const pendingProposal = usePendingProposal();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -426,9 +429,9 @@ function ResumeTab({ profile }: { profile: CandidateProfile }) {
     upload.mutate(file, {
       onSuccess: (result) =>
         toast.show(
-          result.aiAssisted
-            ? `Resume parsed by ${result.engine}.`
-            : 'Resume read with the simpler parser. Check the extracted profile.',
+          result.proposalId
+            ? 'Resume read. Review the suggestions below before anything is saved.'
+            : 'Resume stored. Nothing new was found to suggest.',
           'success',
         ),
       onError: (caught) =>
@@ -441,6 +444,10 @@ function ResumeTab({ profile }: { profile: CandidateProfile }) {
 
   return (
     <div className="grid" style={{ gap: 'var(--space-4)' }}>
+      {/* The review comes first: it is the one thing on this screen waiting on
+          the student, and nothing it describes has been saved yet. */}
+      {pendingProposal.data && <ProposalReviewPanel proposal={pendingProposal.data} />}
+
       {resume && (
         <Panel title="Current resume">
           <div className="row between wrap gap-4">

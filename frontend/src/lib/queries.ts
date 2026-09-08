@@ -28,6 +28,9 @@ import type {
   Requirement,
   RequirementPage,
   ResumeParseResult,
+  ProposalView,
+  ReviewResult,
+  Decision,
   SourceDetail,
   SourceStats,
   SourceSummary,
@@ -56,6 +59,7 @@ export const keys = {
   notifications: ['notifications'] as const,
   unreadCount: ['notifications', 'unread'] as const,
   systemStats: ['admin', 'stats'] as const,
+  pendingProposal: ['candidate', 'resume-proposal', 'pending'] as const,
 };
 
 /* ------------------------------------------------------------- Dashboard */
@@ -87,6 +91,48 @@ export function useUploadResume() {
     onSuccess: (result) => {
       queryClient.setQueryData(keys.profile, result.profile);
       queryClient.invalidateQueries({ queryKey: keys.dashboard });
+      // The upload did not change the profile. What it produced is a reading
+      // waiting for the student, so the review panel needs to refetch.
+      queryClient.invalidateQueries({ queryKey: keys.pendingProposal });
+    },
+  });
+}
+
+/* --------------------------------------------------- AI profile proposals */
+
+/** The reading still waiting for this student, if any. 204 arrives as undefined. */
+export function usePendingProposal() {
+  return useQuery({
+    queryKey: keys.pendingProposal,
+    queryFn: ({ signal }) =>
+      api.get<ProposalView | undefined>('/api/candidate/resume-proposals/pending', signal),
+  });
+}
+
+export function useApproveProposal(proposalId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (decisions: Decision[]) =>
+      api.post<ReviewResult>(
+        `/api/candidate/resume-proposals/${proposalId}/approve`,
+        { decisions },
+      ),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.profile, result.profile);
+      queryClient.setQueryData(keys.pendingProposal, undefined);
+      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+export function useRejectProposal(proposalId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post<ReviewResult>(`/api/candidate/resume-proposals/${proposalId}/reject`),
+    onSuccess: (result) => {
+      queryClient.setQueryData(keys.profile, result.profile);
+      queryClient.setQueryData(keys.pendingProposal, undefined);
     },
   });
 }

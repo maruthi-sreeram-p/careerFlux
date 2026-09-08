@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import com.careerflux.ai.dto.ExtractedResume;
+import com.careerflux.ai.proposal.dto.ProposalDtos.ProposedItem;
 import com.careerflux.candidate.CandidateProfileChangedEvent;
 import com.careerflux.candidate.domain.CandidateEducation;
 import com.careerflux.candidate.domain.CandidateExperience;
@@ -241,133 +241,195 @@ public class CandidateProfileService {
     }
 
     /**
-     * Writes a resume extraction onto the profile. Existing values the candidate
-     * has already confirmed are left alone: the extraction fills blanks, it does
-     * not overwrite corrections.
+     * Writes the parts of an AI proposal the candidate explicitly accepted.
+     *
+     * <p>This is the only path by which a resume reading reaches the profile,
+     * and it takes decisions rather than an extraction. Nothing is inferred
+     * here: each item was shown to the candidate with what their profile
+     * currently says beside it, and only the ones they acted on arrive.
+     *
+     * <p>Two things it deliberately cannot do. It never clears a field —
+     * an accepted item always carries a value, so there is no path from "the
+     * resume was silent" to "the profile is now blank". And it never touches
+     * CGPA, its scale, its source or who recorded it: those are the
+     * institution's record and are not in the vocabulary of this method.
+     *
+     * @param accepted items whose {@code proposedValue} is the final value —
+     *                 already substituted where the candidate typed their own
+     * @param modelRead whether a language model produced the reading, which
+     *                  decides the provenance recorded against new skills
+     * @return the keys that actually changed something, for the response
      */
     @Transactional
-    public void applyExtraction(CandidateProfile profile, ExtractedResume extracted) {
-        if (extracted == null) {
-            return;
+    public List<String> applyAcceptedProposal(CandidateProfile profile,
+                                              List<ProposedItem> accepted,
+                                              boolean modelRead) {
+        List<String> applied = new ArrayList<>();
+        if (accepted == null || accepted.isEmpty()) {
+            return applied;
         }
-        if (!TextUtils.hasText(profile.getHeadline())) {
-            profile.setHeadline(TextUtils.truncate(trimToNull(extracted.headline()), 200));
-        }
-        if (!TextUtils.hasText(profile.getSummary())) {
-            profile.setSummary(trimToNull(extracted.summary()));
-        }
-        if (!TextUtils.hasText(profile.getLocation())) {
-            profile.setLocation(TextUtils.truncate(trimToNull(extracted.location()), 160));
-        }
-        if (!TextUtils.hasText(profile.getPhone())) {
-            profile.setPhone(TextUtils.truncate(trimToNull(extracted.phone()), 40));
-        }
-        if (!TextUtils.hasText(profile.getLinkedinUrl())) {
-            profile.setLinkedinUrl(TextUtils.truncate(trimToNull(extracted.linkedinUrl()), 300));
-        }
-        if (!TextUtils.hasText(profile.getGithubUrl())) {
-            profile.setGithubUrl(TextUtils.truncate(trimToNull(extracted.githubUrl()), 300));
-        }
-        if (!TextUtils.hasText(profile.getPortfolioUrl())) {
-            profile.setPortfolioUrl(TextUtils.truncate(trimToNull(extracted.portfolioUrl()), 300));
-        }
-        if (!TextUtils.hasText(profile.getPrimaryRole())) {
-            profile.setPrimaryRole(TextUtils.truncate(trimToNull(extracted.primaryRole()), 120));
-        }
-        if (profile.getSeniority() == null || !profile.getSeniority().isKnown()) {
-            profile.setSeniority(parseEnum(Seniority.class, extracted.seniority(), Seniority.UNSPECIFIED));
-        }
-        if (profile.getYearsExperience() == null && extracted.yearsExperience() != null) {
-            profile.setYearsExperience(BigDecimal.valueOf(extracted.yearsExperience())
-                    .setScale(1, java.math.RoundingMode.HALF_UP));
-        }
-        if (TextUtils.hasText(extracted.fullName()) && !TextUtils.hasText(profile.getUser().getFullName())) {
-            profile.getUser().setFullName(TextUtils.truncate(extracted.fullName().strip(), 160));
+        SkillOrigin origin = modelRead ? SkillOrigin.AI_SUGGESTION : SkillOrigin.RESUME;
+
+        for (ProposedItem item : accepted) {
+            String key = item.key();
+            String value = trimToNull(item.proposedValue());
+            if (key == null || value == null) {
+                continue;
+            }
+            boolean changed = switch (sectionOf(key)) {
+                case "field" -> applyField(profile, key.substring(6), value);
+                case "skill" -> addSkill(profile, item.data().get("slug"), origin);
+                case "experience" -> addExperience(profile, item.data());
+                case "education" -> addEducation(profile, item.data());
+                // "academic" and anything unrecognised reach here. The service
+                // refuses them before this point; ignoring them again costs
+                // nothing and means a new key can never become a silent write.
+                default -> false;
+            };
+            if (changed) {
+                applied.add(key);
+            }
         }
 
-        mergeExtractedSkills(profile, extracted.skills());
-        mergeExtractedExperiences(profile, extracted.experiences());
-        mergeExtractedEducation(profile, extracted.education());
+        if (!applied.isEmpty()) {
+            recomputeCompleteness(profile);
+            profileRepository.save(profile);
+        }
+        return applied;
+    }
 
+    private static String sectionOf(String key) {
+        int colon = key.indexOf(':');
+        return colon < 0 ? key : key.substring(0, colon);
+    }
+
+    /**
+     * Writes one scalar field.
+     *
+     * <p>Full name lives on the account rather than the profile, which is why it
+     * is handled here rather than being a column like the rest.
+     */
+    private boolean applyField(CandidateProfile profile, String field, String value) {
+        switch (field) {
+            case "fullName" -> {
+                if (profile.getUser() == null) {
+                    return false;
+                }
+                profile.getUser().setFullName(TextUtils.truncate(value, 160));
+            }
+            case "phone" -> profile.setPhone(TextUtils.truncate(value, 40));
+            case "location" -> profile.setLocation(TextUtils.truncate(value, 160));
+            case "headline" -> profile.setHeadline(TextUtils.truncate(value, 200));
+            case "summary" -> profile.setSummary(value);
+            case "primaryRole" -> profile.setPrimaryRole(TextUtils.truncate(value, 120));
+            case "linkedinUrl" -> profile.setLinkedinUrl(TextUtils.truncate(value, 300));
+            case "githubUrl" -> profile.setGithubUrl(TextUtils.truncate(value, 300));
+            case "portfolioUrl" -> profile.setPortfolioUrl(TextUtils.truncate(value, 300));
+            case "seniority" -> profile.setSeniority(parseEnum(Seniority.class, value, Seniority.UNSPECIFIED));
+            case "yearsExperience" -> {
+                BigDecimal years = parseDecimal(value);
+                if (years == null) {
+                    return false;
+                }
+                profile.setYearsExperience(years.setScale(1, java.math.RoundingMode.HALF_UP));
+            }
+            // No case writes cgpa, cgpaScale, cgpaSource, cgpaRecordedBy or
+            // cgpaRecordedAt, and this default is what keeps it that way if a
+            // key for one is ever proposed.
+            default -> {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean addSkill(CandidateProfile profile, String slug, SkillOrigin origin) {
+        if (!TextUtils.hasText(slug) || profile.getSkills().size() >= MAX_SKILLS) {
+            return false;
+        }
+        Optional<Skill> resolved = skillResolver.resolve(slug);
+        if (resolved.isEmpty()) {
+            return false;
+        }
+        UUID skillId = resolved.get().getId();
+        boolean held = profile.getSkills().stream()
+                .anyMatch(existing -> existing.getSkill() != null
+                        && skillId.equals(existing.getSkill().getId()));
+        if (held) {
+            return false;
+        }
+        CandidateSkill candidateSkill = new CandidateSkill();
+        candidateSkill.setCandidate(profile);
+        candidateSkill.setSkill(resolved.get());
+        candidateSkill.setOrigin(origin);
+        candidateSkill.setEvidence(origin == SkillOrigin.AI_SUGGESTION
+                ? "Read from your resume and confirmed by you"
+                : "Read from your resume");
+        profile.getSkills().add(candidateSkill);
+        return true;
+    }
+
+    private boolean addExperience(CandidateProfile profile, Map<String, String> data) {
+        String company = data.get("companyName");
+        String title = data.get("title");
+        if (!TextUtils.hasText(company) && !TextUtils.hasText(title)) {
+            return false;
+        }
+        CandidateExperience experience = new CandidateExperience();
+        experience.setCandidate(profile);
+        experience.setCompanyName(TextUtils.truncate(orPlaceholder(company, "Unspecified"), 200));
+        experience.setTitle(TextUtils.truncate(orPlaceholder(title, "Unspecified"), 200));
+        experience.setLocation(TextUtils.truncate(trimToNull(data.get("location")), 160));
+        experience.setStartDate(parseFlexibleDate(data.get("startDate")));
+        experience.setEndDate(parseFlexibleDate(data.get("endDate")));
+        experience.setCurrent(Boolean.parseBoolean(data.get("current")));
+        experience.setDescription(trimToNull(data.get("description")));
+        experience.setDisplayOrder(profile.getExperiences().size());
+        profile.getExperiences().add(experience);
+        return true;
+    }
+
+    private boolean addEducation(CandidateProfile profile, Map<String, String> data) {
+        String institution = trimToNull(data.get("institution"));
+        if (institution == null) {
+            return false;
+        }
+        CandidateEducation entry = new CandidateEducation();
+        entry.setCandidate(profile);
+        entry.setInstitution(TextUtils.truncate(institution, 200));
+        entry.setDegree(TextUtils.truncate(trimToNull(data.get("degree")), 160));
+        entry.setFieldOfStudy(TextUtils.truncate(trimToNull(data.get("fieldOfStudy")), 160));
+        entry.setStartYear(parseYear(data.get("startYear")));
+        entry.setEndYear(parseYear(data.get("endYear")));
+        // The grade is stored on the education entry as the free text it was
+        // written as. It is not a CGPA and is never read as one.
+        entry.setGrade(TextUtils.truncate(trimToNull(data.get("grade")), 60));
+        entry.setDisplayOrder(profile.getEducation().size());
+        profile.getEducation().add(entry);
+        return true;
+    }
+
+    private static Integer parseYear(String value) {
+        try {
+            return TextUtils.hasText(value) ? Integer.valueOf(value.strip()) : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static BigDecimal parseDecimal(String value) {
+        try {
+            return new BigDecimal(value.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Moves a candidate into review once there is something for them to review. */
+    @Transactional
+    public void markAwaitingProposalReview(CandidateProfile profile) {
         advanceOnboarding(profile, OnboardingStage.PROFILE_REVIEW);
-        recomputeCompleteness(profile);
         profileRepository.save(profile);
-    }
-
-    private void mergeExtractedSkills(CandidateProfile profile, List<String> skillNames) {
-        if (skillNames == null || skillNames.isEmpty()) {
-            return;
-        }
-        Set<UUID> existing = new LinkedHashSet<>();
-        skillRepository.findByCandidateId(profile.getId())
-                .forEach(cs -> existing.add(cs.getSkill().getId()));
-
-        int added = 0;
-        for (String raw : skillNames) {
-            if (existing.size() + added >= MAX_SKILLS) {
-                break;
-            }
-            Optional<Skill> resolved = skillResolver.resolve(raw);
-            if (resolved.isEmpty() || existing.contains(resolved.get().getId())) {
-                continue;
-            }
-            CandidateSkill candidateSkill = new CandidateSkill();
-            candidateSkill.setCandidate(profile);
-            candidateSkill.setSkill(resolved.get());
-            candidateSkill.setOrigin(SkillOrigin.RESUME);
-            candidateSkill.setEvidence("Read from your resume");
-            profile.getSkills().add(candidateSkill);
-            existing.add(resolved.get().getId());
-            added++;
-        }
-        log.debug("Merged {} extracted skills into candidate {}", added, profile.getId());
-    }
-
-    private void mergeExtractedExperiences(CandidateProfile profile,
-                                           List<ExtractedResume.ExtractedExperience> experiences) {
-        if (experiences == null || experiences.isEmpty() || !profile.getExperiences().isEmpty()) {
-            return;
-        }
-        int order = 0;
-        for (ExtractedResume.ExtractedExperience item : experiences) {
-            if (!TextUtils.hasText(item.companyName()) && !TextUtils.hasText(item.title())) {
-                continue;
-            }
-            CandidateExperience experience = new CandidateExperience();
-            experience.setCandidate(profile);
-            experience.setCompanyName(TextUtils.truncate(orPlaceholder(item.companyName(), "Unspecified"), 200));
-            experience.setTitle(TextUtils.truncate(orPlaceholder(item.title(), "Unspecified"), 200));
-            experience.setLocation(TextUtils.truncate(trimToNull(item.location()), 160));
-            experience.setStartDate(parseFlexibleDate(item.startDate()));
-            experience.setEndDate(parseFlexibleDate(item.endDate()));
-            experience.setCurrent(Boolean.TRUE.equals(item.current()));
-            experience.setDescription(trimToNull(item.description()));
-            experience.setDisplayOrder(order++);
-            profile.getExperiences().add(experience);
-        }
-    }
-
-    private void mergeExtractedEducation(CandidateProfile profile,
-                                         List<ExtractedResume.ExtractedEducation> education) {
-        if (education == null || education.isEmpty() || !profile.getEducation().isEmpty()) {
-            return;
-        }
-        int order = 0;
-        for (ExtractedResume.ExtractedEducation item : education) {
-            if (!TextUtils.hasText(item.institution())) {
-                continue;
-            }
-            CandidateEducation entry = new CandidateEducation();
-            entry.setCandidate(profile);
-            entry.setInstitution(TextUtils.truncate(item.institution().strip(), 200));
-            entry.setDegree(TextUtils.truncate(trimToNull(item.degree()), 160));
-            entry.setFieldOfStudy(TextUtils.truncate(trimToNull(item.fieldOfStudy()), 160));
-            entry.setStartYear(item.startYear());
-            entry.setEndYear(item.endYear());
-            entry.setGrade(TextUtils.truncate(trimToNull(item.grade()), 60));
-            entry.setDisplayOrder(order++);
-            profile.getEducation().add(entry);
-        }
     }
 
     private void replaceSkills(CandidateProfile profile, List<SkillItem> items) {

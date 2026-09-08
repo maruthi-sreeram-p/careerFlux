@@ -155,6 +155,74 @@ export interface ResumeParseResult {
   engine: string;
   aiAssisted: boolean;
   notice: string | null;
+  /** Unchanged by the upload. Nothing is written until the proposal is approved. */
+  profile: CandidateProfile;
+  /** The reading waiting for review, or null when nothing was worth asking about. */
+  proposalId: string | null;
+}
+
+/* --------------------------------------------------- AI profile proposals */
+
+/**
+ * The verdict on one thing the resume reader found.
+ *
+ * MISSING and UNCHANGED are shown but never actionable, and INFORMATION_FOUND
+ * is the academic record: read from the resume, displayed, and not something
+ * this workflow may write.
+ */
+export type ProposalItemState =
+  | 'NEW'
+  | 'UNCHANGED'
+  | 'CONFLICT'
+  | 'MISSING'
+  | 'UNCERTAIN'
+  | 'INFORMATION_FOUND';
+
+export type ProposalSection =
+  | 'PERSONAL'
+  | 'PROFESSIONAL'
+  | 'LINKS'
+  | 'SKILLS'
+  | 'EXPERIENCE'
+  | 'EDUCATION'
+  | 'ACADEMIC';
+
+export interface ProposedItem {
+  key: string;
+  section: ProposalSection;
+  label: string;
+  state: ProposalItemState;
+  currentValue: string | null;
+  proposedValue: string | null;
+  /** Whether accepting this could change anything. The server enforces it too. */
+  decidable: boolean;
+  editable: boolean;
+  data: Record<string, string>;
+  note: string | null;
+}
+
+export interface ProposalView {
+  id: string;
+  resumeId: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
+  engine: string;
+  aiAssisted: boolean;
+  createdAt: string;
+  reviewedAt: string | null;
+  items: ProposedItem[];
+}
+
+export type DecisionAction = 'ACCEPT' | 'REJECT' | 'EDIT';
+
+export interface Decision {
+  key: string;
+  action: DecisionAction;
+  value: string | null;
+}
+
+export interface ReviewResult {
+  proposal: ProposalView;
+  applied: string[];
   profile: CandidateProfile;
 }
 

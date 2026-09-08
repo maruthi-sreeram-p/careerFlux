@@ -13,6 +13,11 @@ import com.careerflux.candidate.dto.CandidateDtos.AcademicRecord;
 import com.careerflux.candidate.dto.CandidateDtos.AcademicUpdateRequest;
 import com.careerflux.candidate.service.AcademicRecordService;
 import com.careerflux.candidate.service.CandidateProfileService;
+import com.careerflux.ai.proposal.ProfileProposalService;
+import com.careerflux.ai.proposal.dto.ProposalDtos.ApprovalRequest;
+import com.careerflux.ai.proposal.dto.ProposalDtos.ProposalSummary;
+import com.careerflux.ai.proposal.dto.ProposalDtos.ProposalView;
+import com.careerflux.ai.proposal.dto.ProposalDtos.ReviewResult;
 import com.careerflux.candidate.service.ResumeService;
 import com.careerflux.security.CurrentUser;
 
@@ -52,6 +57,7 @@ public class CandidateController {
 
     private final CandidateProfileService profileService;
     private final ResumeService resumeService;
+    private final ProfileProposalService proposalService;
     private final CandidateMapper mapper;
     private final CurrentUser currentUser;
 
@@ -60,11 +66,13 @@ public class CandidateController {
     public CandidateController(CandidateProfileService profileService,
                                AcademicRecordService academicRecords,
                                ResumeService resumeService,
+                               ProfileProposalService proposalService,
                                CandidateMapper mapper,
                                CurrentUser currentUser) {
         this.profileService = profileService;
         this.academicRecords = academicRecords;
         this.resumeService = resumeService;
+        this.proposalService = proposalService;
         this.mapper = mapper;
         this.currentUser = currentUser;
     }
@@ -108,6 +116,50 @@ public class CandidateController {
     @Operation(summary = "Upload a resume and return the extraction for review")
     public ResumeParseResult uploadResume(@RequestParam("file") MultipartFile file) {
         return resumeService.upload(currentUser.requireId(), file);
+    }
+
+    // ------------------------------------------------------ resume proposals
+    //
+    // What a resume reading would change, and the candidate's answer to it.
+    // These sit on the candidate API behind the same SELF_PROFILE_MANAGE
+    // authority as everything else on this controller, and every one of them
+    // resolves the proposal through the signed-in account's own profile. There
+    // is no candidate id, profile id or proposal owner in any request body: a
+    // student can only ever reach their own.
+
+    @GetMapping("/resume-proposals")
+    @Operation(summary = "Every resume reading this candidate has been offered, newest first")
+    public List<ProposalSummary> resumeProposals() {
+        return proposalService.list(currentUser.requireId());
+    }
+
+    @GetMapping("/resume-proposals/pending")
+    @Operation(summary = "The reading still waiting for this candidate, if there is one")
+    public ResponseEntity<ProposalView> pendingResumeProposal() {
+        return proposalService.pending(currentUser.requireId())
+                .map(ResponseEntity::ok)
+                // 204 rather than an empty object: "there is nothing to review"
+                // is a different answer from "here is an empty review".
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @GetMapping("/resume-proposals/{proposalId}")
+    @Operation(summary = "One resume reading, with every proposed change and its verdict")
+    public ProposalView resumeProposal(@PathVariable UUID proposalId) {
+        return proposalService.get(currentUser.requireId(), proposalId);
+    }
+
+    @PostMapping("/resume-proposals/{proposalId}/approve")
+    @Operation(summary = "Apply the proposed changes this candidate accepted, and only those")
+    public ReviewResult approveResumeProposal(@PathVariable UUID proposalId,
+                                              @RequestBody ApprovalRequest request) {
+        return proposalService.approve(currentUser.requireId(), proposalId, request);
+    }
+
+    @PostMapping("/resume-proposals/{proposalId}/reject")
+    @Operation(summary = "Discard a resume reading without changing the profile")
+    public ReviewResult rejectResumeProposal(@PathVariable UUID proposalId) {
+        return proposalService.reject(currentUser.requireId(), proposalId);
     }
 
     @GetMapping("/resumes")

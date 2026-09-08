@@ -158,6 +158,12 @@ public final class CandidateDtos {
             String engine,
             boolean aiAssisted,
             String notice,
-            CandidateProfileResponse profile) {
+            CandidateProfileResponse profile,
+            /**
+             * The reading waiting for the student, when there is one. Null when
+             * the resume produced nothing worth asking about — an empty review
+             * screen would be worse than none.
+             */
+            UUID proposalId) {
     }
 }
