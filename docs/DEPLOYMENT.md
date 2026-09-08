@@ -9,6 +9,21 @@ they mention the same one.
 
 No secret values appear here.
 
+**Two deployment shapes are supported**, and most of this document applies to
+both because the application is the same either way:
+
+| | Docker Compose on a host | Render |
+|---|---|---|
+| Where it runs | A VM you own | Render's managed platform |
+| TLS | A reverse proxy you run | Render, automatically |
+| Database | The `postgres` container | Render PostgreSQL |
+| Resume files | Named volume `resume-data` | A Render disk at `/app/data/resumes` |
+| Backups | `scripts/backup.sh` | Render snapshots — **`backup.sh` cannot run there** |
+
+The Compose path is described throughout. **Render has its own section below**,
+and where the two differ the Render section says so explicitly rather than
+leaving you to infer it.
+
 ---
 
 ## Architecture
@@ -366,7 +381,158 @@ vanish on the next restart, one file at a time, with nothing logged.
 
 ---
 
+## Render
+
+The pilot's managed alternative to running Compose on a VM. Same application,
+same profile, same schema; what changes is who runs the container and where the
+disk comes from.
+
+### Topology
+
+```
+                        INTERNET
+                            |
+                       HTTPS (Render)
+                            |
+        +-------------------------------------+
+        |  careerflux-frontend   (web, public) |   nginx
+        |    serves the built SPA at /         |   security headers + CSP
+        |    proxies /api  ------------------+ |   client_max_body_size 10m
+        +-----------------------------------|-+
+                                            | Render private network
+        +-----------------------------------v-+
+        |  careerflux-backend  (pserv, private)|  no public address at all
+        |    SPRING_PROFILES_ACTIVE=postgres   |  single instance
+        +----+--------------------------+------+
+             |                          |
+   +---------v---------+     +----------v----------+
+   |  careerflux-db     |     |  disk               |
+   |  Render PostgreSQL |     |  /app/data/resumes  |
+   +--------------------+     +---------------------+
+```
+
+The backend is a **private service**. It has no Render URL, so the only way in
+is through nginx, which is the same property the Compose overlay gets by
+publishing no backend port. The browser still sees one origin and `/api` is
+still same-origin, so no CORS preflight and no API-URL mechanism in the bundle.
+
+`render.yaml` in the repository root declares all three resources. It carries no
+secrets — everything sensitive is `sync: false`, which makes Render ask you for
+the value instead.
+
+### What differs from Compose, and why
+
+**The nginx upstream.** Compose resolves `backend`; Render resolves
+`careerflux-backend`. `frontend/nginx.conf` is therefore installed as an nginx
+*template* and the hostname comes from `CAREERFLUX_BACKEND_ORIGIN`, which the
+image defaults to `backend:8080` so Compose is unaffected. Only names starting
+`CAREERFLUX_` are substituted — `NGINX_ENVSUBST_FILTER` in the Dockerfile — so
+nginx's own `$host`, `$remote_addr` and `$uri` are left alone. Without that
+filter the default entrypoint would blank every one of them and produce a config
+that starts and then misbehaves.
+
+**The listen port.** Render expects a web service on its own port, so
+`CAREERFLUX_LISTEN_PORT` is set to `10000` there and stays `80` everywhere else.
+
+**Nothing else.** No application code differs between the two.
+
+### Setting it up
+
+1. **Create the database first.** Its internal connection details are needed by
+   the backend, and Render only shows them once the database exists. Put it in
+   the same region as everything else; the private network does not cross
+   regions.
+
+2. **Deploy the backend** as a private service from `backend/Dockerfile`, with a
+   disk mounted at exactly `/app/data/resumes`. Attach the disk *before* the
+   first upload — a disk added later starts empty, and the database rows that
+   already point into it will not find their files.
+
+3. **Deploy the frontend** as a web service from `frontend/Dockerfile`.
+
+4. **Set `CAREERFLUX_CORS_ORIGINS`** to the frontend's Render URL once Render has
+   assigned it, then redeploy the backend. Until this is right, every GET works
+   and every write fails with a bare "Invalid CORS request" — the app looks
+   broken in a way that does not obviously point at CORS.
+
+5. **Create the first administrator** with `CAREERFLUX_ADMIN_EMAIL` and
+   `CAREERFLUX_ADMIN_PASSWORD`, then clear both and redeploy so the password
+   stops living in the service environment.
+
+### The database URL
+
+Render gives you a `postgresql://` URL. **Spring does not accept that form.**
+Build the JDBC one by hand from the same host, port and database name:
+
+```
+jdbc:postgresql://<internal-host>:<port>/careerflux
+```
+
+and set `DATABASE_USERNAME` and `DATABASE_PASSWORD` separately. The `postgres`
+profile gives those two **no fallback**, so a deployment that forgets them fails
+to start rather than quietly connecting to whatever answers.
+
+Flyway runs V1 to V15 on first boot against the empty database. Nothing else is
+required; there is no dump to load and no manual schema step.
+
+### Backups on Render
+
+**`scripts/backup.sh` does not work on Render and must not be scheduled there.**
+It shells out to `docker exec` for `pg_dump` and mounts a named Docker volume to
+archive resumes. Render gives you neither a Docker socket nor a named volume, so
+the script would fail on its first line — or, worse, be believed.
+
+Use instead:
+
+- **Database** — Render's own PostgreSQL backups. Paid instances take daily
+  snapshots and support point-in-time recovery; check the retention on the plan
+  you chose and write it down, because "we have backups" and "we can restore to
+  Tuesday" are different claims.
+- **Resume files** — Render disk snapshots, on the disk's own page.
+
+Two things follow from splitting the two, and both matter:
+
+- **They are not taken at the same instant.** The Compose script dumps the
+  database first on purpose, so the worst case is a file nothing references
+  rather than a row whose file is missing. Independent snapshots give no such
+  ordering, so after any restore expect a small window where the two disagree.
+  A resume row whose file is absent surfaces as a 404 on download, which the
+  application already handles as "that file is no longer stored" rather than an
+  error page.
+- **Restoring one without the other is a decision, not an accident.** Restore
+  the database to a point *at or before* the disk snapshot if you have to choose,
+  since a missing row is invisible and a missing file is not.
+
+Neither is configured by this repository. **Turn both on in the dashboard before
+the first real upload** — this is the single most consequential manual step, and
+nothing in the application will warn you that it was skipped.
+
+### Known differences in behaviour
+
+**Sign-in rate limiting loses its per-address component.** Render's edge sets
+`X-Forwarded-For`, but our nginx does not trust incoming forwarded headers by
+default — it overwrites the header with the peer address, which on Render is
+Render's own proxy. Every request therefore looks like it comes from one
+address. The limiter still bounds attempts **per account**, which is the half
+that stops password guessing; what is lost is distinguishing sources.
+
+That default is deliberate and is the safe one: trusting a forwarded header you
+cannot attribute lets an attacker present a fresh address per request and walk
+straight past the limiter. To restore the per-address component, add a
+`set_real_ip_from` line for Render's proxy range under `/etc/nginx/realip/` —
+and only with a range you have confirmed, never a guess.
+
+**Actuator health becomes reachable through nginx? No.** `/actuator` is not
+proxied, and the backend is private, so health is checked by Render against the
+service directly. Nothing about the infrastructure is described to the public
+origin.
+
+---
+
 ## Backup
+
+**This section is the Compose deployment.** On Render, see *Backups on Render*
+above — `scripts/backup.sh` cannot run there and must not be scheduled.
 
 `scripts/backup.sh` takes both copies, verifies the dump is complete rather than
 merely present, writes `last-success.txt` as evidence, and prunes past 14 days.

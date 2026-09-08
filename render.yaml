@@ -1,0 +1,150 @@
+# =============================================================================
+# CareerFlux — Render Blueprint (pilot)
+#
+# Three resources: a managed PostgreSQL, the backend as a PRIVATE service with a
+# persistent disk, and the nginx frontend as the only public web service. That
+# mirrors the Compose topology exactly — one public origin, `/api` proxied to a
+# backend nobody can reach directly — so the browser still talks to a single
+# origin and the frontend still needs no API-URL mechanism.
+#
+# WHAT THIS FILE DOES NOT DO
+#
+# It contains no secrets. Everything sensitive is `sync: false`, which tells
+# Render to ask for the value in the dashboard instead of reading it from here.
+# Nothing in this repository ever holds a real credential.
+#
+# BEFORE YOU TRUST IT
+#
+# This blueprint has not been validated against Render's own parser — it was
+# written from the repository, not from a live account. Plan names and region
+# identifiers change; check them against your dashboard on first import. If the
+# import complains, docs/DEPLOYMENT.md has the equivalent manual steps, and
+# those are the authoritative version.
+# =============================================================================
+
+databases:
+  - name: careerflux-db
+    databaseName: careerflux
+    user: careerflux
+    # Singapore is Render's closest region to the colleges this serves. Every
+    # resource below must sit in the SAME region or the private network between
+    # them does not exist.
+    region: singapore
+    # Not `free`: a free database expires, and a pilot holding a college's
+    # placement records must not.
+    plan: basic-256mb
+
+services:
+  # ---------------------------------------------------------------- backend
+  - type: pserv
+    name: careerflux-backend
+    runtime: docker
+    repo: https://github.com/maruthi-sreeram-p/careerFlux
+    region: singapore
+    # A disk pins the service to one instance, which is exactly what this pilot
+    # wants: the rate limiter counts in this JVM's memory and the schedulers
+    # assume a single runner.
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /actuator/health
+
+    disk:
+      name: careerflux-resumes
+      # Must match CAREERFLUX_RESUME_DIR exactly. Without this, uploaded
+      # resumes live on the container filesystem and disappear on the next
+      # deploy while their database rows survive — a student's own CV failing
+      # to open, with nothing in the logs to explain it.
+      mountPath: /app/data/resumes
+      sizeGB: 10
+
+    envVars:
+      # Without this the application falls back to `spring.profiles.default`,
+      # which is `dev`: an H2 file database on ephemeral storage, the published
+      # JWT secret accepted, and the H2 console served. It fails silently and
+      # looks like it worked, so it is stated here rather than left to memory.
+      - key: SPRING_PROFILES_ACTIVE
+        value: postgres
+      - key: SERVER_PORT
+        value: 8080
+
+      # Named, not inherited. The default resolves relative to the container's
+      # working directory, and a future WORKDIR change would move resumes off
+      # the mounted disk without any error.
+      - key: CAREERFLUX_RESUME_DIR
+        value: /app/data/resumes
+
+      # Every request arrives through the frontend nginx, which OVERWRITES
+      # X-Forwarded-For with the peer address rather than appending to it, so a
+      # caller cannot put an address of their own choosing in front of it.
+      - key: CAREERFLUX_FORWARD_HEADERS
+        value: framework
+
+      # Off for the pilot. Ingestion, stale-job expiry, the nightly recompute,
+      # source health checks and the outbox dispatcher all stay stopped until
+      # the college asks for market postings.
+      - key: CAREERFLUX_INGESTION_SCHEDULER_ENABLED
+        value: 'false'
+
+      # Demo *data* and demo *accounts* are separate switches. Neither belongs
+      # on a college's instance.
+      - key: CAREERFLUX_DEMO_SEED_SAMPLE_JOBS
+        value: 'false'
+      - key: CAREERFLUX_DEMO_ALLOW_SEEDING_INTO_POPULATED_CORPUS
+        value: 'false'
+
+      # ---- values you supply in the dashboard -----------------------------
+      # Render shows the database's internal connection details on its own
+      # page. Build the JDBC form by hand: jdbc:postgresql://HOST:PORT/careerflux
+      # Spring does not understand Render's postgresql:// URL as-is.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+
+      # openssl rand -base64 48
+      # The built-in fallback is published in this repository and the
+      # application refuses it outside dev and test, so a missing value fails
+      # the deploy rather than silently signing real sessions with a public key.
+      - key: CAREERFLUX_JWT_SECRET
+        sync: false
+
+      # The frontend's public Render URL, exactly as people type it. Set after
+      # the first frontend deploy, when Render has assigned the hostname.
+      - key: CAREERFLUX_CORS_ORIGINS
+        sync: false
+
+      # Optional. Absent means resume parsing and match narratives use their
+      # deterministic fallbacks — a supported mode, not a fault.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # First boot only, to create the platform operator. Clear them afterwards
+      # so a restart does not keep the password in the service environment.
+      - key: CAREERFLUX_ADMIN_EMAIL
+        sync: false
+      - key: CAREERFLUX_ADMIN_PASSWORD
+        sync: false
+
+  # --------------------------------------------------------------- frontend
+  - type: web
+    name: careerflux-frontend
+    runtime: docker
+    repo: https://github.com/maruthi-sreeram-p/careerFlux
+    region: singapore
+    plan: starter
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /healthz
+
+    envVars:
+      # The backend's private address on Render's internal network. This is the
+      # one thing that differs from Compose, where it is `backend:8080`.
+      - key: CAREERFLUX_BACKEND_ORIGIN
+        value: careerflux-backend:8080
+      # Render's default port for a web service. nginx listens here instead of
+      # 80; see frontend/nginx.conf.
+      - key: CAREERFLUX_LISTEN_PORT
+        value: '10000'

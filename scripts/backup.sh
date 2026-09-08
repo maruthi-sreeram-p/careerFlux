@@ -24,6 +24,20 @@ DB_NAME="${CAREERFLUX_DB_NAME:-careerflux}"
 DB_USER="${CAREERFLUX_DB_USER:-careerflux}"
 KEEP_DAYS="${CAREERFLUX_BACKUP_KEEP_DAYS:-14}"
 
+# This script is for the Docker Compose deployment and only that one. On Render
+# there is no Docker socket and no named volume, so every command below would
+# fail — and a backup job that fails is worse than none, because it is believed.
+# Checked up front so the failure is one clear sentence rather than
+# "docker: not found" three steps in, after the log already said "backup
+# starting". See docs/DEPLOYMENT.md, "Backups on Render", for what to use there.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "[$(date -Is)] FAILED: docker is not available, so this script cannot run here." >&2
+    echo "  It backs up a Compose deployment via 'docker exec pg_dump' and a named volume." >&2
+    echo "  On Render use the platform's PostgreSQL backups and disk snapshots instead;" >&2
+    echo "  see docs/DEPLOYMENT.md -> Backups on Render." >&2
+    exit 1
+fi
+
 stamp="$(date +%Y%m%d-%H%M%S)"
 dump="${BACKUP_DIR}/careerflux-${stamp}.sql"
 resumes="${BACKUP_DIR}/resumes-${stamp}.tar.gz"

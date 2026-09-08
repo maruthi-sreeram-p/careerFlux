@@ -17,7 +17,20 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runtime
 
 COPY --from=build /build/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Installed as a template, not a config. The official entrypoint expands
+# /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at container start.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+# Substitute ONLY our own names. The default behaviour is to substitute every
+# environment variable, which would replace nginx's own $host, $remote_addr and
+# $uri with empty strings and produce a config that starts and misbehaves.
+ENV NGINX_ENVSUBST_FILTER="^CAREERFLUX_"
+
+# Defaults are the Compose values, so nothing about `docker compose up` changes.
+# Render overrides both.
+ENV CAREERFLUX_BACKEND_ORIGIN="backend:8080" \
+    CAREERFLUX_LISTEN_PORT="80"
 
 # The config includes /etc/nginx/realip/*.conf so an operator can declare a
 # trusted proxy without editing the image. The directory has to exist; the
