@@ -422,14 +422,43 @@ the value instead.
 
 ### What differs from Compose, and why
 
-**The nginx upstream.** Compose resolves `backend`; Render resolves
-`careerflux-backend`. `frontend/nginx.conf` is therefore installed as an nginx
-*template* and the hostname comes from `CAREERFLUX_BACKEND_ORIGIN`, which the
-image defaults to `backend:8080` so Compose is unaffected. Only names starting
-`CAREERFLUX_` are substituted — `NGINX_ENVSUBST_FILTER` in the Dockerfile — so
-nginx's own `$host`, `$remote_addr` and `$uri` are left alone. Without that
-filter the default entrypoint would blank every one of them and produce a config
-that starts and then misbehaves.
+**The nginx proxy, and the four values it needs.** `frontend/nginx.conf` is
+installed as an nginx *template*; the image defaults every variable to its
+Compose value, so Compose is unaffected. Only names starting `CAREERFLUX_` are
+substituted — `NGINX_ENVSUBST_FILTER` in the Dockerfile — so nginx's own
+`$host`, `$remote_addr` and `$uri` are left alone. Without that filter the
+default entrypoint would blank every one of them and produce a config that
+starts and then misbehaves.
+
+| Variable | Compose | Render |
+|---|---|---|
+| `CAREERFLUX_BACKEND_ORIGIN` | `http://backend:8080` | `https://<backend>.onrender.com` |
+| `CAREERFLUX_BACKEND_HOST` | `$host` | `<backend>.onrender.com` |
+| `CAREERFLUX_FORWARDED_PROTO` | `$scheme` | `https` |
+| `CAREERFLUX_LISTEN_PORT` | `80` | `10000` |
+
+**The scheme is part of the origin.** Render serves the backend only over HTTPS
+and answers plain HTTP with a redirect, so `http://` cannot be hardcoded in
+front of the value. It once was, and setting the variable to a full `https://`
+URL then produced `http://https://...` and `invalid port in upstream`.
+
+**The Host header is the one that bites.** Render's edge routes on Host. Leave
+it as the browser's host and the edge routes the request back to the *frontend*,
+which proxies it again — a loop that surfaces in the browser as
+`ERR_TOO_MANY_REDIRECTS` and leaves nothing in any log naming nginx or Spring.
+If you ever see that error on `/api`, check this first.
+
+**The forwarded scheme is stated, not inherited.** TLS terminates at Render's
+edge, so `$scheme` inside the container is `http`; passing it would tell the
+backend the session was never encrypted. It is set as a value rather than read
+from an inbound `X-Forwarded-Proto`, for the same reason `X-Forwarded-For` is
+overwritten: a header a client can write is not evidence of anything.
+
+**Free tier spins the backend down.** After a period of inactivity the first
+request has to wait for a cold start — a Spring Boot boot plus Flyway, which can
+take longer than a browser will wait. It is not a fault and there is nothing to
+fix in the application; it is what the free tier is. A paid instance type is the
+only cure.
 
 **The listen port.** Render expects a web service on its own port, so
 `CAREERFLUX_LISTEN_PORT` is set to `10000` there and stays `80` everywhere else.
@@ -522,10 +551,13 @@ straight past the limiter. To restore the per-address component, add a
 `set_real_ip_from` line for Render's proxy range under `/etc/nginx/realip/` —
 and only with a range you have confirmed, never a guess.
 
-**Actuator health becomes reachable through nginx? No.** `/actuator` is not
-proxied, and the backend is private, so health is checked by Render against the
-service directly. Nothing about the infrastructure is described to the public
-origin.
+**Actuator on a public backend.** `/actuator` is not proxied by nginx, so it is
+not reachable through the app's own origin. On the free tier the backend is a
+public web service and therefore has an address of its own, where
+`/actuator/health` and `/actuator/info` answer — both are already `permitAll`,
+and `show-details: when-authorized` means neither describes the infrastructure.
+`/actuator/metrics` and everything else still require a token. Making the
+backend a private service on a paid plan removes even that surface.
 
 ---
 

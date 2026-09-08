@@ -28,8 +28,14 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 ENV NGINX_ENVSUBST_FILTER="^CAREERFLUX_"
 
 # Defaults are the Compose values, so nothing about `docker compose up` changes.
-# Render overrides both.
-ENV CAREERFLUX_BACKEND_ORIGIN="backend:8080" \
+#
+# The backslashes are load-bearing: `\$host` and `\$scheme` reach the image as
+# the literal two-word strings nginx expects to evaluate at request time. Without
+# them Docker would expand them as build arguments at build time and bake in an
+# empty string, and nginx would send an empty Host header to the backend.
+ENV CAREERFLUX_BACKEND_ORIGIN="http://backend:8080" \
+    CAREERFLUX_BACKEND_HOST="\$host" \
+    CAREERFLUX_FORWARDED_PROTO="\$scheme" \
     CAREERFLUX_LISTEN_PORT="80"
 
 # The config includes /etc/nginx/realip/*.conf so an operator can declare a

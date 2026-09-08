@@ -1,11 +1,21 @@
 # =============================================================================
 # CareerFlux — Render Blueprint (pilot)
 #
-# Three resources: a managed PostgreSQL, the backend as a PRIVATE service with a
-# persistent disk, and the nginx frontend as the only public web service. That
-# mirrors the Compose topology exactly — one public origin, `/api` proxied to a
-# backend nobody can reach directly — so the browser still talks to a single
-# origin and the frontend still needs no API-URL mechanism.
+# Three resources: a managed PostgreSQL, the backend, and the nginx frontend.
+# The browser talks to one origin either way — nginx serves the app and proxies
+# `/api` — so the frontend needs no API-URL mechanism and no cross-origin call.
+#
+# THE BACKEND IS A PUBLIC WEB SERVICE HERE, because Render's free tier has no
+# private services. That is the shape the pilot is actually deployed in. It
+# costs one thing: the backend has an address of its own, so `/actuator/health`
+# and `/actuator/info` are reachable from the internet. Both are already
+# `permitAll` and `show-details: when-authorized` means neither describes the
+# infrastructure; everything else on the backend still requires a token.
+#
+# On a paid plan, change `type: web` to `type: pserv` for the backend and point
+# the frontend at its internal address (`careerflux-backend:8080`, scheme
+# `http://`). Nothing else changes — that is what CAREERFLUX_BACKEND_ORIGIN is
+# for.
 #
 # WHAT THIS FILE DOES NOT DO
 #
@@ -36,7 +46,10 @@ databases:
 
 services:
   # ---------------------------------------------------------------- backend
-  - type: pserv
+  # `web`, not `pserv`: private services are not available on the free tier.
+  # See the note at the top of this file for what that costs and how to change
+  # it on a paid plan.
+  - type: web
     name: careerflux-backend
     runtime: docker
     repo: https://github.com/maruthi-sreeram-p/careerFlux
@@ -111,8 +124,14 @@ services:
       - key: CAREERFLUX_JWT_SECRET
         sync: false
 
-      # The frontend's public Render URL, exactly as people type it. Set after
-      # the first frontend deploy, when Render has assigned the hostname.
+      # The frontend's public Render URL, exactly as people type it, e.g.
+      # https://careerflux-frontend.onrender.com — no trailing slash.
+      #
+      # Required even though the browser only ever sees one origin. A browser
+      # sends `Origin` on any non-GET request, same-origin included, and nginx
+      # forwards it unchanged; Spring checks it against this list. Get it wrong
+      # and every read works while every write fails with a bare
+      # "Invalid CORS request" — which looks like a broken app, not a setting.
       - key: CAREERFLUX_CORS_ORIGINS
         sync: false
 
@@ -140,10 +159,26 @@ services:
     healthCheckPath: /healthz
 
     envVars:
-      # The backend's private address on Render's internal network. This is the
-      # one thing that differs from Compose, where it is `backend:8080`.
+      # Where the backend is, INCLUDING the scheme. Render's edge serves the
+      # backend only over HTTPS and answers plain HTTP with a redirect, so the
+      # scheme is not optional here — it is what stops the request bouncing.
       - key: CAREERFLUX_BACKEND_ORIGIN
-        value: careerflux-backend:8080
+        value: https://careerflux.onrender.com
+
+      # The Host header to address the backend by, and the single most
+      # load-bearing value in this file. Render's shared edge routes on Host:
+      # leave this as the browser's host and the edge hands the request back to
+      # THIS service, which loops until the browser reports
+      # ERR_TOO_MANY_REDIRECTS with nothing in any log to explain it.
+      - key: CAREERFLUX_BACKEND_HOST
+        value: careerflux.onrender.com
+
+      # The scheme the BROWSER used. TLS terminates at Render's edge, so this
+      # container sees plain HTTP and `$scheme` would tell the backend the
+      # session was never encrypted.
+      - key: CAREERFLUX_FORWARDED_PROTO
+        value: https
+
       # Render's default port for a web service. nginx listens here instead of
       # 80; see frontend/nginx.conf.
       - key: CAREERFLUX_LISTEN_PORT
