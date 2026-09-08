@@ -24,6 +24,7 @@ import com.careerflux.ai.proposal.dto.ProposalDtos.DecisionAction;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ProposalView;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ProposedItem;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ReviewResult;
+import com.careerflux.ai.quota.AiQuotaService;
 import com.careerflux.candidate.domain.CandidateProfile;
 import com.careerflux.candidate.domain.CgpaSource;
 import com.careerflux.candidate.domain.OnboardingStage;
@@ -36,6 +37,7 @@ import com.careerflux.candidate.service.CandidateProfileService;
 import com.careerflux.candidate.service.ResumeService;
 import com.careerflux.common.error.BadRequestException;
 import com.careerflux.common.taxonomy.Seniority;
+import com.careerflux.institution.domain.Institution;
 import com.careerflux.common.error.ConflictException;
 import com.careerflux.common.error.NotFoundException;
 import com.careerflux.support.TestInstitutions;
@@ -126,6 +128,9 @@ class AiProfileProposalIntegrationTest {
     private TestInstitutions institutions;
 
     @Autowired
+    private AiQuotaService quotaService;
+
+    @Autowired
     private EntityManager entityManager;
 
     @Autowired
@@ -154,7 +159,11 @@ class AiProfileProposalIntegrationTest {
 
     @AfterEach
     void removeWhatWasCommitted() {
-        List.of(aarav, priya).forEach(student -> ownTransaction().executeWithoutResult(status -> {
+        List.of(aarav, priya).forEach(this::removeStudent);
+    }
+
+    private void removeStudent(Student student) {
+        ownTransaction().executeWithoutResult(status -> {
             for (String table : List.of("ai_profile_proposals", "resumes", "candidate_skills",
                     "candidate_experiences", "candidate_education", "candidate_preference_values")) {
                 entityManager.createNativeQuery(
@@ -169,17 +178,21 @@ class AiProfileProposalIntegrationTest {
                     .setParameter("id", student.profileId()).executeUpdate();
             entityManager.createNativeQuery("delete from users where id = :id")
                     .setParameter("id", student.userId()).executeUpdate();
-        }));
+        });
     }
 
     private Student register(String name) {
+        return register(name, institutions.example());
+    }
+
+    private Student register(String name, com.careerflux.institution.domain.Institution college) {
         User user = new User();
         user.setEmail(name + "-proposal-" + System.nanoTime() + "@example.com");
         user.setFullName("");
         user.setPasswordHash(passwordEncoder.encode(PASSWORD));
         user.setRole(UserRole.STUDENT);
         user.setStatus(UserStatus.ACTIVE);
-        user.setInstitution(institutions.example());
+        user.setInstitution(college);
         User saved = users.saveAndFlush(user);
 
         CandidateProfile profile = new CandidateProfile();
@@ -771,8 +784,8 @@ class AiProfileProposalIntegrationTest {
     // ----------------------------------------------------------- AI failure
 
     @Test
-    @DisplayName("a failed reading produces no proposal for the student to approve")
-    void failedExtractionProducesNoProposal() {
+    @DisplayName("a failed reading leaves nothing waiting for the student to approve")
+    void failedExtractionLeavesNothingPending() {
         when(extractionService.extract(any(), any()))
                 .thenThrow(new IllegalStateException("gemini said 503 for key AIza-not-real"));
 
@@ -782,7 +795,9 @@ class AiProfileProposalIntegrationTest {
             // Slice 1's behaviour: the upload survives, the failure surfaces.
         }
 
-        assertThat(proposals.findByCandidateIdOrderByCreatedAtDesc(aarav.profileId()))
+        // The attempt is recorded — see FailedReadings — but as FAILED, so
+        // nothing is offered for approval that was never actually read.
+        assertThat(proposals.findByCandidateIdAndStatus(aarav.profileId(), ProposalStatus.PENDING))
                 .describedAs("nothing may be waiting for approval that was never read")
                 .isEmpty();
 
@@ -887,6 +902,346 @@ class AiProfileProposalIntegrationTest {
             mockMvc.perform(get("/api/candidate/resume-proposals/" + UUID.randomUUID())
                             .header("Authorization", "Bearer " + tokenFor(aarav)))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    // ------------------------------------------------- a reading that failed
+
+    @Nested
+    @DisplayName("when the reading itself fails")
+    class FailedReadings {
+
+        private void extractionBlowsUp() {
+            when(extractionService.extract(any(), any()))
+                    .thenThrow(new IllegalStateException("gemini said 503 for key AIza-not-real"));
+        }
+
+        private UUID uploadExpectingFailure() {
+            extractionBlowsUp();
+            try {
+                upload(aarav);
+            } catch (RuntimeException expected) {
+                // Slice 1's behaviour: the upload survives, the failure surfaces.
+            }
+            // The newest, not the only one: a failure that retires an earlier
+            // pending reading leaves both rows behind, which is the point of
+            // failureSupersedesTheOpenOne below.
+            var recorded = proposals.findByCandidateIdAndStatus(
+                    aarav.profileId(), ProposalStatus.FAILED);
+            assertThat(recorded)
+                    .describedAs("the attempt must be recorded, not silently dropped")
+                    .hasSize(1);
+            return recorded.get(0).getId();
+        }
+
+        @Test
+        @DisplayName("the attempt is recorded as FAILED, with nothing to review")
+        void failureIsRecorded() {
+            UUID proposalId = uploadExpectingFailure();
+
+            AiProfileProposal proposal = proposals.findById(proposalId).orElseThrow();
+            assertThat(proposal.getStatus()).isEqualTo(ProposalStatus.FAILED);
+            assertThat(proposal.isAiAssisted()).isFalse();
+            assertThat(proposal.getReviewedAt())
+                    .describedAs("a failure is not a decision somebody made")
+                    .isNull();
+            assertThat(proposal.getReviewedBy()).isNull();
+            assertThat(proposalService.get(aarav.userId(), proposalId).items())
+                    .describedAs("there was nothing to read, so there is nothing to review")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("the resume survives and says so, and the message names no provider")
+        void resumeSurvivesTheFailure() {
+            uploadExpectingFailure();
+
+            var stored = resumes.findByCandidateIdOrderByUploadedAtDesc(aarav.profileId());
+            assertThat(stored).hasSize(1);
+            assertThat(stored.get(0).getStoragePath()).isNotBlank();
+            assertThat(stored.get(0).getParseStatus()).isEqualTo(ResumeParseStatus.FAILED);
+            assertThat(stored.get(0).getParseError())
+                    .doesNotContain("503").doesNotContain("AIza").doesNotContain("gemini");
+        }
+
+        @Test
+        @DisplayName("a failed reading cannot be approved and cannot be rejected")
+        void failedCannotBeReviewed() {
+            UUID proposalId = uploadExpectingFailure();
+
+            assertThatThrownBy(() -> proposalService.approve(aarav.userId(), proposalId,
+                    accepting("field:phone")))
+                    .isInstanceOf(ConflictException.class);
+            assertThatThrownBy(() -> proposalService.reject(aarav.userId(), proposalId))
+                    .isInstanceOf(ConflictException.class);
+
+            assertThat(reload(aarav).getPhone()).isNull();
+            assertThat(proposals.findById(proposalId).orElseThrow().getStatus())
+                    .isEqualTo(ProposalStatus.FAILED);
+        }
+
+        @Test
+        @DisplayName("a failed reading is not offered as the pending one")
+        void failedIsNotPending() {
+            uploadExpectingFailure();
+
+            assertThat(proposalService.pending(aarav.userId()))
+                    .describedAs("there is nothing waiting for the student to answer")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("a failure retires whatever was still waiting, rather than leaving two")
+        void failureSupersedesTheOpenOne() {
+            UUID first = upload(aarav);
+            assertThat(proposals.findById(first).orElseThrow().getStatus())
+                    .isEqualTo(ProposalStatus.PENDING);
+
+            uploadExpectingFailure();
+
+            assertThat(proposals.findById(first).orElseThrow().getStatus())
+                    .describedAs("it describes a document that has since been replaced")
+                    .isEqualTo(ProposalStatus.SUPERSEDED);
+            assertThat(proposals.findByCandidateIdAndStatus(aarav.profileId(), ProposalStatus.PENDING))
+                    .isEmpty();
+        }
+    }
+
+    // -------------------------------------------------- editing what was read
+
+    @Nested
+    @DisplayName("editing a proposed value before accepting it")
+    class Editing {
+
+        @Test
+        @DisplayName("a value longer than the profile allows is refused, not shortened")
+        void oversizeEditIsRefused() {
+            UUID proposalId = upload(aarav);
+            String tooLong = "x".repeat(201);
+
+            assertThatThrownBy(() -> proposalService.approve(aarav.userId(), proposalId,
+                    new ApprovalRequest(List.of(
+                            new Decision("field:headline", DecisionAction.EDIT, tooLong)))))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("at most 200");
+
+            assertThat(reload(aarav).getHeadline())
+                    .describedAs("a refused edit writes nothing at all")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("a value at the limit is accepted whole")
+        void editAtTheLimitIsAccepted() {
+            UUID proposalId = upload(aarav);
+            String exactly = "y".repeat(200);
+
+            proposalService.approve(aarav.userId(), proposalId, new ApprovalRequest(List.of(
+                    new Decision("field:headline", DecisionAction.EDIT, exactly))));
+
+            assertThat(reload(aarav).getHeadline()).isEqualTo(exactly);
+        }
+
+        @Test
+        @DisplayName("an item that is not a text box cannot be edited through one")
+        void structuredItemsCannotBeEdited() {
+            UUID proposalId = upload(aarav);
+
+            assertThatThrownBy(() -> proposalService.approve(aarav.userId(), proposalId,
+                    new ApprovalRequest(List.of(
+                            new Decision("skill:java", DecisionAction.EDIT, "Kubernetes")))))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("cannot be edited here");
+
+            assertThat(candidateSkills.findByCandidateId(aarav.profileId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("what the reader proposed is already trimmed to what would be stored")
+        void proposedValuesAreShownAsTheyWouldBeSaved() {
+            when(extractionService.extract(any(), any())).thenReturn(
+                    new ResumeExtractionService.Extraction(
+                            new ExtractedResume(null, null, null, null, "z".repeat(400), null, null,
+                                    null, null, null, null, null, List.of(), List.of(), List.of()),
+                            true, "gemini-2.5-flash", null));
+            UUID proposalId = upload(aarav);
+
+            ProposedItem headline =
+                    itemOf(proposalService.get(aarav.userId(), proposalId), "field:headline");
+            assertThat(headline.proposedValue())
+                    .describedAs("the review screen must not promise more than the column holds")
+                    .hasSize(200);
+
+            proposalService.approve(aarav.userId(), proposalId, accepting("field:headline"));
+            assertThat(reload(aarav).getHeadline()).isEqualTo(headline.proposedValue());
+        }
+    }
+
+    // ------------------------------------------------------- what was stored
+
+    @Nested
+    @DisplayName("the proposal is a snapshot of what was proposed at the time")
+    class Snapshot {
+
+        @Test
+        @DisplayName("it names the resume and the profile it was built from")
+        void referencesAreCorrect() {
+            UUID proposalId = upload(aarav);
+            UUID resumeId = resumes.findByCandidateIdOrderByUploadedAtDesc(aarav.profileId())
+                    .get(0).getId();
+
+            AiProfileProposal proposal = proposals.findById(proposalId).orElseThrow();
+            assertThat(proposal.getResume().getId()).isEqualTo(resumeId);
+            assertThat(proposal.getCandidate().getId()).isEqualTo(aarav.profileId());
+            assertThat(proposalService.get(aarav.userId(), proposalId).resumeId())
+                    .isEqualTo(resumeId);
+        }
+
+        @Test
+        @DisplayName("it still says what it said even after the profile moves on")
+        void snapshotSurvivesLaterProfileChanges() {
+            UUID proposalId = upload(aarav);
+            ProposedItem before =
+                    itemOf(proposalService.get(aarav.userId(), proposalId), "field:phone");
+            assertThat(before.state()).isEqualTo(ProposalItemState.NEW);
+
+            // The student fills the field in by hand afterwards.
+            ownTransaction().executeWithoutResult(status -> {
+                CandidateProfile profile = profiles.findById(aarav.profileId()).orElseThrow();
+                profile.setPhone("9000000000");
+                profiles.save(profile);
+            });
+
+            ProposedItem after =
+                    itemOf(proposalService.get(aarav.userId(), proposalId), "field:phone");
+            assertThat(after.state())
+                    .describedAs("what AI proposed at the time does not change because the profile did")
+                    .isEqualTo(ProposalItemState.NEW);
+            assertThat(after.proposedValue()).isEqualTo("9111111111");
+        }
+    }
+
+    // --------------------------------------------------- crossing boundaries
+
+    @Nested
+    @DisplayName("boundaries a crafted request cannot cross")
+    class Boundaries {
+
+        @Test
+        @DisplayName("a student at another college cannot read or approve this proposal")
+        void crossInstitutionIsRefused() throws Exception {
+            UUID proposalId = upload(aarav);
+            Student outsider = register("rival", institutions.rival());
+            try {
+                String token = tokenFor(outsider);
+
+                mockMvc.perform(get("/api/candidate/resume-proposals/" + proposalId)
+                                .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isNotFound());
+
+                mockMvc.perform(post("/api/candidate/resume-proposals/" + proposalId + "/approve")
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"decisions\":[{\"key\":\"field:phone\",\"action\":\"ACCEPT\"}]}"))
+                        .andExpect(status().isNotFound());
+
+                mockMvc.perform(post("/api/candidate/resume-proposals/" + proposalId + "/reject")
+                                .header("Authorization", "Bearer " + token))
+                        .andExpect(status().isNotFound());
+
+                assertThat(reload(aarav).getPhone()).isNull();
+                assertThat(proposals.findById(proposalId).orElseThrow().getStatus())
+                        .isEqualTo(ProposalStatus.PENDING);
+            } finally {
+                removeStudent(outsider);
+            }
+        }
+
+        @Test
+        @DisplayName("another student's list shows their own proposals, never this one")
+        void listsDoNotLeakAcrossStudents() {
+            UUID proposalId = upload(aarav);
+
+            assertThat(proposalService.list(priya.userId()))
+                    .describedAs("a list is scoped to the caller's own profile, not filtered afterwards")
+                    .isEmpty();
+            assertThat(proposalService.list(aarav.userId()))
+                    .extracting(summary -> summary.id())
+                    .containsExactly(proposalId);
+        }
+
+        @Test
+        @DisplayName("a crafted key for a field the workflow does not offer is refused")
+        void craftedFieldKeyIsRefused() {
+            UUID proposalId = upload(aarav);
+
+            for (String crafted : List.of("field:cgpa", "field:cgpaScale", "field:cgpaSource",
+                    "field:institution", "field:role", "field:profileCompleteness", "nonsense")) {
+                assertThatThrownBy(() -> proposalService.approve(aarav.userId(), proposalId,
+                                accepting(crafted)))
+                        .describedAs("\"%s\" is not in the proposal and must not be invented", crafted)
+                        .isInstanceOf(BadRequestException.class);
+            }
+
+            CandidateProfile profile = reload(aarav);
+            assertThat(profile.getCgpa()).isNull();
+            assertThat(profile.getPhone()).isNull();
+            assertThat(proposals.findById(proposalId).orElseThrow().getStatus())
+                    .isEqualTo(ProposalStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("a crafted request over HTTP cannot reach another student's profile")
+        void craftedHttpRequestCannotCrossOwnership() throws Exception {
+            UUID proposalId = upload(aarav);
+
+            // priya sends aarav's proposal id with her own token. Nothing in the
+            // body names a candidate — identity comes from the token — so the
+            // only lever she has is the id, and it is checked against her profile.
+            mockMvc.perform(post("/api/candidate/resume-proposals/" + proposalId + "/approve")
+                            .header("Authorization", "Bearer " + tokenFor(priya))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"decisions\":[{\"key\":\"field:phone\",\"action\":\"ACCEPT\"}]}"))
+                    .andExpect(status().isNotFound());
+
+            assertThat(reload(priya).getPhone()).isNull();
+            assertThat(reload(aarav).getPhone()).isNull();
+        }
+    }
+
+    // -------------------------------------------------------------- AI quota
+
+    @Nested
+    @DisplayName("the reading path still goes through the existing quota")
+    class Quota {
+
+        @Test
+        @DisplayName("reviewing a proposal consumes no quota, because it calls no model")
+        void reviewConsumesNoQuota() {
+            UUID proposalId = upload(aarav);
+            int before = quotaService.status(aarav.userId()).remaining();
+
+            proposalService.approve(aarav.userId(), proposalId, accepting("field:phone"));
+            proposalService.list(aarav.userId());
+            proposalService.get(aarav.userId(), proposalId);
+
+            assertThat(quotaService.status(aarav.userId()).remaining())
+                    .describedAs("approval is a database operation on a document written earlier")
+                    .isEqualTo(before);
+            org.mockito.Mockito.verify(extractionService, org.mockito.Mockito.times(1))
+                    .extract(any(), any());
+        }
+
+        @Test
+        @DisplayName("this slice added no second path to the model")
+        void extractionIsTheOnlyModelCall() {
+            upload(aarav);
+
+            // One upload, one reading. The proposal is built from what came back,
+            // not from a second call of its own.
+            org.mockito.Mockito.verify(extractionService, org.mockito.Mockito.times(1))
+                    .extract(any(), any());
+            org.mockito.Mockito.verifyNoMoreInteractions(extractionService);
         }
     }
 

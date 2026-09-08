@@ -59,7 +59,7 @@ spring:
         api-key: ${GEMINI_API_KEY:}
         chat:
           options:
-            model: ${CAREERFLUX_AI_MODEL:gemini-2.5-flash}
+            model: ${CAREERFLUX_AI_MODEL:gemini-flash-latest}
             temperature: 0.2
 
 server:

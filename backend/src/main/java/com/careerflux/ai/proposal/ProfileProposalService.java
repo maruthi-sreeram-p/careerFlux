@@ -103,12 +103,9 @@ public class ProfileProposalService {
         // answering about that one; leaving the previous proposal pending would
         // let them approve a reading of a document they have already replaced.
         Instant now = Instant.now();
-        List<AiProfileProposal> pending =
-                proposals.findByCandidateIdAndStatus(profile.getId(), ProposalStatus.PENDING);
-        pending.forEach(previous -> previous.supersede(now));
-        if (!pending.isEmpty()) {
-            proposals.saveAll(pending);
-        }
+        int retired = proposals
+                .findByCandidateIdAndStatus(profile.getId(), ProposalStatus.PENDING).size();
+        supersedePending(profile, now);
 
         AiProfileProposal proposal = new AiProfileProposal();
         proposal.setCandidate(profile);
@@ -121,10 +118,65 @@ public class ProfileProposalService {
 
         auditService.record("AI_PROPOSAL_CREATED", "AiProfileProposal", saved.getId(),
                 "items=" + items.size() + " engine=" + extraction.engine()
-                        + " superseded=" + pending.size());
+                        + " superseded=" + retired);
         log.info("Recorded proposal {} with {} items for candidate {} from resume {}",
                 saved.getId(), items.size(), profile.getId(), resume.getId());
         return Optional.of(saved);
+    }
+
+    /**
+     * Records that a reading was attempted for this resume and did not finish.
+     *
+     * <p>Called from the upload path's failure branch, in its own short
+     * transaction, after the model call has already thrown. It writes no profile
+     * data and creates nothing the student can act on — the point is that the
+     * attempt is visible at all. Without it a failed extraction leaves the
+     * review screen empty, which reads as "you never uploaded anything" rather
+     * than "we could not read what you uploaded".
+     *
+     * <p>Anything still pending is superseded first, for the same reason a
+     * successful reading supersedes it: the pending proposal describes a
+     * document that has now been replaced.
+     */
+    @Transactional
+    public AiProfileProposal recordFailure(CandidateProfile profile, Resume resume, String engine) {
+        Instant now = Instant.now();
+        supersedePending(profile, now);
+
+        AiProfileProposal proposal = new AiProfileProposal();
+        proposal.setCandidate(profile);
+        proposal.setResume(resume);
+        // No items: there is nothing to review. The empty payload keeps the
+        // column's NOT NULL honest rather than inventing a shape for it.
+        proposal.setPayload(serialize(ProposalPayload.of(List.of())));
+        // The engine is NOT NULL, and the caller is in a failure path where it
+        // may not know which reader was in play. "unknown" is a true answer;
+        // letting a null through would turn a failed reading into a second,
+        // noisier failure that also loses the record of the first.
+        proposal.setEngine(TextUtils.hasText(engine) ? TextUtils.truncate(engine, 64) : "unknown");
+        proposal.setAiAssisted(false);
+        proposal.setCorrelationId(TextUtils.truncate(CorrelationId.current(), 64));
+        proposal.markFailed(now);
+        AiProfileProposal saved = proposals.save(proposal);
+
+        // The engine name, never the provider's exception text: that can carry
+        // anything the failing library put in it.
+        auditService.record("AI_PROPOSAL_FAILED", "AiProfileProposal", saved.getId(),
+                "resume=" + resume.getId() + " engine=" + engine);
+        log.warn("Recorded a failed reading {} for candidate {} from resume {}",
+                saved.getId(), profile.getId(), resume.getId());
+        return saved;
+    }
+
+    /** Retires whatever is still awaiting this student. Not a review. */
+    private void supersedePending(CandidateProfile profile, Instant now) {
+        List<AiProfileProposal> pending =
+                proposals.findByCandidateIdAndStatus(profile.getId(), ProposalStatus.PENDING);
+        if (pending.isEmpty()) {
+            return;
+        }
+        pending.forEach(previous -> previous.supersede(now));
+        proposals.saveAll(pending);
     }
 
     // ---------------------------------------------------------------- reading
@@ -261,7 +313,15 @@ public class ProfileProposalService {
                         throw new BadRequestException("Give a value for \"" + item.label()
                                 + "\", or reject it instead.");
                     }
-                    yield decision.value().strip();
+                    // The same bound the profile form enforces. A value the
+                    // student typed is refused rather than shortened for them.
+                    String typed = decision.value().strip();
+                    Integer max = ProfileFieldLimits.maxLengthForKey(item.key());
+                    if (max != null && typed.length() > max) {
+                        throw new BadRequestException("\"" + item.label() + "\" can be at most "
+                                + max + " characters. That one is " + typed.length() + ".");
+                    }
+                    yield typed;
                 }
                 default -> null;
             };

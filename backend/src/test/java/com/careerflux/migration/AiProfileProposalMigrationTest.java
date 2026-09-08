@@ -33,8 +33,11 @@ import org.junit.jupiter.api.Test;
  */
 class AiProfileProposalMigrationTest {
 
-    private static final String LATEST = "14";
-    private static final String BEFORE = "13";
+    private static final String LATEST = "15";
+    /** The last version before the proposals table existed. */
+    private static final String BEFORE_PROPOSALS = "13";
+    /** The proposals table as V14 left it, before FAILED was allowed. */
+    private static final String BEFORE_FAILED = "14";
 
     private static String freshDatabase() {
         return "jdbc:h2:mem:migration-" + UUID.randomUUID()
@@ -125,7 +128,7 @@ class AiProfileProposalMigrationTest {
                 + "values ('" + UUID.randomUUID() + "', '" + seeded.profileId() + "', '"
                 + seeded.resumeId() + "', '" + status + "', '{\"schemaVersion\":1,\"items\":[]}', "
                 + "'gemini-2.5-flash', true, 0, current_timestamp, current_timestamp, "
-                + ("PENDING".equals(status) || "SUPERSEDED".equals(status)
+                + (List.of("PENDING", "SUPERSEDED", "FAILED").contains(status)
                         ? "null" : "current_timestamp")
                 + ")");
     }
@@ -144,7 +147,7 @@ class AiProfileProposalMigrationTest {
             var result = flywayFor(url, LATEST).migrate();
 
             assertThat(result.success).isTrue();
-            assertThat(result.targetSchemaVersion).isEqualTo("14");
+            assertThat(result.targetSchemaVersion).isEqualTo("15");
             try (Connection connection = open(url)) {
                 assertThat(count(connection, "select count(*) from ai_profile_proposals")).isZero();
             }
@@ -191,7 +194,7 @@ class AiProfileProposalMigrationTest {
         @DisplayName("V14 adds its table and touches nothing that was already there")
         void existingDataSurvives() throws SQLException {
             String url = freshDatabase();
-            flywayFor(url, BEFORE).migrate();
+            flywayFor(url, BEFORE_PROPOSALS).migrate();
 
             Seeded seeded;
             try (Connection connection = open(url)) {
@@ -202,8 +205,8 @@ class AiProfileProposalMigrationTest {
             var result = flywayFor(url, LATEST).migrate();
             assertThat(result.success).isTrue();
             assertThat(result.migrationsExecuted)
-                    .describedAs("only V14 should have been outstanding")
-                    .isEqualTo(1);
+                    .describedAs("V14 and V15 should have been the outstanding ones")
+                    .isEqualTo(2);
 
             try (Connection connection = open(url)) {
                 assertThat(count(connection, "select count(*) from users where id = '"
@@ -224,7 +227,7 @@ class AiProfileProposalMigrationTest {
         @DisplayName("a proposal can be written against rows that predate the migration")
         void proposalsAttachToExistingRows() throws SQLException {
             String url = freshDatabase();
-            flywayFor(url, BEFORE).migrate();
+            flywayFor(url, BEFORE_PROPOSALS).migrate();
             Seeded seeded;
             try (Connection connection = open(url)) {
                 seeded = seed(connection);
@@ -234,6 +237,57 @@ class AiProfileProposalMigrationTest {
             try (Connection connection = open(url)) {
                 insertProposal(connection, seeded, "PENDING");
                 assertThat(count(connection, "select count(*) from ai_profile_proposals")).isEqualTo(1);
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("widening the status constraint in V15")
+    class FailedStatusMigration {
+
+        @Test
+        @DisplayName("V14 alone refuses FAILED, and V15 is what allows it")
+        void v15IsWhatAllowsFailed() throws SQLException {
+            String url = freshDatabase();
+            flywayFor(url, BEFORE_FAILED).migrate();
+
+            Seeded seeded;
+            try (Connection connection = open(url)) {
+                seeded = seed(connection);
+                assertThatThrownBy(() -> insertProposal(connection, seeded, "FAILED"))
+                        .describedAs("V14's constraint is what V15 exists to widen")
+                        .isInstanceOf(SQLException.class);
+                insertProposal(connection, seeded, "PENDING");
+            }
+
+            var result = flywayFor(url, LATEST).migrate();
+            assertThat(result.success).isTrue();
+            assertThat(result.migrationsExecuted).isEqualTo(1);
+
+            try (Connection connection = open(url)) {
+                assertThat(count(connection,
+                        "select count(*) from ai_profile_proposals where status = 'PENDING'"))
+                        .describedAs("proposals written before the change are untouched")
+                        .isEqualTo(1);
+                insertProposal(connection, seeded, "FAILED");
+                assertThat(count(connection,
+                        "select count(*) from ai_profile_proposals where status = 'FAILED'"))
+                        .isEqualTo(1);
+            }
+        }
+
+        @Test
+        @DisplayName("a FAILED proposal needs no reviewer, like a superseded one")
+        void failedNeedsNoReviewer() throws SQLException {
+            String url = freshDatabase();
+            flywayFor(url, LATEST).migrate();
+            try (Connection connection = open(url)) {
+                Seeded seeded = seed(connection);
+                insertProposal(connection, seeded, "FAILED");
+
+                assertThat(count(connection, "select count(*) from ai_profile_proposals "
+                        + "where status = 'FAILED' and reviewed_at is null and reviewed_by is null"))
+                        .isEqualTo(1);
             }
         }
     }
@@ -278,21 +332,22 @@ class AiProfileProposalMigrationTest {
         }
 
         @Test
-        @DisplayName("only the four real statuses are accepted")
+        @DisplayName("only the five real statuses are accepted")
         void statusCheckHolds() throws SQLException {
             String url = migrated();
             try (Connection connection = open(url)) {
                 Seeded seeded = seed(connection);
 
-                for (String valid : List.of("PENDING", "APPROVED", "REJECTED", "SUPERSEDED")) {
+                for (String valid : List.of("PENDING", "APPROVED", "REJECTED", "SUPERSEDED", "FAILED")) {
                     insertProposal(connection, seeded, valid);
                 }
-                assertThat(count(connection, "select count(*) from ai_profile_proposals")).isEqualTo(4);
+                assertThat(count(connection, "select count(*) from ai_profile_proposals")).isEqualTo(5);
 
-                assertThatThrownBy(() -> insertProposal(connection, seeded, "FAILED"))
-                        .describedAs("there is no FAILED proposal; a failed reading produces none")
-                        .isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> insertProposal(connection, seeded, "APPLIED"))
+                        .describedAs("the constraint is widened by V15, not removed")
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> insertProposal(connection, seeded, "pending"))
+                        .describedAs("statuses are stored exactly as the enum names them")
                         .isInstanceOf(SQLException.class);
             }
         }

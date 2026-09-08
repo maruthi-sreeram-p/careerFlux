@@ -128,7 +128,13 @@ public class ResumeService {
             // the heuristic parser when the model is unavailable, out of quota or
             // unconfigured. Reaching this is a fault rather than a bad day, and
             // the resume must not be left saying PARSING for ever.
+            //
+            // Still outside any transaction the model call held, and in a short
+            // transaction of its own: the resume is marked failed and the attempt
+            // is recorded, so the student's review screen says what happened
+            // instead of looking as though they never uploaded anything.
             transaction.executeWithoutResult(status -> markParseFailed(resumeId));
+            recordFailedReading(resumeId);
             throw e;
         }
 
@@ -223,6 +229,30 @@ public class ResumeService {
             resume.setParseError("Your resume was saved, but it could not be read "
                     + "automatically. You can fill your profile in by hand, or upload it again.");
         });
+    }
+
+    /**
+     * Notes the failed attempt on the student's review screen, in its own
+     * transaction, and never at the expense of anything already recorded.
+     *
+     * <p>Separate from {@link #markParseFailed} deliberately. That one sets the
+     * status the candidate sees on their resume and must succeed; this one adds
+     * an explanation to a second screen. Doing both in one transaction meant a
+     * fault while writing the explanation rolled back the status too, and left
+     * the resume saying PARSING for ever — which is the exact thing the status
+     * exists to prevent. So this is best effort, and its own failure is logged
+     * rather than thrown: the caller is already on its way to reporting a
+     * problem, and replacing that problem with a different one helps nobody.
+     */
+    private void recordFailedReading(UUID resumeId) {
+        try {
+            transaction.executeWithoutResult(status -> resumeRepository.findById(resumeId)
+                    .ifPresent(resume -> proposalService.recordFailure(
+                            resume.getCandidate(), resume, extractionService.engineName())));
+        } catch (RuntimeException nested) {
+            log.warn("Could not record the failed reading of resume {}: {}",
+                    resumeId, nested.getClass().getSimpleName());
+        }
     }
 
     @Transactional(readOnly = true)

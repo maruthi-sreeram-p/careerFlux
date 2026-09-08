@@ -111,10 +111,21 @@ public class ProfileProposalBuilder {
     /** A plain text field: the ordinary NEW / UNCHANGED / CONFLICT / MISSING case. */
     private static ProposedItem text(String field, ProposalSection section, String label,
                                      String current, String proposed) {
-        String value = trimToNull(proposed);
+        // Truncated here rather than on the way to the database, so the value on
+        // the review screen is the value that would be saved.
+        String value = fit(field, trimToNull(proposed));
         ProposalItemState state = compare(current, value);
         return ProposedItem.of("field:" + field, section, label,
                 state, trimToNull(current), value, true, Map.of(), noteFor(state));
+    }
+
+    /** Shortens a proposed value to what the profile column will actually hold. */
+    private static String fit(String field, String value) {
+        Integer max = ProfileFieldLimits.maxLengthOf(field);
+        if (value == null || max == null || value.length() <= max) {
+            return value;
+        }
+        return TextUtils.truncate(value, max);
     }
 
     /**
@@ -125,7 +136,7 @@ public class ProfileProposalBuilder {
      * want to fix it up — but it is flagged rather than presented as a finding.
      */
     private static ProposedItem link(String field, String label, String current, String proposed) {
-        String value = trimToNull(proposed);
+        String value = fit(field, trimToNull(proposed));
         ProposalItemState state = compare(current, value);
         if (state.isDecidable() && !looksLikeUrl(value)) {
             state = ProposalItemState.UNCERTAIN;

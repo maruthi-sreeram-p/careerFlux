@@ -105,6 +105,16 @@ public class AiProfileProposal {
         this.updatedAt = when;
     }
 
+    /**
+     * Records that the reading failed. Not a review, so no reviewer is named
+     * and no review time is set — the database's CHECK only demands one of
+     * those for a decision a person actually made.
+     */
+    public void markFailed(Instant when) {
+        this.status = ProposalStatus.FAILED;
+        this.updatedAt = when;
+    }
+
     /** Retires the proposal because a newer resume was read. Not a review. */
     public void supersede(Instant when) {
         this.status = ProposalStatus.SUPERSEDED;

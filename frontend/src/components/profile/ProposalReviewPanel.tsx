@@ -42,12 +42,12 @@ const SECTION_ORDER: ProposalSection[] = [
 ];
 
 const STATE_LABELS: Record<ProposalItemState, string> = {
-  NEW: 'New',
-  UNCHANGED: 'Already on your profile',
+  NEW: '+ New',
+  UNCHANGED: '✓ Already matches',
   CONFLICT: 'Differs from your profile',
-  MISSING: 'Not found',
-  UNCERTAIN: 'Check this',
-  INFORMATION_FOUND: 'For information',
+  MISSING: 'Not found in resume',
+  UNCERTAIN: '⚠ Needs review',
+  INFORMATION_FOUND: 'For information only',
 };
 
 const STATE_TONES: Record<ProposalItemState, 'neutral' | 'positive' | 'caution' | 'accent'> = {
