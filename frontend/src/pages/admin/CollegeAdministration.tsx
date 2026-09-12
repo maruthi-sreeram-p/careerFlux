@@ -50,9 +50,10 @@ import type { BatchFormState, DepartmentFormState, StaffFormState } from '../../
  * people who run placement.
  *
  * <p>Everything here already existed as a permission long before it existed as a
- * screen. A college administrator could sign in and read and change nothing, so
- * a freshly onboarded college had no departments — which meant no coordinator
- * could be scoped to one and no company requirement could target anybody.
+ * screen. The college's administrator could sign in and read and change nothing,
+ * so a freshly onboarded college had no departments — which meant no department
+ * coordinator could be scoped to one and no company requirement could target
+ * anybody.
  *
  * <p>One page rather than three, because these are three answers to one question
  * and an administrator setting a college up does them in a sitting. Each section
@@ -90,7 +91,7 @@ function Departments() {
   return (
     <Panel title="Departments">
       <p className="text-muted">
-        What a coordinator can be responsible for, and what a company requirement
+        What a department coordinator can be responsible for, and what a company requirement
         can target.
       </p>
       {departments.isLoading && <Skeleton className="skeleton--line" />}
@@ -104,7 +105,7 @@ function Departments() {
       {departments.data && departments.data.length === 0 && (
         <EmptyState
           title="No departments yet"
-          body="Add the first one below. Until a department exists, a coordinator cannot be scoped to anything and a requirement targeting a department will match nobody."
+          body="Add the first one below. Until a department exists, a department coordinator cannot be scoped to anything and a requirement targeting a department will match nobody."
         />
       )}
 
@@ -145,7 +146,7 @@ function Departments() {
               />
             )}
           </Field>
-          <Field label="Code" hint="How staff refer to it, and how a coordinator's scope is written down.">
+          <Field label="Code" hint="How staff refer to it, and how a department coordinator's scope is written down.">
             {({ id }) => (
               <TextInput
                 id={id}
@@ -302,7 +303,7 @@ function Staff() {
       {staff.data && staff.data.length === 0 && (
         <EmptyState
           title="No staff yet"
-          body="Appoint a placement officer below. Requirements and shortlists are theirs to run."
+          body="Appoint a department coordinator for each department below. A placement coordinator can also appoint another placement coordinator to share running the college."
         />
       )}
 
@@ -323,7 +324,7 @@ function Staff() {
                   <td>{member.fullName}</td>
                   <td className="text-muted">{member.email}</td>
                   <td>
-                    <Badge tone={member.role === 'COLLEGE_ADMIN' ? 'accent' : 'info'}>
+                    <Badge tone={member.role === 'PLACEMENT_COORDINATOR' ? 'accent' : 'info'}>
                       {member.role.replace(/_/g, ' ').toLowerCase()}
                     </Badge>
                   </td>
@@ -395,8 +396,8 @@ function Staff() {
         {needsDepartment && (
           <Field
             label="Department"
-            hint="A coordinator sees only their own department's students. This is what decides that."
-            error={noDepartmentsYet ? 'Add a department first — a coordinator needs one.' : undefined}
+            hint="A department coordinator sees only their own department's students. This is what decides that."
+            error={noDepartmentsYet ? 'Add a department first — a department coordinator needs one.' : undefined}
           >
             {({ id }) => (
               <Select

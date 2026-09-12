@@ -54,7 +54,7 @@ public class AdminAccountSeeder implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         if (!StringUtils.hasText(adminEmail) || !StringUtils.hasText(adminPassword)) {
-            if (userRepository.countByRole(UserRole.PLATFORM_ADMIN) == 0) {
+            if (userRepository.countByRole(UserRole.PORTAL_ADMIN) == 0) {
                 log.info("No administrator account exists. Set CAREERFLUX_ADMIN_EMAIL and "
                         + "CAREERFLUX_ADMIN_PASSWORD to create one on the next start.");
             }
@@ -74,7 +74,7 @@ public class AdminAccountSeeder implements ApplicationRunner {
         admin.setEmail(email);
         admin.setFullName(adminName);
         admin.setPasswordHash(passwordEncoder.encode(adminPassword));
-        admin.setRole(UserRole.PLATFORM_ADMIN);
+        admin.setRole(UserRole.PORTAL_ADMIN);
         admin.setStatus(UserStatus.ACTIVE);
         admin.setEmailVerified(true);
         userRepository.save(admin);

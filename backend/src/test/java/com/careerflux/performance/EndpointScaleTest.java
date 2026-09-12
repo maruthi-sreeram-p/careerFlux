@@ -104,7 +104,7 @@ class EndpointScaleTest {
     @BeforeAll
     void seedTheCollege() {
         seeded = fixture.seed(STUDENTS);
-        officer = fixture.staff("scale-officer@example.com", UserRole.PLACEMENT_OFFICER,
+        officer = fixture.staff("scale-officer@example.com", UserRole.PLACEMENT_COORDINATOR,
                 passwordEncoder.encode("ScaleTest123!"));
     }
 

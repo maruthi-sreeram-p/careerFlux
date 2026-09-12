@@ -17,9 +17,22 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Resolves the bearer token on every request. The user record is re-read from
- * the database rather than trusted from the token body, so a disabled or deleted
- * account stops working immediately instead of at token expiry.
+ * Resolves the bearer token on every request.
+ *
+ * <p>The user record is re-read from the database rather than trusted from the
+ * token body, so everything that ends a session takes effect on the next request
+ * instead of at token expiry:
+ *
+ * <ul>
+ *   <li>a disabled account;
+ *   <li>an account whose college has been suspended;
+ *   <li>a token issued before the account's session watermark, which is how a
+ *       password reset or change ends every earlier session.
+ * </ul>
+ *
+ * <p>The role comes from that record as well. The token's {@code role} claim is
+ * never read here, so a token cannot carry a role its owner does not have, and a
+ * role changed in the database applies at once.
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -48,7 +61,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         JwtService.ParsedToken parsed = jwtService.parse(header.substring(PREFIX.length()).trim(), false);
         if (parsed != null) {
             User user = userRepository.findById(parsed.userId()).orElse(null);
-            if (user != null && user.isActive()) {
+            if (user != null && user.canHoldSession() && user.acceptsSessionIssuedAt(parsed.issuedAt())) {
                 AuthenticatedUser principal = new AuthenticatedUser(user);
                 var authentication = new UsernamePasswordAuthenticationToken(
                         principal, null, principal.getAuthorities());

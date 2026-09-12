@@ -60,9 +60,10 @@ import org.springframework.stereotype.Component;
  *   <li><b>Expiry.</b> An entry untouched for a full window can be dropped
  *       without changing any later decision, and is.
  *   <li><b>A hard ceiling.</b> Authenticated keys are bounded by the number of
- *       accounts, but the sign-in key contains an address the caller chooses, so
- *       it is attacker-controlled. At the ceiling the map is swept, and if that
- *       does not free space the least recently used entries are evicted.
+ *       accounts, but the sign-in keys contain an address and an identity the
+ *       caller chooses, so they are attacker-controlled. At the ceiling the map
+ *       is swept, and if that does not free space the least recently used
+ *       entries are evicted.
  * </ul>
  *
  * <p>Sweeping is opportunistic rather than scheduled: it happens on the request
@@ -107,6 +108,8 @@ public class RateLimiter {
 
         Map<RateLimitedAction, Rule> table = new EnumMap<>(RateLimitedAction.class);
         table.put(RateLimitedAction.LOGIN, rule(config.loginAttempts(), config.loginWindow()));
+        table.put(RateLimitedAction.LOGIN_ACCOUNT,
+                rule(config.loginAccountAttempts(), config.loginAccountWindow()));
         table.put(RateLimitedAction.RESUME_UPLOAD, rule(config.resumeUploads(), config.resumeUploadWindow()));
         table.put(RateLimitedAction.CANDIDATE_DISCOVERY,
                 rule(config.discoveryRequests(), config.discoveryWindow()));
@@ -146,11 +149,18 @@ public class RateLimiter {
     }
 
     /**
-     * Charges one sign-in attempt.
+     * Charges one sign-in attempt, against two ceilings.
      *
-     * <p>Keyed on the client address <i>and</i> the identity being tried, both of
-     * which are known before anything is authenticated. This runs ahead of the
-     * password check and never looks at a token.
+     * <p>The first is keyed on the client address <i>and</i> the identity being
+     * tried. The second is keyed on the identity alone, so guesses against one
+     * account cannot be spread across as many addresses as an attacker has — or,
+     * wherever a forwarded header is believed, as many as they care to type. Both
+     * are known before anything is authenticated; this runs ahead of the password
+     * check and never looks at a token.
+     *
+     * <p>The per-address ceiling is charged first. A caller it has already
+     * refused does not go on to spend the account's allowance, so one noisy
+     * address cannot lock the account's owner out on its own.
      *
      * <p>The identity is normalised exactly as sign-in normalises it. That is not
      * tidiness. The account lookup is case-insensitive, so {@code Priya@x.edu},
@@ -167,6 +177,7 @@ public class RateLimiter {
         String identity = loginIdentity == null ? "" : loginIdentity.strip().toLowerCase(Locale.ROOT);
         String address = clientAddress == null || clientAddress.isBlank() ? "unknown" : clientAddress;
         check(RateLimitedAction.LOGIN, "login:" + address + "|" + identity);
+        check(RateLimitedAction.LOGIN_ACCOUNT, "login-account:" + identity);
     }
 
     private void check(RateLimitedAction action, String subject) {

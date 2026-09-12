@@ -218,7 +218,7 @@ class AiQuotaIntegrationTest {
         admin.setEmail("quota-admin-" + System.nanoTime() + "@careerflux.local");
         admin.setFullName("Platform Operator");
         admin.setPasswordHash(passwordEncoder.encode("IntegrationTest123!"));
-        admin.setRole(UserRole.PLATFORM_ADMIN);
+        admin.setRole(UserRole.PORTAL_ADMIN);
         admin.setStatus(UserStatus.ACTIVE);
         users.saveAndFlush(admin);
 

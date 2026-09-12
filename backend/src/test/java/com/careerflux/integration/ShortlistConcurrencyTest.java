@@ -148,7 +148,7 @@ class ShortlistConcurrencyTest {
         officer.setEmail("race-officer@example.com");
         officer.setFullName("Race Officer");
         officer.setPasswordHash(passwordEncoder.encode(PASSWORD));
-        officer.setRole(UserRole.PLACEMENT_OFFICER);
+        officer.setRole(UserRole.PLACEMENT_COORDINATOR);
         officer.setStatus(UserStatus.ACTIVE);
         officer.setInstitution(institutions.example());
         userRepository.saveAndFlush(officer);

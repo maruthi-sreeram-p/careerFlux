@@ -11,16 +11,20 @@ export interface ApiErrorBody {
 }
 
 /**
- * The five roles the platform recognises. Kept as a union rather than a plain
+ * The four roles the platform recognises. Kept as a union rather than a plain
  * string so a rename on the server breaks the build here instead of silently
  * turning a comparison into dead code.
+ *
+ * PLACEMENT_COORDINATOR is the college's own administrator and covers the whole
+ * institution; DEPARTMENT_COORDINATOR is scoped to departments or batches. Before
+ * the four-role model the server used PLACEMENT_COORDINATOR for the department
+ * role, so anything comparing role names must not assume the older meaning.
  */
 export type UserRole =
   | 'STUDENT'
+  | 'DEPARTMENT_COORDINATOR'
   | 'PLACEMENT_COORDINATOR'
-  | 'PLACEMENT_OFFICER'
-  | 'COLLEGE_ADMIN'
-  | 'PLATFORM_ADMIN';
+  | 'PORTAL_ADMIN';
 
 export interface SessionUser {
   id: string;

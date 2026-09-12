@@ -237,9 +237,12 @@ class RateLimitIntegrationTest {
         // ceiling: resume upload appears because 8 MB files land on disk whether
         // or not any AI runs, and exhausting the AI quota falls back to the
         // heuristic parser rather than failing the upload.
+        // LOGIN_ACCOUNT is the per-account sign-in ceiling added for the
+        // four-actor work; like LOGIN it bounds guessing, not AI.
         assertThat(RateLimitedAction.values())
                 .containsExactlyInAnyOrder(
                         RateLimitedAction.LOGIN,
+                        RateLimitedAction.LOGIN_ACCOUNT,
                         RateLimitedAction.RESUME_UPLOAD,
                         RateLimitedAction.CANDIDATE_DISCOVERY,
                         RateLimitedAction.REQUIREMENT_CREATE,

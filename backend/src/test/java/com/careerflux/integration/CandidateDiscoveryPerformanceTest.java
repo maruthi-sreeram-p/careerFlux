@@ -238,7 +238,7 @@ class CandidateDiscoveryPerformanceTest {
         officer.setEmail("perf-officer@example.com");
         officer.setFullName("Perf Officer");
         officer.setPasswordHash(passwordEncoder.encode("PerfTest123!"));
-        officer.setRole(UserRole.PLACEMENT_OFFICER);
+        officer.setRole(UserRole.PLACEMENT_COORDINATOR);
         officer.setStatus(UserStatus.ACTIVE);
         officer.setInstitution(institutions.example());
         users.saveAndFlush(officer);

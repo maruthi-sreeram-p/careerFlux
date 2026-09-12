@@ -32,9 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
  * read the application's metrics.
  *
  * <p>Role names are the code's, not yet the product's (the role migration is a
- * later phase). {@code PLATFORM_ADMIN} is the Portal Admin. {@code
- * PLACEMENT_OFFICER} and {@code COLLEGE_ADMIN} are the two halves of the
- * product's Placement Coordinator, and the code's {@code PLACEMENT_COORDINATOR}
+ * later phase). {@code PORTAL_ADMIN} is the Portal Admin. {@code
+ * PLACEMENT_COORDINATOR} and {@code PLACEMENT_COORDINATOR} are the two halves of the
+ * product's Placement Coordinator, and the code's {@code DEPARTMENT_COORDINATOR}
  * is the product's Department Coordinator.
  */
 @SpringBootTest
@@ -72,7 +72,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
         user.setFullName("Operational endpoint " + role.name());
         user.setPasswordHash("not-used-because-this-test-issues-its-own-token");
         user.setRole(role);
-        if (role != UserRole.PLATFORM_ADMIN) {
+        if (role != UserRole.PORTAL_ADMIN) {
             user.setInstitution(institutions.example());
         }
         users.saveAndFlush(user);
@@ -81,7 +81,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
 
     @ParameterizedTest(name = "{0}")
     @EnumSource(value = UserRole.class,
-            names = {"STUDENT", "PLACEMENT_COORDINATOR", "PLACEMENT_OFFICER", "COLLEGE_ADMIN"})
+            names = {"STUDENT", "DEPARTMENT_COORDINATOR", "PLACEMENT_COORDINATOR"})
     @DisplayName("college accounts are refused the source registry")
     void collegeAccountsCannotReadSources(UserRole role) throws Exception {
         String token = signedIn(role);
@@ -94,7 +94,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
     @Test
     @DisplayName("the Portal Admin can read the source registry")
     void portalAdminReadsSources() throws Exception {
-        String token = signedIn(UserRole.PLATFORM_ADMIN);
+        String token = signedIn(UserRole.PORTAL_ADMIN);
         mockMvc.perform(get("/api/sources").header("Authorization", token)).andExpect(status().isOk());
         mockMvc.perform(get("/api/sources/stats").header("Authorization", token)).andExpect(status().isOk());
         mockMvc.perform(get("/api/sources/adapters").header("Authorization", token)).andExpect(status().isOk());
@@ -116,7 +116,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
 
     @ParameterizedTest(name = "{0}")
     @EnumSource(value = UserRole.class,
-            names = {"STUDENT", "PLACEMENT_COORDINATOR", "PLACEMENT_OFFICER", "COLLEGE_ADMIN"})
+            names = {"STUDENT", "DEPARTMENT_COORDINATOR", "PLACEMENT_COORDINATOR"})
     @DisplayName("college accounts are refused operational metrics")
     void collegeAccountsCannotReadMetrics(UserRole role) throws Exception {
         String token = signedIn(role);
@@ -129,7 +129,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
     @Test
     @DisplayName("the Portal Admin can read operational metrics")
     void portalAdminReadsMetrics() throws Exception {
-        String token = signedIn(UserRole.PLATFORM_ADMIN);
+        String token = signedIn(UserRole.PORTAL_ADMIN);
         mockMvc.perform(get("/actuator/metrics").header("Authorization", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.names").isArray());
@@ -140,7 +140,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
     @Test
     @DisplayName("endpoints describing the environment, beans or configuration are not published at all")
     void sensitiveEndpointsAreNotExposed() throws Exception {
-        String token = signedIn(UserRole.PLATFORM_ADMIN);
+        String token = signedIn(UserRole.PORTAL_ADMIN);
         for (String path : new String[] {"/actuator/env", "/actuator/beans", "/actuator/configprops",
                 "/actuator/loggers", "/actuator/mappings", "/actuator/threaddump", "/actuator/heapdump"}) {
             mockMvc.perform(get(path).header("Authorization", token))
@@ -159,7 +159,7 @@ class OperationalEndpointAuthorizationIntegrationTest {
         mockMvc.perform(get("/actuator/health").header("Authorization", signedIn(UserRole.STUDENT)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.components").doesNotExist());
-        mockMvc.perform(get("/actuator/health").header("Authorization", signedIn(UserRole.PLATFORM_ADMIN)))
+        mockMvc.perform(get("/actuator/health").header("Authorization", signedIn(UserRole.PORTAL_ADMIN)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.components").exists());
     }

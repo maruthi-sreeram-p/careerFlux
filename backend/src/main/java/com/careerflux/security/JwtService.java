@@ -34,6 +34,8 @@ public class JwtService {
     private static final Logger log = LoggerFactory.getLogger(JwtService.class);
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_TYPE = "typ";
+    /** Issue time in epoch milliseconds, for the session watermark. */
+    private static final String CLAIM_ISSUED_AT_MILLIS = "iat_ms";
     private static final String TYPE_ACCESS = "access";
     private static final String TYPE_REFRESH = "refresh";
 
@@ -105,8 +107,15 @@ public class JwtService {
                 .subject(user.getId().toString())
                 .claims(Map.of(
                         "email", user.getEmail(),
+                        // Informational only. Authorization reads the role from the
+                        // database on every request and never from here.
                         CLAIM_ROLE, user.getRole().name(),
-                        CLAIM_TYPE, type))
+                        CLAIM_TYPE, type,
+                        // The standard iat claim is whole seconds. The session
+                        // watermark needs to tell apart a token issued just before a
+                        // password reset from the one issued by the sign-in just
+                        // after it, which can fall in the same second.
+                        CLAIM_ISSUED_AT_MILLIS, now.toEpochMilli()))
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(ttlSeconds)))
                 .signWith(signingKey)
@@ -133,6 +142,7 @@ public class JwtService {
                     UUID.fromString(claims.getSubject()),
                     claims.get("email", String.class),
                     claims.get(CLAIM_ROLE, String.class),
+                    issuedAt(claims),
                     claims.getExpiration().toInstant());
         } catch (JwtException | IllegalArgumentException ex) {
             log.debug("Rejected token: {}", ex.getMessage());
@@ -140,6 +150,27 @@ public class JwtService {
         }
     }
 
-    public record ParsedToken(UUID userId, String email, String role, Instant expiresAt) {
+    /**
+     * When the token was issued, to the millisecond where the token says so.
+     *
+     * <p>Tokens issued before the millisecond claim existed fall back to the
+     * standard whole-second {@code iat}; with neither, the answer is null, which
+     * the session watermark treats as too old to honour once anything has been
+     * revoked.
+     */
+    private static Instant issuedAt(Claims claims) {
+        Number millis = claims.get(CLAIM_ISSUED_AT_MILLIS, Number.class);
+        if (millis != null) {
+            return Instant.ofEpochMilli(millis.longValue());
+        }
+        return claims.getIssuedAt() == null ? null : claims.getIssuedAt().toInstant();
+    }
+
+    /**
+     * @param role     the role the token was issued under. Informational: nothing
+     *                 authorizes against it
+     * @param issuedAt compared with the account's session watermark
+     */
+    public record ParsedToken(UUID userId, String email, String role, Instant issuedAt, Instant expiresAt) {
     }
 }

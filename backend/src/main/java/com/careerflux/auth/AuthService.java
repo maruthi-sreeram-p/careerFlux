@@ -1,5 +1,8 @@
 package com.careerflux.auth;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -38,12 +41,22 @@ public class AuthService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final long RESET_TOKEN_TTL_MINUTES = 30;
 
+    /** One message for an unknown address and a wrong password, so neither reveals the other. */
+    private static final String BAD_CREDENTIALS = "Email or password is incorrect.";
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final CandidateProfileService candidateProfileService;
     private final EnrolmentService enrolmentService;
     private final AuditService auditService;
+
+    /**
+     * A hash of a value nobody knows, checked against when the address is not
+     * registered. Built on first use rather than at startup so the cost of one
+     * BCrypt encoding is not paid by every context that never signs anybody in.
+     */
+    private volatile String timingEqualiserHash;
 
     public AuthService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
@@ -91,15 +104,26 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
         String email = normalizeEmail(request.email());
-        User user = userRepository.findByEmailIgnoreCase(email)
-                .orElseThrow(() -> new ForbiddenException("Email or password is incorrect."));
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
 
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            // Deliberately the same message as an unknown email: do not reveal which accounts exist.
-            throw new ForbiddenException("Email or password is incorrect.");
+        if (user == null) {
+            // The same BCrypt work a real account costs. Returning before any
+            // hashing made an unknown address answer a quarter-second faster than
+            // a known one, which told anybody with a stopwatch who had an account.
+            passwordEncoder.matches(request.password(), timingEqualiserHash());
+            throw new ForbiddenException(BAD_CREDENTIALS);
         }
+        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            throw new ForbiddenException(BAD_CREDENTIALS);
+        }
+        // Only somebody who has just proved the password learns why they cannot
+        // come in, so neither message below reveals anything to a guesser.
         if (!user.isActive()) {
             throw new ForbiddenException("This account has been disabled.");
+        }
+        if (!user.canHoldSession()) {
+            throw new ForbiddenException(
+                    "Your college's access to CareerFlux is suspended. Contact your placement office.");
         }
 
         user.setLastLoginAt(Instant.now());
@@ -107,6 +131,14 @@ public class AuthService {
         return issueTokens(user, profile);
     }
 
+    /**
+     * Swaps a refresh token for a fresh pair.
+     *
+     * <p>Held to the same conditions as a request: the account must still be
+     * allowed a session, and the refresh token must postdate the session
+     * watermark. Otherwise a refresh token stolen before a password reset would
+     * simply mint new access tokens after it.
+     */
     @Transactional
     public AuthResponse refresh(String refreshToken) {
         JwtService.ParsedToken parsed = jwtService.parse(refreshToken, true);
@@ -114,7 +146,8 @@ public class AuthService {
             throw new ForbiddenException("That session has expired. Sign in again.");
         }
         User user = userRepository.findById(parsed.userId())
-                .filter(User::isActive)
+                .filter(User::canHoldSession)
+                .filter(candidate -> candidate.acceptsSessionIssuedAt(parsed.issuedAt()))
                 .orElseThrow(() -> new ForbiddenException("That session is no longer valid."));
         CandidateProfile profile = candidateProfileService.findByUserId(user.getId()).orElse(null);
         return issueTokens(user, profile);
@@ -124,10 +157,11 @@ public class AuthService {
      * Starts a password reset. Always succeeds from the caller's point of view so
      * the endpoint cannot be used to enumerate registered addresses.
      *
-     * <p>There is no mail transport wired up yet. The token is returned to the
-     * caller only under the dev and demo profiles (see {@code AuthController}),
-     * and it is never written to the log, which everyone who operates the
-     * service can read.
+     * <p>Only a SHA-256 digest of the token is stored; the raw value is returned
+     * to the caller and exists nowhere else. There is no mail transport wired up
+     * yet, so the token reaches a person only under the dev and demo profiles
+     * (see {@code AuthController}). It is never written to the log, and neither is
+     * the address it was issued for.
      */
     @Transactional
     public Optional<String> beginPasswordReset(String rawEmail) {
@@ -140,16 +174,25 @@ public class AuthService {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String token = HexFormat.of().formatHex(bytes);
-        user.setPasswordResetToken(token);
+        user.setPasswordResetToken(digest(token));
         user.setPasswordResetExpiresAt(Instant.now().plus(RESET_TOKEN_TTL_MINUTES, ChronoUnit.MINUTES));
         auditService.recordSystem(email, "PASSWORD_RESET_REQUESTED", "User", user.getId(), null);
-        log.info("Password reset token issued for {} (valid {} minutes)", email, RESET_TOKEN_TTL_MINUTES);
+        log.info("Password reset token issued for user {} (valid {} minutes)", user.getId(), RESET_TOKEN_TTL_MINUTES);
         return Optional.of(token);
     }
 
+    /**
+     * Completes a reset and ends every session the account had.
+     *
+     * <p>Revoking is the point of a reset as much as the new password is: the
+     * person resetting may be doing it because somebody else is signed in as them.
+     */
     @Transactional
     public void completePasswordReset(String token, String newPassword) {
-        User user = userRepository.findByPasswordResetToken(token)
+        if (token == null || token.isBlank()) {
+            throw new BadRequestException("That reset link is not valid.");
+        }
+        User user = userRepository.findByPasswordResetToken(digest(token.strip()))
                 .orElseThrow(() -> new BadRequestException("That reset link is not valid."));
         if (user.getPasswordResetExpiresAt() == null || user.getPasswordResetExpiresAt().isBefore(Instant.now())) {
             throw new BadRequestException("That reset link has expired. Request a new one.");
@@ -157,9 +200,15 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setPasswordResetToken(null);
         user.setPasswordResetExpiresAt(null);
+        user.revokeSessions();
         auditService.recordSystem(user.getEmail(), "PASSWORD_RESET_COMPLETED", "User", user.getId(), null);
     }
 
+    /**
+     * Changes a password and ends every session the account had, this one
+     * included. The person is asked to sign in again with the new password,
+     * which is also what tells anybody else holding a session that it is over.
+     */
     @Transactional
     public void changePassword(java.util.UUID userId, String currentPassword, String newPassword) {
         User user = userRepository.findById(userId)
@@ -168,6 +217,7 @@ public class AuthService {
             throw new BadRequestException("Your current password is incorrect.");
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.revokeSessions();
         auditService.record("PASSWORD_CHANGED", "User", user.getId(), null);
     }
 
@@ -196,6 +246,30 @@ public class AuthService {
                 user.getInstitution() == null ? null : user.getInstitution().getName(),
                 profile == null ? null : profile.getId(),
                 profile == null ? null : profile.getOnboardingStage().name());
+    }
+
+    private String timingEqualiserHash() {
+        String hash = timingEqualiserHash;
+        if (hash == null) {
+            byte[] bytes = new byte[16];
+            RANDOM.nextBytes(bytes);
+            // A benign race: two first callers may each encode once. Both results
+            // are equally unguessable and equally expensive to check against.
+            hash = passwordEncoder.encode(HexFormat.of().formatHex(bytes));
+            timingEqualiserHash = hash;
+        }
+        return hash;
+    }
+
+    /** What is stored for a reset token: its SHA-256, hex-encoded. */
+    static String digest(String token) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException impossible) {
+            // Every Java runtime is required to provide SHA-256.
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
     }
 
     private String normalizeEmail(String email) {

@@ -32,29 +32,39 @@ import static com.careerflux.user.Permission.STUDENT_RESUME_READ;
 import static com.careerflux.user.Permission.SYSTEM_HEALTH_VIEW;
 
 /**
- * The five roles CareerFlux recognises, and what each may do.
+ * The four actors CareerFlux recognises, and what each may do.
+ *
+ * <p>These are the product's actors, named the way the product names them. The
+ * roles stored before migration V16 did not match: what the code called a
+ * placement coordinator was department-scoped staff, and the college's own
+ * administrator was split across a placement officer and a college
+ * administrator. V16 maps every stored role onto these four:
+ *
+ * <ul>
+ *   <li>{@code PLACEMENT_COORDINATOR} (department-scoped) → {@link #DEPARTMENT_COORDINATOR}
+ *   <li>{@code PLACEMENT_OFFICER} and {@code COLLEGE_ADMIN} → {@link #PLACEMENT_COORDINATOR}
+ *   <li>{@code PLATFORM_ADMIN} → {@link #PORTAL_ADMIN}
+ *   <li>{@code STUDENT} → {@link #STUDENT}
+ * </ul>
  *
  * <p>Two things are worth reading carefully here.
  *
- * <p><b>A coordinator cannot open a resume.</b> They can see whether a student
- * is ready and how they match, which is what the job needs; the document itself
- * is the student's own. A placement officer can, because they run the drives the
- * document is submitted to. This is data minimisation expressed in the type
- * system rather than in a policy document.
- *
- * <p><b>A college administrator is not a super-user.</b> They configure the
- * institution and manage accounts, but they are not granted student reads,
- * because administering a college is not a reason to read its students' career
- * profiles. If an administrator also needs that, they are given the placement
- * officer role as well.
+ * <p><b>A department coordinator cannot open a resume.</b> They can see whether a
+ * student is ready and how they match, which is what the job needs; the document
+ * itself is the student's own. The placement coordinator can, because they run
+ * the drives the document is submitted to. This is data minimisation expressed
+ * in the type system rather than in a policy document.
  *
  * <p><b>Shortlisting and authoring a requirement are separate permissions.</b>
- * A coordinator holds {@code PLACEMENT_SHORTLIST_MANAGE} and can put their own
- * department's students forward; they do not hold
+ * A department coordinator holds {@code PLACEMENT_SHORTLIST_MANAGE} and can put
+ * their own department's students forward; they do not hold
  * {@code PLACEMENT_DRIVE_MANAGE} and cannot create, edit, publish or close a
  * company requirement. The distinction matters because requirement authoring is
  * unscoped by design — a requirement may target any department or none — while
  * shortlisting is checked against the caller's own scope on every write.
+ *
+ * <p>A Head of Department is not a role. "HOD" is at most a job title held by a
+ * department coordinator, and nothing that decides access reads it.
  */
 public enum UserRole {
 
@@ -66,28 +76,40 @@ public enum UserRole {
             SELF_ACCOUNT_DELETE)),
 
     /**
-     * Placement staff scoped to departments or batches. Sees readiness for the
-     * students they support, and the market those students are entering.
+     * Placement staff scoped to departments or batches within one college. Sees
+     * readiness for the students they support, and the market those students are
+     * entering.
      */
-    PLACEMENT_COORDINATOR(EnumSet.of(
+    DEPARTMENT_COORDINATOR(EnumSet.of(
             STUDENT_READ_SCOPED,
             ANALYTICS_VIEW,
             JOB_MARKET_VIEW,
             PLACEMENT_DRIVE_VIEW,
-            // Shortlisting, but not authoring. A coordinator decides who from
-            // their department goes forward; what the college is hiring for is
-            // not theirs to write. The scope that makes this safe is not in this
-            // list — every shortlist write is checked against the coordinator's
-            // own AccessScope, so this permission reaches exactly the students
-            // STUDENT_READ_SCOPED already lets them see.
+            // Shortlisting, but not authoring. A department coordinator decides
+            // who from their department goes forward; what the college is hiring
+            // for is not theirs to write. The scope that makes this safe is not in
+            // this list — every shortlist write is checked against the
+            // coordinator's own AccessScope, so this permission reaches exactly
+            // the students STUDENT_READ_SCOPED already lets them see.
             PLACEMENT_SHORTLIST_MANAGE,
-            ANNOUNCEMENT_SEND)),
+            ANNOUNCEMENT_SEND,
+            STAFF_MANAGE)),
 
-    /** Runs placement for the whole institution. */
-    PLACEMENT_OFFICER(EnumSet.of(
+    /**
+     * The college's own administrator, who also runs its placement: departments,
+     * batches, staff, enrolment, drives and institution-wide placement activity.
+     * One institution, never another.
+     *
+     * <p>Exactly what the old placement officer and college administrator roles
+     * held between them. Keeping those apart left the person who administers a
+     * college unable to see the students whose placement they administer, which
+     * is not a split the product has.
+     */
+    PLACEMENT_COORDINATOR(EnumSet.of(
             STUDENT_READ_SCOPED,
             STUDENT_READ_INSTITUTION,
             STUDENT_RESUME_READ,
+            STUDENT_MANAGE,
             ANALYTICS_VIEW,
             JOB_MARKET_VIEW,
             PLACEMENT_DRIVE_VIEW,
@@ -95,20 +117,18 @@ public enum UserRole {
             PLACEMENT_SHORTLIST_MANAGE,
             PLACEMENT_ELIGIBILITY_MANAGE,
             ANNOUNCEMENT_SEND,
-            AUDIT_READ_INSTITUTION)),
-
-    /** Configures the college and manages its people. */
-    COLLEGE_ADMIN(EnumSet.of(
             INSTITUTION_SETTINGS_MANAGE,
             DEPARTMENT_MANAGE,
             BATCH_MANAGE,
             STAFF_MANAGE,
-            STUDENT_MANAGE,
-            ANALYTICS_VIEW,
             AUDIT_READ_INSTITUTION)),
 
-    /** Operates CareerFlux itself. Belongs to no institution. */
-    PLATFORM_ADMIN(EnumSet.of(
+    /**
+     * Operates CareerFlux itself. Belongs to no institution, and holds no
+     * student-read permission: owning the platform is not a reason to read a
+     * college's students.
+     */
+    PORTAL_ADMIN(EnumSet.of(
             SOURCE_VIEW,
             SOURCE_MANAGE,
             INGESTION_MANAGE,
@@ -134,13 +154,11 @@ public enum UserRole {
 
     /** True for the roles that belong to a college rather than to CareerFlux. */
     public boolean isInstitutional() {
-        return this != PLATFORM_ADMIN;
+        return this != PORTAL_ADMIN;
     }
 
     /** True for roles that act on other people's data and therefore need a scope. */
     public boolean isStaff() {
-        return this == PLACEMENT_COORDINATOR
-                || this == PLACEMENT_OFFICER
-                || this == COLLEGE_ADMIN;
+        return this == PLACEMENT_COORDINATOR || this == DEPARTMENT_COORDINATOR;
     }
 }

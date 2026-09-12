@@ -5,8 +5,8 @@ package com.careerflux.user;
  *
  * <p>Permissions are granted through roles, and the mapping lives in
  * {@link UserRole} rather than in a database table. That is a deliberate choice:
- * there are five fixed roles whose capabilities are a product decision, not
- * something a college administrator should be able to redefine at runtime. A
+ * there are four fixed roles whose capabilities are a product decision, not
+ * something anybody at a college should be able to redefine at runtime. A
  * permissions table would suggest an editor that does not and should not exist.
  *
  * <p>What <em>is</em> configurable per institution is <em>scope</em> — which

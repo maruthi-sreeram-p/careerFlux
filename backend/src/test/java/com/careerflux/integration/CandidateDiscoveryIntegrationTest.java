@@ -441,14 +441,18 @@ class CandidateDiscoveryIntegrationTest {
         }
 
         @Test
-        @DisplayName("a college administrator cannot: they run the institution, not placement")
-        void collegeAdminIsRefused() throws Exception {
+        @DisplayName("any placement coordinator in the college may, not only the one who wrote the requirement")
+        void anyPlacementCoordinatorInTheCollegeMay() throws Exception {
+            // This used to refuse a college administrator, who ran the institution
+            // but not placement. In the four-actor model the college's
+            // administrator is the placement coordinator, so a colleague who did
+            // not write the requirement reaches the same answer.
             String officer = officer("ca-officer@example.com");
             String id = openRequirement(officer, null);
-            User admin = staff("ca-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example());
+            User colleague = staff("ca-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example());
 
-            mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + login(admin)))
-                    .andExpect(status().isForbidden());
+            mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + login(colleague)))
+                    .andExpect(status().isOk());
         }
 
         @Test
@@ -456,7 +460,7 @@ class CandidateDiscoveryIntegrationTest {
         void platformAdminIsRefused() throws Exception {
             String officer = officer("pa-officer@example.com");
             String id = openRequirement(officer, null);
-            User platform = staff("pa@careerflux.local", UserRole.PLATFORM_ADMIN, null);
+            User platform = staff("pa@careerflux.local", UserRole.PORTAL_ADMIN, null);
 
             mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + login(platform)))
                     .andExpect(status().isForbidden());
@@ -474,7 +478,7 @@ class CandidateDiscoveryIntegrationTest {
         void crossInstitutionRequirementIsNotFound() throws Exception {
             String officer = officer("idor-officer@example.com");
             String id = openRequirement(officer, null);
-            User rival = staff("rival@rival.edu", UserRole.PLACEMENT_OFFICER, institutions.rival());
+            User rival = staff("rival@rival.edu", UserRole.PLACEMENT_COORDINATOR, institutions.rival());
 
             // A 403 would confirm the requirement exists in the other college.
             mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + login(rival)))
@@ -632,11 +636,11 @@ class CandidateDiscoveryIntegrationTest {
     }
 
     private String officer(String email) throws Exception {
-        return login(staff(email, UserRole.PLACEMENT_OFFICER, institutions.example()));
+        return login(staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example()));
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(
                 StaffScope.forDepartment(coordinator, institutions.example(),
                         institutions.exampleCse()));

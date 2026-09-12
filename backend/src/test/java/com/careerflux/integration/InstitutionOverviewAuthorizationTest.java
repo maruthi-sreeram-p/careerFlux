@@ -106,7 +106,7 @@ class InstitutionOverviewAuthorizationTest {
         registerStudent("io-mech@example.com", institutions.exampleMech());
         registerStudent("io-unassigned@example.com", null);
 
-        User officer = staff("officer@example.com", UserRole.PLACEMENT_OFFICER, institutions.example());
+        User officer = staff("officer@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example());
         JsonNode overview = readJson(get(OVERVIEW), login(officer));
 
         // Three, including the student with no department: an officer sees them,
@@ -122,7 +122,7 @@ class InstitutionOverviewAuthorizationTest {
         registerStudent("ns-a@example.com", institutions.exampleCse());
         registerStudent("ns-b@example.com", institutions.exampleMech());
 
-        User coordinator = staff("no-scope@example.com", UserRole.PLACEMENT_COORDINATOR,
+        User coordinator = staff("no-scope@example.com", UserRole.DEPARTMENT_COORDINATOR,
                 institutions.example());
         JsonNode overview = readJson(get(OVERVIEW), login(coordinator));
 
@@ -138,7 +138,7 @@ class InstitutionOverviewAuthorizationTest {
         registerStudent("home@example.com", institutions.exampleCse());
         registerRivalStudent("away@rival.edu");
 
-        User officer = staff("boundary-officer@example.com", UserRole.PLACEMENT_OFFICER,
+        User officer = staff("boundary-officer@example.com", UserRole.PLACEMENT_COORDINATOR,
                 institutions.example());
         JsonNode overview = readJson(get(OVERVIEW), login(officer));
 
@@ -166,7 +166,7 @@ class InstitutionOverviewAuthorizationTest {
     @DisplayName("a college administrator may see the institution they run")
     void collegeAdminIsAllowed() throws Exception {
         registerStudent("ca-a@example.com", institutions.exampleCse());
-        User admin = staff("college-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example());
+        User admin = staff("college-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example());
 
         JsonNode overview = readJson(get(OVERVIEW), login(admin));
 
@@ -179,7 +179,7 @@ class InstitutionOverviewAuthorizationTest {
     @Test
     @DisplayName("a platform administrator belongs to no college and gets no college numbers")
     void platformAdminIsRefused() throws Exception {
-        User platform = staff("platform@careerflux.local", UserRole.PLATFORM_ADMIN, null);
+        User platform = staff("platform@careerflux.local", UserRole.PORTAL_ADMIN, null);
 
         mockMvc.perform(get(OVERVIEW).header("Authorization", "Bearer " + login(platform)))
                 .andExpect(status().isForbidden());
@@ -193,7 +193,7 @@ class InstitutionOverviewAuthorizationTest {
         registerStudent("cov-a@example.com", institutions.exampleCse());
         registerStudent("cov-b@example.com", institutions.exampleCse());
 
-        User officer = staff("cov-officer@example.com", UserRole.PLACEMENT_OFFICER,
+        User officer = staff("cov-officer@example.com", UserRole.PLACEMENT_COORDINATOR,
                 institutions.example());
         JsonNode overview = readJson(get(OVERVIEW), login(officer));
 
@@ -235,7 +235,7 @@ class InstitutionOverviewAuthorizationTest {
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(
                 StaffScope.forDepartment(coordinator, institutions.example(), institutions.exampleCse()));
         return login(coordinator);

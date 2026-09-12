@@ -313,19 +313,23 @@ class ShortlistIntegrationTest {
         }
 
         @Test
-        @DisplayName("a college administrator cannot: they run the institution, not placement")
-        void collegeAdminIsRefused() throws Exception {
+        @DisplayName("any placement coordinator in the college may, not only the one who wrote the requirement")
+        void anyPlacementCoordinatorMay() throws Exception {
+            // This used to refuse a college administrator. In the four-actor model
+            // the college's administrator is the placement coordinator, which runs
+            // placement, so a colleague who did not write the requirement may put a
+            // candidate forward and read the list.
             String officer = officer("sl-ca-officer@example.com");
             UUID candidate = candidateId("ca-candidate@example.com");
             String id = openRequirement(officer);
-            String admin = login(staff("sl-admin@example.com", UserRole.COLLEGE_ADMIN,
+            String colleague = login(staff("sl-admin@example.com", UserRole.PLACEMENT_COORDINATOR,
                     institutions.example()));
 
-            mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + admin)
+            mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + colleague)
                             .contentType(MediaType.APPLICATION_JSON).content(body(candidate)))
-                    .andExpect(status().isForbidden());
-            mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + admin))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isCreated());
+            mockMvc.perform(get(url(id)).header("Authorization", "Bearer " + colleague))
+                    .andExpect(status().isOk());
         }
 
         @Test
@@ -335,7 +339,7 @@ class ShortlistIntegrationTest {
             UUID candidate = candidateId("pa-candidate@example.com");
             String id = openRequirement(officer);
             String platform = login(staff("sl-platform@careerflux.local",
-                    UserRole.PLATFORM_ADMIN, null));
+                    UserRole.PORTAL_ADMIN, null));
 
             mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + platform)
                             .contentType(MediaType.APPLICATION_JSON).content(body(candidate)))
@@ -427,7 +431,7 @@ class ShortlistIntegrationTest {
             UUID candidate = candidateId("cross-candidate@example.com");
             String id = openRequirement(officer);
             String rivalOfficer = login(staff("rival-sl@rival.edu",
-                    UserRole.PLACEMENT_OFFICER, institutions.rival()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.rival()));
 
             mockMvc.perform(post(url(id)).header("Authorization", "Bearer " + rivalOfficer)
                             .contentType(MediaType.APPLICATION_JSON).content(body(candidate)))
@@ -445,7 +449,7 @@ class ShortlistIntegrationTest {
             shortlist(officer, id, candidate);
 
             String rivalOfficer = login(staff("rival-rm@rival.edu",
-                    UserRole.PLACEMENT_OFFICER, institutions.rival()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.rival()));
 
             mockMvc.perform(delete(url(id) + "/" + candidate)
                             .header("Authorization", "Bearer " + rivalOfficer))
@@ -587,11 +591,11 @@ class ShortlistIntegrationTest {
     }
 
     private String officer(String email) throws Exception {
-        return login(staff(email, UserRole.PLACEMENT_OFFICER, institutions.example()));
+        return login(staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example()));
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(
                 StaffScope.forDepartment(coordinator, institutions.example(),
                         institutions.exampleCse()));

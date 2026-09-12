@@ -188,10 +188,10 @@ class StudentDiscoveryIntegrationTest {
         interaction(anitaId, job, InteractionType.APPLIED, Instant.now().minusSeconds(3600));
         interaction(bhaveshId, job, InteractionType.SAVED, Instant.now().minusSeconds(1800));
 
-        User officer = staff("discovery-officer", UserRole.PLACEMENT_OFFICER, example);
+        User officer = staff("discovery-officer", UserRole.PLACEMENT_COORDINATOR, example);
         officerToken = login(officer);
 
-        User coordinator = staff("discovery-coordinator", UserRole.PLACEMENT_COORDINATOR, example);
+        User coordinator = staff("discovery-coordinator", UserRole.DEPARTMENT_COORDINATOR, example);
         staffScopeRepository.saveAndFlush(StaffScope.forDepartment(coordinator, example, cse));
         coordinatorToken = login(coordinator);
 

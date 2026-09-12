@@ -5,10 +5,9 @@ import { useAuth } from '../lib/auth';
 
 const ROLE_LABELS: Record<string, string> = {
   STUDENT: 'Student',
+  DEPARTMENT_COORDINATOR: 'Department coordinator',
   PLACEMENT_COORDINATOR: 'Placement coordinator',
-  PLACEMENT_OFFICER: 'Placement officer',
-  COLLEGE_ADMIN: 'College administrator',
-  PLATFORM_ADMIN: 'Platform administrator',
+  PORTAL_ADMIN: 'Portal administrator',
 };
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {

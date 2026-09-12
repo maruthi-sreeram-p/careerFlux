@@ -95,7 +95,7 @@ class ConcurrentLoadTest {
     @BeforeAll
     void seedTheCollege() {
         seeded = fixture.seed(STUDENTS);
-        officer = fixture.staff("load-officer@example.com", UserRole.PLACEMENT_OFFICER,
+        officer = fixture.staff("load-officer@example.com", UserRole.PLACEMENT_COORDINATOR,
                 passwordEncoder.encode("LoadTest123!"));
     }
 

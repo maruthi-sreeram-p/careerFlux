@@ -27,18 +27,14 @@ public record AccessScope(
         batchIds = batchIds == null ? Set.of() : Set.copyOf(batchIds);
     }
 
-    /** A platform administrator: no institution, and no student visibility at all. */
+    /** A portal administrator: no institution, and no student visibility at all. */
     public static AccessScope platform(UUID userId) {
-        return new AccessScope(userId, null, UserRole.PLATFORM_ADMIN, false, Set.of(), Set.of());
+        return new AccessScope(userId, null, UserRole.PORTAL_ADMIN, false, Set.of(), Set.of());
     }
 
     /** A student: scoped to themselves and nothing else. */
     public static AccessScope student(UUID userId, UUID institutionId) {
         return new AccessScope(userId, institutionId, UserRole.STUDENT, false, Set.of(), Set.of());
-    }
-
-    public boolean isPlatformAdmin() {
-        return role == UserRole.PLATFORM_ADMIN;
     }
 
     /** True when this caller can see every student in their institution. */

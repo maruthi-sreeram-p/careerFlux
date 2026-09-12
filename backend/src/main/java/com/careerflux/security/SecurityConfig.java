@@ -111,19 +111,21 @@ public class SecurityConfig {
                         // running system (metrics today, whatever is exposed
                         // tomorrow) and is the platform operator's alone. It used
                         // to fall through to "anyone signed in".
-                        .requestMatchers("/actuator/**").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers("/actuator/**").hasRole("PORTAL_ADMIN")
                         // Coarse gates only. Anything finer is a @PreAuthorize on
                         // the method, because a URL prefix cannot express "this
                         // student, in your department" — and that is the check
                         // that actually matters in a multi-tenant system.
-                        .requestMatchers("/api/platform/**").hasRole("PLATFORM_ADMIN")
-                        .requestMatchers("/api/admin/**").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers("/api/platform/**").hasRole("PORTAL_ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("PORTAL_ADMIN")
                         // The source registry, read side included. Source
-                        // governance is the platform operator's, and the policy
+                        // governance is the portal administrator's, and the policy
                         // records name the staff who reviewed each source.
-                        .requestMatchers("/api/sources/**").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers("/api/sources/**").hasRole("PORTAL_ADMIN")
+                        // A college's two staff roles. Neither the portal
+                        // administrator nor a student belongs here.
                         .requestMatchers("/api/institution/**").hasAnyRole(
-                                "COLLEGE_ADMIN", "PLACEMENT_OFFICER", "PLACEMENT_COORDINATOR")
+                                "PLACEMENT_COORDINATOR", "DEPARTMENT_COORDINATOR")
                         .anyRequest().authenticated();
                 })
                 .exceptionHandling(handling -> handling

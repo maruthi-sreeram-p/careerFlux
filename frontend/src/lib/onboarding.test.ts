@@ -28,15 +28,15 @@ function user(role: UserRole, permissions: string[]): SessionUser {
     fullName: 'Test Person',
     role,
     permissions,
-    institutionId: role === 'PLATFORM_ADMIN' ? null : 'institution-1',
-    institutionName: role === 'PLATFORM_ADMIN' ? null : 'Example Institute of Technology',
+    institutionId: role === 'PORTAL_ADMIN' ? null : 'institution-1',
+    institutionName: role === 'PORTAL_ADMIN' ? null : 'Example Institute of Technology',
     candidateId: null,
     onboardingStage: null,
   };
 }
 
 // Copied from the backend's UserRole enum, as the existing navigation tests do.
-const PLATFORM_ADMIN = user('PLATFORM_ADMIN', [
+const PORTAL_ADMIN = user('PORTAL_ADMIN', [
   'SOURCE_VIEW',
   'SOURCE_MANAGE',
   'INGESTION_MANAGE',
@@ -46,7 +46,7 @@ const PLATFORM_ADMIN = user('PLATFORM_ADMIN', [
   'AI_USAGE_MANAGE',
   'JOB_MARKET_VIEW',
 ]);
-const COLLEGE_ADMIN = user('COLLEGE_ADMIN', [
+const PLACEMENT_COORDINATOR = user('PLACEMENT_COORDINATOR', [
   'INSTITUTION_SETTINGS_MANAGE',
   'DEPARTMENT_MANAGE',
   'BATCH_MANAGE',
@@ -55,7 +55,7 @@ const COLLEGE_ADMIN = user('COLLEGE_ADMIN', [
   'ANALYTICS_VIEW',
   'AUDIT_READ_INSTITUTION',
 ]);
-const OFFICER = user('PLACEMENT_OFFICER', [
+const OFFICER = user('PLACEMENT_COORDINATOR', [
   'STUDENT_READ_SCOPED',
   'STUDENT_READ_INSTITUTION',
   'STUDENT_RESUME_READ',
@@ -78,14 +78,14 @@ const ONBOARDING_ROUTE = '/app/admin/institutions';
 
 describe('who is offered college onboarding', () => {
   it('offers it to the platform operator', () => {
-    expect(dashboardKindFor(PLATFORM_ADMIN)).toBe('platform');
-    expect(navigationTargets(PLATFORM_ADMIN)).toContain(ONBOARDING_ROUTE);
+    expect(dashboardKindFor(PORTAL_ADMIN)).toBe('platform');
+    expect(navigationTargets(PORTAL_ADMIN)).toContain(ONBOARDING_ROUTE);
   });
 
   it('offers it to nobody inside a college', () => {
     // Including the college administrator, who administers one college and is
     // not thereby able to create another.
-    for (const person of [COLLEGE_ADMIN, OFFICER, STUDENT]) {
+    for (const person of [PLACEMENT_COORDINATOR, OFFICER, STUDENT]) {
       expect(navigationTargets(person)).not.toContain(ONBOARDING_ROUTE);
     }
   });

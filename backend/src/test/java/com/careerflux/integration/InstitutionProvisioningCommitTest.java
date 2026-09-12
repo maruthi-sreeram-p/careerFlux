@@ -162,7 +162,7 @@ class InstitutionProvisioningCommitTest {
             operator.setEmail(OPERATOR);
             operator.setFullName("Commit Operator");
             operator.setPasswordHash(passwordEncoder.encode(PASSWORD));
-            operator.setRole(UserRole.PLATFORM_ADMIN);
+            operator.setRole(UserRole.PORTAL_ADMIN);
             operator.setStatus(UserStatus.ACTIVE);
             return userRepository.saveAndFlush(operator);
         });

@@ -53,9 +53,17 @@ class RateLimiterTest {
                         10, Duration.ofHours(1),
                         discovery, discoveryWindow,
                         20, Duration.ofHours(1),
-                        120, Duration.ofMinutes(1)),
+                        120, Duration.ofMinutes(1),
+                        LOGIN_ACCOUNT_LIMIT, Duration.ofMinutes(15)),
                 true);
     }
+
+    /**
+     * High enough that the per-address tests above never reach it by accident:
+     * they exercise one ceiling at a time, and the per-account ceiling has its
+     * own tests.
+     */
+    private static final int LOGIN_ACCOUNT_LIMIT = 1_000;
 
     private static CareerFluxProperties defaults() {
         return limits(10, Duration.ofMinutes(5), 30, Duration.ofMinutes(1), 50_000);
@@ -367,7 +375,7 @@ class RateLimiterTest {
     class Memory {
 
         @Test
-        @DisplayName("expired entries are removed")
+        @DisplayName("expired entries are removed, each on its own window")
         void expiredEntriesAreCleaned() {
             TestClock clock = new TestClock();
             RateLimiter limiter = limiterOn(clock, defaults());
@@ -375,12 +383,20 @@ class RateLimiterTest {
             for (int i = 0; i < 500; i++) {
                 limiter.checkLogin("198.51.100." + (i % 256), "attempt" + i + "@example.com");
             }
-            assertThat(limiter.trackedKeys()).isEqualTo(500);
+            // Two entries per sign-in attempt: one for the address and identity,
+            // one for the identity alone.
+            assertThat(limiter.trackedKeys()).isEqualTo(1_000);
 
             clock.advance(Duration.ofMinutes(5).plusSeconds(1));
-            int removed = limiter.sweepExpired();
+            assertThat(limiter.sweepExpired())
+                    .describedAs("the per-address entries have outlived their five-minute window")
+                    .isEqualTo(500);
+            assertThat(limiter.trackedKeys())
+                    .describedAs("the per-account entries are still inside their fifteen-minute window")
+                    .isEqualTo(500);
 
-            assertThat(removed).isEqualTo(500);
+            clock.advance(Duration.ofMinutes(10));
+            assertThat(limiter.sweepExpired()).isEqualTo(500);
             assertThat(limiter.trackedKeys()).isZero();
         }
 
@@ -413,7 +429,10 @@ class RateLimiterTest {
             assertThat(limiter.sweepExpired())
                     .describedAs("an entry whose owner is still being refused must not be swept")
                     .isZero();
-            assertThat(limiter.trackedKeys()).isEqualTo(1);
+            // Two survive: the per-address entry, kept alive by the refusal, and
+            // the per-account entry, still inside its own fifteen-minute window.
+            // The refused attempt never reached the account ceiling at all.
+            assertThat(limiter.trackedKeys()).isEqualTo(2);
         }
 
         @Test
@@ -491,7 +510,7 @@ class RateLimiterTest {
                     new CareerFluxProperties.RateLimit(false, 50_000,
                             1, Duration.ofMinutes(5), 1, Duration.ofHours(1),
                             1, Duration.ofMinutes(1), 1, Duration.ofHours(1),
-                            1, Duration.ofMinutes(1)),
+                            1, Duration.ofMinutes(1), 1, Duration.ofMinutes(15)),
                     true);
             RateLimiter limiter = limiterOn(clock, off);
             UUID account = UUID.randomUUID();
@@ -503,6 +522,102 @@ class RateLimiterTest {
             assertThat(limiter.trackedKeys()).isZero();
         }
 
+    }
+
+    private static CareerFluxProperties accountLimits(int perAddress, int perAccount) {
+        return new CareerFluxProperties(null, null, null, null, null, null,
+                new CareerFluxProperties.RateLimit(true, 50_000,
+                        perAddress, Duration.ofMinutes(5),
+                        10, Duration.ofHours(1),
+                        30, Duration.ofMinutes(1),
+                        20, Duration.ofHours(1),
+                        120, Duration.ofMinutes(1),
+                        perAccount, Duration.ofMinutes(15)),
+                true);
+    }
+
+    @Nested
+    @DisplayName("the per-account sign-in ceiling")
+    class PerAccountSignIn {
+
+        @Test
+        @DisplayName("stops guesses spread across addresses, though each address is under its own ceiling")
+        void spreadingAcrossAddressesStillHitsTheAccount() {
+            TestClock clock = new TestClock();
+            RateLimiter limiter = limiterOn(clock, accountLimits(10, 5));
+
+            for (int i = 0; i < 5; i++) {
+                limiter.checkLogin("203.0.113." + i, "target@college.edu");
+            }
+
+            assertThatThrownBy(() -> limiter.checkLogin("203.0.113.99", "target@college.edu"))
+                    .isInstanceOf(TooManyRequestsException.class)
+                    .hasMessageNotContaining("target@college.edu");
+        }
+
+        @Test
+        @DisplayName("leaves every other account alone")
+        void otherAccountsAreUnaffected() {
+            TestClock clock = new TestClock();
+            RateLimiter limiter = limiterOn(clock, accountLimits(10, 5));
+            for (int i = 0; i < 5; i++) {
+                limiter.checkLogin("203.0.113." + i, "target@college.edu");
+            }
+
+            assertThatCode(() -> limiter.checkLogin("203.0.113.1", "somebody-else@college.edu"))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("counts every spelling of one address as one account")
+        void spellingsAreOneAccount() {
+            TestClock clock = new TestClock();
+            RateLimiter limiter = limiterOn(clock, accountLimits(10, 3));
+            limiter.checkLogin("203.0.113.1", "Target@College.edu");
+            limiter.checkLogin("203.0.113.2", " target@college.edu ");
+            limiter.checkLogin("203.0.113.3", "TARGET@COLLEGE.EDU");
+
+            assertThatThrownBy(() -> limiter.checkLogin("203.0.113.4", "target@college.edu"))
+                    .isInstanceOf(TooManyRequestsException.class);
+        }
+
+        @Test
+        @DisplayName("an address already refused does not spend the account's allowance")
+        void refusedAddressDoesNotSpendTheAccount() {
+            TestClock clock = new TestClock();
+            RateLimiter limiter = limiterOn(clock, accountLimits(2, 5));
+            limiter.checkLogin("198.51.100.1", "owner@college.edu");
+            limiter.checkLogin("198.51.100.1", "owner@college.edu");
+            for (int i = 0; i < 10; i++) {
+                assertThatThrownBy(() -> limiter.checkLogin("198.51.100.1", "owner@college.edu"))
+                        .isInstanceOf(TooManyRequestsException.class);
+            }
+
+            // Two attempts spent; the refused ten were never charged to the account.
+            for (int i = 0; i < 3; i++) {
+                int address = i;
+                assertThatCode(() -> limiter.checkLogin("198.51.100." + (10 + address), "owner@college.edu"))
+                        .doesNotThrowAnyException();
+            }
+            assertThatThrownBy(() -> limiter.checkLogin("198.51.100.99", "owner@college.edu"))
+                    .isInstanceOf(TooManyRequestsException.class);
+        }
+
+        @Test
+        @DisplayName("lifts once its window has passed")
+        void liftsAfterTheWindow() {
+            TestClock clock = new TestClock();
+            RateLimiter limiter = limiterOn(clock, accountLimits(10, 2));
+            limiter.checkLogin("203.0.113.1", "target@college.edu");
+            limiter.checkLogin("203.0.113.2", "target@college.edu");
+            assertThatThrownBy(() -> limiter.checkLogin("203.0.113.3", "target@college.edu"))
+                    .isInstanceOf(TooManyRequestsException.class);
+
+            clock.advance(Duration.ofMinutes(15).plusMillis(1));
+
+            assertThatCode(() -> limiter.checkLogin("203.0.113.3", "target@college.edu"))
+                    .doesNotThrowAnyException();
+        }
     }
 
     @Nested
@@ -549,6 +664,10 @@ class RateLimiterTest {
             assertThat(limits.requirementWindow()).isEqualTo(Duration.ofHours(1));
             assertThat(limits.shortlistMutations()).isEqualTo(120);
             assertThat(limits.shortlistWindow()).isEqualTo(Duration.ofMinutes(1));
+            // Per account from any address: looser than per address, so a person
+            // mistyping their own password is not the one who gets locked out.
+            assertThat(limits.loginAccountAttempts()).isEqualTo(20);
+            assertThat(limits.loginAccountWindow()).isEqualTo(Duration.ofMinutes(15));
         }
 
         @Test

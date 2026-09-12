@@ -93,7 +93,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("shortlisted, invited, the student says yes, the college selects")
         void fullWorkflow() throws Exception {
-            String officer = signIn(staff("pw-officer@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -118,7 +118,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("the college can stop at any point before the end")
         void notProceeding() throws Exception {
-            String officer = signIn(staff("pw-officer2@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer2@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student2@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -132,7 +132,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a student can decline, and that is recorded as theirs")
         void studentDeclines() throws Exception {
-            String officer = signIn(staff("pw-officer3@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer3@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student3@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -159,7 +159,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("staff cannot skip to selected, or answer for the student")
         void staffCannotSkipOrAnswer() throws Exception {
-            String officer = signIn(staff("pw-officer4@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer4@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student4@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -178,7 +178,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("the same move twice is a conflict, not a silent repeat")
         void repeatedMoveIsRefused() throws Exception {
-            String officer = signIn(staff("pw-officer5@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer5@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student5@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -192,7 +192,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("nothing moves out of a terminal stage")
         void terminalIsTheEnd() throws Exception {
-            String officer = signIn(staff("pw-officer6@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer6@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student6@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -207,7 +207,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a stage that does not exist is a bad request, not a server error")
         void unknownStage() throws Exception {
-            String officer = signIn(staff("pw-officer7@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer7@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student7@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -218,7 +218,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a closed drive accepts no decisions")
         void closedRequirementIsFrozen() throws Exception {
-            String officer = signIn(staff("pw-officer8@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer8@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student8@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -233,7 +233,7 @@ class PlacementWorkflowIntegrationTest {
             // The freeze has to cover both actors. If it covers only staff, an
             // answer can still arrive after the drive was closed and reported
             // on, changing a placement record somebody has already counted.
-            String officer = signIn(staff("pw-officer23@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer23@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student23@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -258,7 +258,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a coordinator moves their own department's student")
         void coordinatorInScope() throws Exception {
-            String officer = signIn(staff("pw-officer9@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer9@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-cse-student@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -272,7 +272,7 @@ class PlacementWorkflowIntegrationTest {
         void coordinatorOutOfScope() throws Exception {
             // Not-found, exactly as adding and removing already answer. A
             // coordinator must not learn that a student id exists elsewhere.
-            String officer = signIn(staff("pw-officer10@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer10@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture mech = student("pw-mech-student@example.com", institutions.exampleMech());
             shortlist(officer, requirement, mech.candidateId());
@@ -285,7 +285,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("an officer cannot reach another college's candidate")
         void crossInstitution() throws Exception {
-            String officer = signIn(staff("pw-officer11@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer11@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture theirs = student("pw-rival-student@example.com", institutions.rivalCse());
 
@@ -293,21 +293,25 @@ class PlacementWorkflowIntegrationTest {
         }
 
         @Test
-        @DisplayName("a college administrator cannot move anybody")
-        void collegeAdminRefused() throws Exception {
-            String officer = signIn(staff("pw-officer12@example.com", UserRole.PLACEMENT_OFFICER, null));
+        @DisplayName("any placement coordinator in the college may move a candidate, not only the one who "
+                + "shortlisted them")
+        void anyPlacementCoordinatorMay() throws Exception {
+            // This used to refuse a college administrator. In the four-actor model
+            // the college's administrator is the placement coordinator, which runs
+            // placement across the whole college.
+            String officer = signIn(staff("pw-officer12@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student12@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
-            String admin = signIn(staff("pw-admin@example.com", UserRole.COLLEGE_ADMIN, null));
+            String colleague = signIn(staff("pw-admin@example.com", UserRole.PLACEMENT_COORDINATOR, null));
 
-            staffMove(admin, requirement, candidate.candidateId(), "INVITED", 403);
+            staffMove(colleague, requirement, candidate.candidateId(), "INVITED", 200);
         }
 
         @Test
         @DisplayName("a student cannot use the staff endpoint, even on their own record")
         void studentCannotActAsStaff() throws Exception {
-            String officer = signIn(staff("pw-officer13@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer13@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student13@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -322,7 +326,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("an anonymous caller is refused before anything else")
         void anonymousRefused() throws Exception {
-            String officer = signIn(staff("pw-officer14@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer14@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
 
             mockMvc.perform(patch("/api/requirements/" + requirement + "/shortlist/"
@@ -343,7 +347,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("sees the drives they are on, and only those")
         void seesOwnPlacements() throws Exception {
-            String officer = signIn(staff("pw-officer15@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer15@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture mine = student("pw-mine@example.com", institutions.exampleCse());
             Fixture theirs = student("pw-theirs@example.com", institutions.exampleCse());
@@ -377,7 +381,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a student cannot answer for a drive they are not on")
         void cannotAnswerForSomebodyElsesDrive() throws Exception {
-            String officer = signIn(staff("pw-officer16@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer16@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture onIt = student("pw-onit@example.com", institutions.exampleCse());
             Fixture notOnIt = student("pw-notonit@example.com", institutions.exampleCse());
@@ -394,7 +398,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a student cannot answer before being invited")
         void cannotAnswerUninvited() throws Exception {
-            String officer = signIn(staff("pw-officer17@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer17@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student17@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -407,7 +411,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a student cannot select themselves through their own endpoint")
         void cannotSelectThemselves() throws Exception {
-            String officer = signIn(staff("pw-officer18@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer18@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student18@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -421,7 +425,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a student reads their own history and nobody else's")
         void ownHistory() throws Exception {
-            String officer = signIn(staff("pw-officer19@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer19@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture mine = student("pw-hist@example.com", institutions.exampleCse());
             Fixture other = student("pw-hist-other@example.com", institutions.exampleCse());
@@ -449,7 +453,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("carries the move, the actor and which kind of actor they were")
         void historyIsComplete() throws Exception {
-            String officer = signIn(staff("pw-officer20@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer20@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student20@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -477,7 +481,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("a note is optional")
         void noteIsOptional() throws Exception {
-            String officer = signIn(staff("pw-officer21@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer21@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student21@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -493,7 +497,7 @@ class PlacementWorkflowIntegrationTest {
             // Asserted on the response body, not on the entity. The entity had
             // an id and an actor label all along; the view did not send them,
             // and a test that reads the entity cannot tell the difference.
-            String officer = signIn(staff("pw-officer24@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer24@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student24@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -539,7 +543,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("the trail hands out no user identifiers")
         void noIdentifiersInTheTrail() throws Exception {
-            String officer = signIn(staff("pw-officer25@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer25@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture candidate = student("pw-student25@example.com", institutions.exampleCse());
             shortlist(officer, requirement, candidate.candidateId());
@@ -557,7 +561,7 @@ class PlacementWorkflowIntegrationTest {
         @Test
         @DisplayName("staff can read a candidate's history; an out-of-scope one cannot")
         void historyIsScoped() throws Exception {
-            String officer = signIn(staff("pw-officer22@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("pw-officer22@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             Fixture mech = student("pw-mech-hist@example.com", institutions.exampleMech());
             shortlist(officer, requirement, mech.candidateId());
@@ -647,7 +651,7 @@ class PlacementWorkflowIntegrationTest {
     }
 
     private User coordinatorFor(Department department, String email) {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, department);
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, department);
         staffScopes.save(StaffScope.forDepartment(coordinator, institutions.example(), department));
         return coordinator;
     }

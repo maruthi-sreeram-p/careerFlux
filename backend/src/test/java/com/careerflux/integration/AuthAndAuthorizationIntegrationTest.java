@@ -179,7 +179,7 @@ class AuthAndAuthorizationIntegrationTest {
         admin.setEmail("admin-test@example.com");
         admin.setFullName("Admin");
         admin.setPasswordHash(passwordEncoder.encode("AdminPassword123!"));
-        admin.setRole(UserRole.PLATFORM_ADMIN);
+        admin.setRole(UserRole.PORTAL_ADMIN);
         userRepository.save(admin);
 
         String response = mockMvc.perform(post("/api/auth/login")

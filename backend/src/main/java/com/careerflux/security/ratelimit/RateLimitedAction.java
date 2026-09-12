@@ -4,7 +4,7 @@ package com.careerflux.security.ratelimit;
  * The endpoint groups that carry a request ceiling.
  *
  * <p>Deliberately a closed set. Every limit CareerFlux enforces is one of these
- * five, so the whole policy can be read in one place rather than discovered by
+ * six, so the whole policy can be read in one place rather than discovered by
  * grepping for annotations.
  *
  * <p><b>AI is not on this list, on purpose.</b> AI cost is already governed by
@@ -17,14 +17,24 @@ package com.careerflux.security.ratelimit;
 public enum RateLimitedAction {
 
     /**
-     * Signing in.
+     * Signing in, per client address and login identity.
      *
-     * <p>The only action keyed on something other than an account, because there
-     * is no account yet. Password verification is BCrypt at cost 12 — roughly a
-     * quarter-second of CPU per attempt — so an unthrottled sign-in endpoint is
-     * both a guessing surface and a cheap way to saturate the machine.
+     * <p>Keyed on something other than an account, because there is no account
+     * yet. Password verification is BCrypt at cost 12 — roughly a quarter-second
+     * of CPU per attempt — so an unthrottled sign-in endpoint is both a guessing
+     * surface and a cheap way to saturate the machine.
      */
     LOGIN,
+
+    /**
+     * Signing in, per login identity alone, whatever address the attempt comes
+     * from.
+     *
+     * <p>The address in {@link #LOGIN} can be varied by the caller wherever a
+     * forwarded header is believed, so on its own it could not stop guesses
+     * against one account spread across many addresses. This can.
+     */
+    LOGIN_ACCOUNT,
 
     /**
      * Uploading a resume.

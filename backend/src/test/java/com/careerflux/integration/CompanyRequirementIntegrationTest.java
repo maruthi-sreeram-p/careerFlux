@@ -251,7 +251,7 @@ class CompanyRequirementIntegrationTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(javaBackendRequirement()), homeToken, 201).get("id").asText();
 
-            User rivalOfficer = staff("rival-officer@rival.edu", UserRole.PLACEMENT_OFFICER,
+            User rivalOfficer = staff("rival-officer@rival.edu", UserRole.PLACEMENT_COORDINATOR,
                     institutions.rival());
 
             // Not-found rather than forbidden: a 403 would confirm the rival
@@ -267,7 +267,7 @@ class CompanyRequirementIntegrationTest {
             readJson(post(BASE).contentType(MediaType.APPLICATION_JSON)
                     .content(javaBackendRequirement()), officer("list-officer@example.com"), 201);
 
-            User rivalOfficer = staff("rival-list@rival.edu", UserRole.PLACEMENT_OFFICER,
+            User rivalOfficer = staff("rival-list@rival.edu", UserRole.PLACEMENT_COORDINATOR,
                     institutions.rival());
             JsonNode page = readJson(get(BASE), login(rivalOfficer), 200);
 
@@ -371,11 +371,11 @@ class CompanyRequirementIntegrationTest {
     }
 
     private String officer(String email) throws Exception {
-        return login(staff(email, UserRole.PLACEMENT_OFFICER, institutions.example()));
+        return login(staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example()));
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(
                 StaffScope.forDepartment(coordinator, institutions.example(), institutions.exampleCse()));
         return login(coordinator);

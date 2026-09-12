@@ -200,7 +200,7 @@ class InstitutionalAuthorizationIntegrationTest {
             registerStudent("unseen-two@example.com", institutions.exampleMech());
 
             String token = login(staff("coordinator-ungranted@example.com",
-                    UserRole.PLACEMENT_COORDINATOR, institutions.example()));
+                    UserRole.DEPARTMENT_COORDINATOR, institutions.example()));
 
             JsonNode page = readJson(get("/api/institution/students?size=100")
                     .header("Authorization", bearer(token)));
@@ -234,7 +234,7 @@ class InstitutionalAuthorizationIntegrationTest {
 
             mockMvc.perform(get("/api/institution/me/scope").header("Authorization", bearer(token)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.role").value("PLACEMENT_COORDINATOR"))
+                    .andExpect(jsonPath("$.role").value("DEPARTMENT_COORDINATOR"))
                     .andExpect(jsonPath("$.institutionWide").value(false))
                     .andExpect(jsonPath("$.departments[0]").value("Computer Science"));
         }
@@ -250,7 +250,7 @@ class InstitutionalAuthorizationIntegrationTest {
             registerStudent("batch-other-year@example.com", institutions.exampleCse());
 
             User coordinator = staff("coordinator-batch@example.com",
-                    UserRole.PLACEMENT_COORDINATOR, institutions.example());
+                    UserRole.DEPARTMENT_COORDINATOR, institutions.example());
             staffScopeRepository.saveAndFlush(
                     StaffScope.forBatch(coordinator, institutions.example(), batch));
             String token = login(coordinator);
@@ -277,7 +277,7 @@ class InstitutionalAuthorizationIntegrationTest {
             registerStudent("officer-sees-mech@example.com", institutions.exampleMech());
 
             String token = login(staff("officer@example.com",
-                    UserRole.PLACEMENT_OFFICER, institutions.example()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
             JsonNode page = readJson(get("/api/institution/students?size=100")
                     .header("Authorization", bearer(token)));
@@ -298,7 +298,7 @@ class InstitutionalAuthorizationIntegrationTest {
                     .andExpect(status().isNotFound());
 
             String officerToken = login(staff("officer-unassigned@example.com",
-                    UserRole.PLACEMENT_OFFICER, institutions.example()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.example()));
             mockMvc.perform(get("/api/institution/students/" + drifting.userId)
                             .header("Authorization", bearer(officerToken)))
                     .andExpect(status().isOk());
@@ -310,7 +310,7 @@ class InstitutionalAuthorizationIntegrationTest {
             Student rivalStudent = registerStudent("student@rival.edu", null);
 
             String token = login(staff("officer-tenant@example.com",
-                    UserRole.PLACEMENT_OFFICER, institutions.example()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
             mockMvc.perform(get("/api/institution/students/" + rivalStudent.userId)
                             .header("Authorization", bearer(token)))
@@ -322,24 +322,24 @@ class InstitutionalAuthorizationIntegrationTest {
         }
 
         @Test
-        @DisplayName("a college administrator manages the college but does not read student records")
-        void collegeAdminIsNotASuperUser() throws Exception {
-            Student student = registerStudent("admin-cannot-see-me@example.com", institutions.exampleCse());
+        @DisplayName("the placement coordinator runs the college and reads its students")
+        void placementCoordinatorRunsTheCollege() throws Exception {
+            // Until the four-actor model this was a college administrator who could
+            // configure the college but not read its students. The product has no
+            // such split: the placement coordinator is the college's own
+            // administrator and runs its placement, so it holds both.
+            Student student = registerStudent("coordinator-can-see-me@example.com", institutions.exampleCse());
 
             String token = login(staff("college-admin@example.com",
-                    UserRole.COLLEGE_ADMIN, institutions.example()));
+                    UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
-            // They can see the shape of the college.
             mockMvc.perform(get("/api/institution/departments").header("Authorization", bearer(token)))
                     .andExpect(status().isOk());
-
-            // They cannot read the people in it. Running the college and reading
-            // its students are separate jobs, and this role only has the first.
             mockMvc.perform(get("/api/institution/students").header("Authorization", bearer(token)))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isOk());
             mockMvc.perform(get("/api/institution/students/" + student.userId)
                             .header("Authorization", bearer(token)))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isOk());
         }
 
         @Test
@@ -349,7 +349,7 @@ class InstitutionalAuthorizationIntegrationTest {
             platformAdmin.setEmail("platform@careerflux.local");
             platformAdmin.setFullName("Platform Operator");
             platformAdmin.setPasswordHash(passwordEncoder.encode(PASSWORD));
-            platformAdmin.setRole(UserRole.PLATFORM_ADMIN);
+            platformAdmin.setRole(UserRole.PORTAL_ADMIN);
             platformAdmin.setStatus(UserStatus.ACTIVE);
             userRepository.saveAndFlush(platformAdmin);
 
@@ -404,7 +404,7 @@ class InstitutionalAuthorizationIntegrationTest {
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(
                 StaffScope.forDepartment(coordinator, institutions.example(), institutions.exampleCse()));
         return login(coordinator);

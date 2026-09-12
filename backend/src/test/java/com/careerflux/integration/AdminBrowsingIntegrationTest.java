@@ -112,7 +112,7 @@ class AdminBrowsingIntegrationTest {
         admin.setEmail("browsing-admin@example.com");
         admin.setFullName("Operator");
         admin.setPasswordHash(passwordEncoder.encode("AdminPassword123!"));
-        admin.setRole(UserRole.PLATFORM_ADMIN);
+        admin.setRole(UserRole.PORTAL_ADMIN);
         userRepository.saveAndFlush(admin);
 
         String response = mockMvc.perform(post("/api/auth/login")

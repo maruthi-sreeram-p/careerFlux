@@ -106,7 +106,7 @@ management:
       show-details: when-authorized
       # Only the platform operator sees component detail. With no roles listed,
       # "authorized" meant anyone signed in, students included.
-      roles: PLATFORM_ADMIN
+      roles: PORTAL_ADMIN
 
 springdoc:
   swagger-ui:
@@ -147,6 +147,15 @@ careerflux:
     # machine load at the same time.
     login-attempts: 10
     login-window: PT5M
+
+    # Sign-in, per login identity from ANY address. The ceiling above cannot
+    # stop guesses against one account spread across many addresses -- and on
+    # a deployment that believes X-Forwarded-For the address is the caller's to
+    # choose. Looser than the per-address ceiling so a person mistyping their
+    # own password is not locked out; the accepted cost is that an attacker can
+    # make one account wait out this window.
+    login-account-attempts: 20
+    login-account-window: PT15M
 
     # Resume upload, per account. Bounds 8 MB files arriving on disk. AI
     # extraction has its own daily quota and is not duplicated here.

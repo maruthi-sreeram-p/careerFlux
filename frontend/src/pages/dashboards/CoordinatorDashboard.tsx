@@ -63,7 +63,7 @@ export default function CoordinatorDashboard() {
         <Panel title="No students in your scope">
           <p className="text-muted">
             {data.scopeLabel === 'No scope granted'
-              ? 'You have not been granted a department or batch yet. A college administrator assigns this, and until then there is nothing for you to see — which is different from your department being empty.'
+              ? 'You have not been granted a department or batch yet. Your placement coordinator assigns this, and until then there is nothing for you to see — which is different from your department being empty.'
               : 'No students have been enrolled into your scope yet.'}
           </p>
         </Panel>

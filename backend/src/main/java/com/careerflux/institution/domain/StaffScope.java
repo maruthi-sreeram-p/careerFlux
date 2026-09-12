@@ -20,9 +20,14 @@ import jakarta.persistence.Table;
 /**
  * One grant of visibility to a member of placement staff.
  *
- * <p>This is what stops a coordinator for the CSE department from reading the
+ * <p>This is what stops a department coordinator for CSE from reading the
  * mechanical students' profiles. Scopes are additive and are resolved into a
  * {@link com.careerflux.security.access.AccessScope} on every request.
+ *
+ * <p>Only DEPARTMENT and BATCH grants mean anything. A placement coordinator
+ * covers the institution by role, and an INSTITUTION grant is never honoured for
+ * a department coordinator, so there is no factory for one: the type survives
+ * only because the database constraint still names it and old rows may carry it.
  */
 @Entity
 @Table(name = "staff_scopes")
@@ -55,14 +60,6 @@ public class StaffScope {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
-
-    public static StaffScope institutionWide(User user, Institution institution) {
-        StaffScope scope = new StaffScope();
-        scope.user = user;
-        scope.institution = institution;
-        scope.scopeType = ScopeType.INSTITUTION;
-        return scope;
-    }
 
     public static StaffScope forDepartment(User user, Institution institution, Department department) {
         StaffScope scope = new StaffScope();

@@ -80,7 +80,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a college administrator can create a department in their own college")
     void createsADepartment() throws Exception {
-        String admin = signIn(staff("dept-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("dept-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/departments")
                         .header("Authorization", "Bearer " + admin)
@@ -101,7 +101,7 @@ class InstitutionAdministrationIntegrationTest {
     void departmentBelongsToTheCaller() throws Exception {
         // There is no institution field to attack, which is the point: the only
         // way to say which college is to be signed in to it.
-        String admin = signIn(staff("tenant-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("tenant-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         String body = mockMvc.perform(post("/api/institution/departments")
                         .header("Authorization", "Bearer " + admin)
@@ -120,7 +120,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a duplicate department code is refused")
     void duplicateCodeIsRefused() throws Exception {
-        String admin = signIn(staff("dup-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("dup-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
         String payload = """
                 {"name":"Duplicated","code":"DUP"}
                 """;
@@ -138,7 +138,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a college administrator can create a batch")
     void createsABatch() throws Exception {
-        String admin = signIn(staff("batch-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("batch-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/batches")
                         .header("Authorization", "Bearer " + admin)
@@ -153,7 +153,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a graduation year that is obviously a typo is refused")
     void nonsenseGraduationYearIsRefused() throws Exception {
-        String admin = signIn(staff("year-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("year-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/batches")
                         .header("Authorization", "Bearer " + admin)
@@ -169,17 +169,17 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a placement officer can be appointed and can sign in")
     void appointsAnOfficer() throws Exception {
-        String admin = signIn(staff("staff-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("staff-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Priya Raman","email":"new-officer@example.com",
-                                 "password":"OfficerPass!2026","role":"PLACEMENT_OFFICER"}
+                                 "password":"OfficerPass!2026","role":"PLACEMENT_COORDINATOR"}
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.role").value("PLACEMENT_OFFICER"))
+                .andExpect(jsonPath("$.role").value("PLACEMENT_COORDINATOR"))
                 .andExpect(jsonPath("$.scope").value("the whole institution"));
 
         mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
@@ -192,14 +192,14 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("the response never carries the password back")
     void passwordIsNotEchoed() throws Exception {
-        String admin = signIn(staff("echo-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("echo-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         String body = mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Quiet Officer","email":"quiet@example.com",
-                                 "password":"NeverEchoed!2026","role":"PLACEMENT_OFFICER"}
+                                 "password":"NeverEchoed!2026","role":"PLACEMENT_COORDINATOR"}
                                 """))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -212,14 +212,14 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a coordinator is created scoped to one department")
     void coordinatorIsScoped() throws Exception {
-        String admin = signIn(staff("scope-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("scope-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Sneha Rao","email":"new-coordinator@example.com",
-                                 "password":"CoordPass!2026","role":"PLACEMENT_COORDINATOR",
+                                 "password":"CoordPass!2026","role":"DEPARTMENT_COORDINATOR",
                                  "departmentCode":"CSE"}
                                 """))
                 .andExpect(status().isCreated())
@@ -236,14 +236,14 @@ class InstitutionAdministrationIntegrationTest {
     void coordinatorMustBeScoped() throws Exception {
         // The failure this prevents is silent: a scope quietly omitted produces
         // a coordinator who sees every student, and nothing says so.
-        String admin = signIn(staff("unscoped-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("unscoped-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Unscoped","email":"unscoped@example.com",
-                                 "password":"CoordPass!2026","role":"PLACEMENT_COORDINATOR"}
+                                 "password":"CoordPass!2026","role":"DEPARTMENT_COORDINATOR"}
                                 """))
                 .andExpect(status().isBadRequest());
     }
@@ -253,14 +253,14 @@ class InstitutionAdministrationIntegrationTest {
     void cannotEscalateOutOfTheTenant() throws Exception {
         // The one escalation that matters: a platform administrator operates
         // every college on the deployment, not just this one.
-        String admin = signIn(staff("escalate-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("escalate-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Escalated","email":"escalated@example.com",
-                                 "password":"Escalate!2026","role":"PLATFORM_ADMIN"}
+                                 "password":"Escalate!2026","role":"PORTAL_ADMIN"}
                                 """))
                 .andExpect(status().isBadRequest());
 
@@ -273,14 +273,14 @@ class InstitutionAdministrationIntegrationTest {
         // Both colleges have a department coded CSE. Looking one up by code has
         // to find the caller's; resolving the other college's would hand a
         // coordinator a scope pointing outside their own tenant.
-        String admin = signIn(staff("cross-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("cross-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Scoped Coordinator","email":"scoped-cross@example.com",
-                                 "password":"CrossPass!2026","role":"PLACEMENT_COORDINATOR",
+                                 "password":"CrossPass!2026","role":"DEPARTMENT_COORDINATOR",
                                  "departmentCode":"CSE"}
                                 """))
                 .andExpect(status().isCreated());
@@ -296,14 +296,14 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a department code that exists in no college is refused")
     void unknownScopeCodeIsRefused() throws Exception {
-        String admin = signIn(staff("unknown-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("unknown-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"No Such","email":"nosuch@example.com",
-                                 "password":"CrossPass!2026","role":"PLACEMENT_COORDINATOR",
+                                 "password":"CrossPass!2026","role":"DEPARTMENT_COORDINATOR",
                                  "departmentCode":"NOPE"}
                                 """))
                 .andExpect(status().isBadRequest());
@@ -314,7 +314,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a student is placed in a department and a batch")
     void setsEnrolment() throws Exception {
-        String admin = signIn(staff("enrol-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("enrol-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
         User student = student("enrolled@example.com", institutions.example());
 
         mockMvc.perform(put("/api/institution/students/" + student.getId() + "/enrolment")
@@ -334,7 +334,7 @@ class InstitutionAdministrationIntegrationTest {
     void cannotEnrolAnotherCollegesStudent() throws Exception {
         // 404, matching the rest of the product: an administrator must not be
         // able to confirm that a user id exists somewhere else.
-        String admin = signIn(staff("foreign-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("foreign-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
         User theirStudent = student("rival-student@example.com", institutions.rival());
 
         mockMvc.perform(put("/api/institution/students/" + theirStudent.getId() + "/enrolment")
@@ -349,7 +349,7 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a department belonging to another college is refused")
     void cannotEnrolIntoAnotherCollegesDepartment() throws Exception {
-        String admin = signIn(staff("mixed-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("mixed-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
         User student = student("mixed-student@example.com", institutions.example());
 
         mockMvc.perform(put("/api/institution/students/" + student.getId() + "/enrolment")
@@ -366,9 +366,9 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("the staff list shows this college's staff and nobody else's")
     void staffListIsInstitutionScoped() throws Exception {
-        String admin = signIn(staff("list-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
-        staff("list-officer@example.com", UserRole.PLACEMENT_OFFICER, institutions.example());
-        staff("list-rival-officer@example.com", UserRole.PLACEMENT_OFFICER, institutions.rival());
+        String admin = signIn(staff("list-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
+        staff("list-officer@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        staff("list-rival-officer@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.rival());
         student("list-student@example.com", institutions.example());
 
         String body = mockMvc.perform(get("/api/institution/staff")
@@ -389,7 +389,7 @@ class InstitutionAdministrationIntegrationTest {
     @DisplayName("the staff list carries no password hash or reset token")
     void staffListCarriesNoSecrets() throws Exception {
         // It answers "who works here", not "tell me everything about this person".
-        String admin = signIn(staff("secret-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("secret-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
 
         String body = mockMvc.perform(get("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin))
@@ -403,13 +403,13 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("a coordinator's scope is reported, an officer's reach is not narrowed")
     void staffListReportsScope() throws Exception {
-        String admin = signIn(staff("scope-list-admin@example.com", UserRole.COLLEGE_ADMIN, institutions.example()));
+        String admin = signIn(staff("scope-list-admin@example.com", UserRole.PLACEMENT_COORDINATOR, institutions.example()));
         mockMvc.perform(post("/api/institution/staff")
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fullName":"Scoped Coordinator","email":"scope-list-coord@example.com",
-                                 "password":"CoordPass!2026","role":"PLACEMENT_COORDINATOR",
+                                 "password":"CoordPass!2026","role":"DEPARTMENT_COORDINATOR",
                                  "departmentCode":"CSE"}
                                 """))
                 .andExpect(status().isCreated());
@@ -435,8 +435,11 @@ class InstitutionAdministrationIntegrationTest {
     @Test
     @DisplayName("nobody without STAFF_MANAGE may read the staff list")
     void staffListNeedsThePermission() throws Exception {
-        for (UserRole role : new UserRole[] {UserRole.PLACEMENT_OFFICER,
-                UserRole.PLACEMENT_COORDINATOR, UserRole.STUDENT}) {
+        // The placement coordinator is not on this list any more: it is the
+        // college's administrator and holds STAFF_MANAGE. The case this once
+        // covered — a placement officer who ran drives but not staff — is a role
+        // the four-actor model does not have.
+        for (UserRole role : new UserRole[] {UserRole.DEPARTMENT_COORDINATOR, UserRole.STUDENT}) {
             String token = signIn(staff("nostaff-" + role.name().toLowerCase() + "@example.com",
                     role, institutions.example()));
             mockMvc.perform(get("/api/institution/staff").header("Authorization", "Bearer " + token))
@@ -452,9 +455,10 @@ class InstitutionAdministrationIntegrationTest {
     void permissionIsRequired() throws Exception {
         record Case(String email, UserRole role) {
         }
+        // The placement coordinator configures its college, so it is not a
+        // subject here; the old placement officer who could not is gone.
         for (Case subject : new Case[] {
-                new Case("cfg-officer@example.com", UserRole.PLACEMENT_OFFICER),
-                new Case("cfg-coordinator@example.com", UserRole.PLACEMENT_COORDINATOR),
+                new Case("cfg-coordinator@example.com", UserRole.DEPARTMENT_COORDINATOR),
                 new Case("cfg-student@example.com", UserRole.STUDENT)}) {
             String token = signIn(staff(subject.email(), subject.role(), institutions.example()));
             for (String path : new String[] {"/api/institution/departments", "/api/institution/batches",
@@ -464,7 +468,7 @@ class InstitutionAdministrationIntegrationTest {
                                 .content("""
                                         {"name":"X","code":"X","graduationYear":2027,
                                          "fullName":"X","email":"x@example.com","password":"Password!123",
-                                         "role":"PLACEMENT_OFFICER"}
+                                         "role":"PLACEMENT_COORDINATOR"}
                                         """))
                         .andExpect(status().isForbidden());
             }

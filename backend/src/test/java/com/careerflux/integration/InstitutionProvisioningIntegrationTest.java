@@ -77,7 +77,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("a platform administrator onboards a college")
     void platformAdminCreatesAnInstitution() throws Exception {
-        String token = signIn(seed("provisioner@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("provisioner@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         String body = mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -106,7 +106,7 @@ class InstitutionProvisioningIntegrationTest {
     void theNewCollegeStartsClean() throws Exception {
         // A tenant that arrives pre-populated with plausible fixtures is how
         // demonstration data ends up mistaken for a college's real records.
-        String token = signIn(seed("clean@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("clean@careerflux.test", UserRole.PORTAL_ADMIN, null));
         UUID id = createCollege(token, "Clean Start College", "cleanstart.edu");
 
         assertThat(userRepository.findAll().stream()
@@ -120,7 +120,7 @@ class InstitutionProvisioningIntegrationTest {
     void slugIsDerivedServerSide() throws Exception {
         // The identity of a tenant is not the client's to choose. An unknown
         // field is ignored rather than honoured.
-        String token = signIn(seed("slug@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("slug@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -144,9 +144,9 @@ class InstitutionProvisioningIntegrationTest {
         record Case(String email, UserRole role) {
         }
         for (Case each : new Case[] {
-                new Case("ca@example.com", UserRole.COLLEGE_ADMIN),
-                new Case("po@example.com", UserRole.PLACEMENT_OFFICER),
-                new Case("pc@example.com", UserRole.PLACEMENT_COORDINATOR),
+                new Case("ca@example.com", UserRole.PLACEMENT_COORDINATOR),
+                new Case("po@example.com", UserRole.PLACEMENT_COORDINATOR),
+                new Case("pc@example.com", UserRole.DEPARTMENT_COORDINATOR),
                 new Case("st@example.com", UserRole.STUDENT)}) {
             String token = signIn(seed(each.email(), each.role(), institutions.example()));
             mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
@@ -180,7 +180,7 @@ class InstitutionProvisioningIntegrationTest {
         // EnrolmentService refuses to guess when two colleges claim one address,
         // so the cost of allowing this is every affected student being turned
         // away at registration.
-        String token = signIn(seed("dupe@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("dupe@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -198,7 +198,7 @@ class InstitutionProvisioningIntegrationTest {
         // A claim covers its subdomains, so claiming the parent of somebody
         // else's domain makes both colleges answer for the same student. String
         // equality would miss this; the check runs the real matching rule.
-        String token = signIn(seed("overlap@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("overlap@careerflux.test", UserRole.PORTAL_ADMIN, null));
         createCollege(token, "Sub College", "cse.subcollege.edu");
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
@@ -212,7 +212,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("a college with the same name is refused")
     void duplicateNameRefused() throws Exception {
-        String token = signIn(seed("name@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("name@careerflux.test", UserRole.PORTAL_ADMIN, null));
         createCollege(token, "Twice Named College", "twice-one.edu");
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
@@ -228,7 +228,7 @@ class InstitutionProvisioningIntegrationTest {
     void duplicateRegistrationCodeRefused() throws Exception {
         // Codes are matched case-insensitively when a student uses one, so two
         // colleges sharing one under different spellings is the same collision.
-        String token = signIn(seed("code@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("code@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -243,7 +243,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("a URL or an address is refused where a domain belongs")
     void invalidDomainRefused() throws Exception {
-        String token = signIn(seed("bad@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("bad@careerflux.test", UserRole.PORTAL_ADMIN, null));
         for (String bad : new String[] {
                 "https://northgate.edu", "northgate.edu/students", "someone@northgate.edu", "northgate"}) {
             mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
@@ -261,7 +261,7 @@ class InstitutionProvisioningIntegrationTest {
         // Not pedantry: with no domain to match and no code to hand out, nobody
         // can ever register against it. Better to say so now than to let a
         // placement office discover it with their first student.
-        String token = signIn(seed("nothing@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("nothing@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -276,7 +276,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("a domain is normalised on the way in")
     void domainIsNormalised() throws Exception {
-        String token = signIn(seed("norm@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("norm@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -292,7 +292,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("the first college administrator is created and belongs to the new college")
     void initialAdminIsAttachedToTheNewInstitution() throws Exception {
-        String token = signIn(seed("withadmin@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("withadmin@careerflux.test", UserRole.PORTAL_ADMIN, null));
 
         String body = mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -309,7 +309,7 @@ class InstitutionProvisioningIntegrationTest {
 
         UUID institutionId = UUID.fromString(objectMapper.readTree(body).get("id").asText());
         User admin = userRepository.findByEmailIgnoreCase("anita@handover.edu").orElseThrow();
-        assertThat(admin.getRole()).isEqualTo(UserRole.COLLEGE_ADMIN);
+        assertThat(admin.getRole()).isEqualTo(UserRole.PLACEMENT_COORDINATOR);
         assertThat(admin.getInstitutionId()).isEqualTo(institutionId);
         assertThat(admin.isActive()).isTrue();
     }
@@ -317,7 +317,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("the response never carries the password, and the stored hash is not it")
     void thePasswordIsNeverReturnedOrStoredInTheClear() throws Exception {
-        String token = signIn(seed("secret@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("secret@careerflux.test", UserRole.PORTAL_ADMIN, null));
         String secret = "NeverEchoed!2026";
 
         String body = mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
@@ -342,7 +342,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("the new administrator can sign in afterwards")
     void theNewAdminCanSignIn() throws Exception {
-        String token = signIn(seed("login@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("login@careerflux.test", UserRole.PORTAL_ADMIN, null));
         mockMvc.perform(post(PATH).header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -361,7 +361,7 @@ class InstitutionProvisioningIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode user = objectMapper.readTree(session).get("user");
-        assertThat(user.get("role").asText()).isEqualTo("COLLEGE_ADMIN");
+        assertThat(user.get("role").asText()).isEqualTo("PLACEMENT_COORDINATOR");
         assertThat(user.get("institutionName").asText()).isEqualTo("Signin College");
     }
 
@@ -377,7 +377,7 @@ class InstitutionProvisioningIntegrationTest {
     void selfRegistrationResolvesTheNewInstitution() throws Exception {
         // The whole point of onboarding. Self-registration is untouched; this
         // asserts the existing path now finds the college that was just made.
-        String token = signIn(seed("resolve@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("resolve@careerflux.test", UserRole.PORTAL_ADMIN, null));
         UUID id = createCollege(token, "Resolvable Institute", "resolvable.edu");
 
         Institution resolved = enrolmentService.resolveForRegistration("student@resolvable.edu", null);
@@ -400,7 +400,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("someone from another domain is still refused")
     void unrelatedDomainStillUnresolved() throws Exception {
-        String token = signIn(seed("unrelated@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("unrelated@careerflux.test", UserRole.PORTAL_ADMIN, null));
         createCollege(token, "Closed Institute", "closedinstitute.edu");
 
         mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
@@ -414,7 +414,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("the new college inherits nothing from any existing one")
     void nothingIsInheritedFromAnotherTenant() throws Exception {
-        String token = signIn(seed("tenancy@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("tenancy@careerflux.test", UserRole.PORTAL_ADMIN, null));
         UUID id = createCollege(token, "Isolated Institute", "isolatedinstitute.edu");
         Institution created = institutionRepository.findById(id).orElseThrow();
 
@@ -429,7 +429,7 @@ class InstitutionProvisioningIntegrationTest {
     @Test
     @DisplayName("the list shows colleges and nothing belonging to them")
     void listCarriesNoTenantData() throws Exception {
-        String token = signIn(seed("lister@careerflux.test", UserRole.PLATFORM_ADMIN, null));
+        String token = signIn(seed("lister@careerflux.test", UserRole.PORTAL_ADMIN, null));
         String body = mockMvc.perform(get(PATH).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();

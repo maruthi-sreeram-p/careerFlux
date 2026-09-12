@@ -129,19 +129,19 @@ class PasswordChangeIntegrationTest {
         @Test
         @DisplayName("a college administrator")
         void collegeAdmin() throws Exception {
-            changesOwnPassword(UserRole.COLLEGE_ADMIN);
+            changesOwnPassword(UserRole.PLACEMENT_COORDINATOR);
         }
 
         @Test
         @DisplayName("a placement officer")
         void placementOfficer() throws Exception {
-            changesOwnPassword(UserRole.PLACEMENT_OFFICER);
+            changesOwnPassword(UserRole.PLACEMENT_COORDINATOR);
         }
 
         @Test
         @DisplayName("a placement coordinator")
         void placementCoordinator() throws Exception {
-            changesOwnPassword(UserRole.PLACEMENT_COORDINATOR);
+            changesOwnPassword(UserRole.DEPARTMENT_COORDINATOR);
         }
     }
 
@@ -216,8 +216,8 @@ class PasswordChangeIntegrationTest {
         @Test
         @DisplayName("a token from another institution still only reaches its own account")
         void crossInstitutionIsStillJustYourself() throws Exception {
-            User ours = account(UserRole.COLLEGE_ADMIN, institutions.example());
-            User theirs = account(UserRole.COLLEGE_ADMIN, institutions.rival());
+            User ours = account(UserRole.PLACEMENT_COORDINATOR, institutions.example());
+            User theirs = account(UserRole.PLACEMENT_COORDINATOR, institutions.rival());
             String token = login(ours.getEmail(), ORIGINAL);
 
             assertThat(changePassword(token, ORIGINAL, REPLACEMENT)).isEqualTo(204);
@@ -275,7 +275,7 @@ class PasswordChangeIntegrationTest {
             // The whole point of an administrator setting an initial password:
             // the person it belongs to must be able to replace it themselves,
             // without the administrator ever learning the new one.
-            User member = account(UserRole.PLACEMENT_OFFICER, institutions.example());
+            User member = account(UserRole.PLACEMENT_COORDINATOR, institutions.example());
 
             assertThat(loginStatus(member.getEmail(), ORIGINAL)).isEqualTo(200);
             String token = login(member.getEmail(), ORIGINAL);
@@ -296,7 +296,7 @@ class PasswordChangeIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"fullName":"Sneaky Officer","email":"sneaky@example.com",
-                                     "password":"WhateverPass123!","role":"PLACEMENT_OFFICER"}
+                                     "password":"WhateverPass123!","role":"PLACEMENT_COORDINATOR"}
                                     """))
                     .andExpect(status().isForbidden());
 
@@ -306,8 +306,8 @@ class PasswordChangeIntegrationTest {
         @Test
         @DisplayName("an email already in use is refused rather than silently reassigned")
         void duplicateEmailIsRefused() throws Exception {
-            User admin = account(UserRole.COLLEGE_ADMIN, institutions.example());
-            User existing = account(UserRole.PLACEMENT_OFFICER, institutions.example());
+            User admin = account(UserRole.PLACEMENT_COORDINATOR, institutions.example());
+            User existing = account(UserRole.PLACEMENT_COORDINATOR, institutions.example());
             String token = login(admin.getEmail(), ORIGINAL);
 
             JsonNode error = objectMapper.readTree(mockMvc.perform(post("/api/institution/staff")
@@ -315,7 +315,7 @@ class PasswordChangeIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"fullName":"Duplicate Person","email":"%s",
-                                     "password":"AnotherPass123!","role":"PLACEMENT_OFFICER"}
+                                     "password":"AnotherPass123!","role":"PLACEMENT_COORDINATOR"}
                                     """.formatted(existing.getEmail())))
                     .andExpect(status().isConflict())
                     .andReturn().getResponse().getContentAsString());

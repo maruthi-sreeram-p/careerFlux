@@ -36,13 +36,17 @@ import org.springframework.util.StringUtils;
  * <p>Runs only under the {@code demo} profile. The institution, its departments
  * and its batches are created unconditionally, because none of that is
  * sensitive. Staff accounts are created only when {@code CAREERFLUX_DEMO_PASSWORD}
- * is set: shipping working placement-officer credentials in source would be a
- * backdoor, whatever the profile is called.
+ * is set: shipping working placement-coordinator credentials in source would be
+ * a backdoor, whatever the profile is called.
  *
  * <p>The scoping here is the interesting part, and it is what the authorization
- * tests exercise. The officer sees the whole college. The coordinator is granted
- * one department, so computer science students are visible to them and
- * mechanical students are not.
+ * tests exercise. The placement coordinators see the whole college. The
+ * department coordinator is granted one department, so computer science students
+ * are visible to them and mechanical students are not.
+ *
+ * <p>The staff addresses predate the four-role model and are kept as they were,
+ * so existing demo sign-ins keep working: {@code officer@} and
+ * {@code college-admin@} are both placement coordinators now.
  */
 @Component
 @Profile("demo")
@@ -114,28 +118,30 @@ public class DemoInstitutionSeeder implements ApplicationRunner {
                 institution.getName(), departments.size(), batches.size(), DEMO_DOMAIN, DEMO_CODE);
 
         if (!StringUtils.hasText(demoPassword)) {
-            log.info("No demo staff accounts created. Set CAREERFLUX_DEMO_PASSWORD to create a "
-                    + "placement officer, a scoped coordinator and a college administrator.");
+            log.info("No demo staff accounts created. Set CAREERFLUX_DEMO_PASSWORD to create two "
+                    + "placement coordinators and a department coordinator.");
             return;
         }
         seedStaff(institution, departments.get(0));
     }
 
     private void seedStaff(Institution institution, Department computerScience) {
-        User officer = staff(institution, "officer@" + DEMO_DOMAIN, "Priya Raman",
-                UserRole.PLACEMENT_OFFICER);
-        User admin = staff(institution, "college-admin@" + DEMO_DOMAIN, "Anil Kumar",
-                UserRole.COLLEGE_ADMIN);
-        User coordinator = staff(institution, "cse-coordinator@" + DEMO_DOMAIN, "Sneha Rao",
+        User placement = staff(institution, "officer@" + DEMO_DOMAIN, "Priya Raman",
                 UserRole.PLACEMENT_COORDINATOR);
+        User administrator = staff(institution, "college-admin@" + DEMO_DOMAIN, "Anil Kumar",
+                UserRole.PLACEMENT_COORDINATOR);
+        User coordinator = staff(institution, "cse-coordinator@" + DEMO_DOMAIN, "Sneha Rao",
+                UserRole.DEPARTMENT_COORDINATOR);
 
-        // The officer and the administrator see the whole college by role, so they
-        // need no grant. The coordinator sees exactly one department — which is
-        // the boundary the authorization tests are written against.
+        // Placement coordinators see the whole college by role, so they need no
+        // grant. The department coordinator sees exactly one department — which
+        // is the boundary the authorization tests are written against.
         staffScopeRepository.save(StaffScope.forDepartment(coordinator, institution, computerScience));
 
-        log.info("Seeded demo staff: {} (officer), {} (college admin), {} (coordinator, scoped to {})",
-                officer.getEmail(), admin.getEmail(), coordinator.getEmail(), computerScience.getCode());
+        log.info("Seeded demo staff: {} and {} (placement coordinators), {} (department coordinator, "
+                        + "scoped to {})",
+                placement.getEmail(), administrator.getEmail(), coordinator.getEmail(),
+                computerScience.getCode());
     }
 
     private User staff(Institution institution, String email, String name, UserRole role) {

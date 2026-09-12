@@ -140,11 +140,11 @@ public class InstitutionProvisioningService {
 
         User admin = request.initialAdmin() == null
                 ? null
-                : createCollegeAdmin(institution, request.initialAdmin());
+                : createInitialPlacementCoordinator(institution, request.initialAdmin());
 
         auditService.record("INSTITUTION_PROVISIONED", "Institution", institution.getId(),
                 "Created " + institution.getSlug()
-                        + (admin == null ? " with no administrator" : " with an initial college administrator"));
+                        + (admin == null ? " with no administrator" : " with an initial placement coordinator"));
         log.info("Provisioned institution {} ({}), domains={}, initialAdmin={}",
                 institution.getSlug(), institution.getId(),
                 domains == null ? "none" : domains, admin != null);
@@ -162,14 +162,15 @@ public class InstitutionProvisioningService {
     }
 
     /**
-     * Creates the college's first administrator.
+     * Creates the college's first placement coordinator — the college's own
+     * administrator, who then appoints everybody else.
      *
      * <p>Reuses the ordinary account mechanism — same entity, same encoder, same
      * active status — rather than introducing a second kind of user. The account
      * is bound to the institution just created, never to one named by the
      * caller.
      */
-    private User createCollegeAdmin(Institution institution, InitialAdmin details) {
+    private User createInitialPlacementCoordinator(Institution institution, InitialAdmin details) {
         String email = details.email().strip().toLowerCase(Locale.ROOT);
         if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("An account with that email already exists.");
@@ -179,18 +180,18 @@ public class InstitutionProvisioningService {
         admin.setEmail(email);
         admin.setFullName(details.fullName().strip());
         admin.setPasswordHash(passwordEncoder.encode(details.password()));
-        admin.setRole(UserRole.COLLEGE_ADMIN);
+        admin.setRole(UserRole.PLACEMENT_COORDINATOR);
         admin.setStatus(UserStatus.ACTIVE);
         admin.setEmailVerified(true);
         admin.setInstitution(institution);
         userRepository.save(admin);
 
-        auditService.record("COLLEGE_ADMIN_CREATED", "User", admin.getId(),
-                "Initial administrator for " + institution.getSlug());
-        // The address identifies the account being created and is what an
-        // operator needs to see in the trail. The password is not logged, here
-        // or anywhere.
-        log.info("Created initial college administrator {} for institution {}",
+        // Events recorded before the four-role model carry COLLEGE_ADMIN_CREATED
+        // and are left as they were written.
+        auditService.record("PLACEMENT_COORDINATOR_CREATED", "User", admin.getId(),
+                "Initial placement coordinator for " + institution.getSlug());
+        // The password is not logged, here or anywhere.
+        log.info("Created initial placement coordinator {} for institution {}",
                 admin.getId(), institution.getSlug());
         return admin;
     }

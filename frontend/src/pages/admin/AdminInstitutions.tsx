@@ -200,7 +200,7 @@ function CreateForm({ onCreated }: { onCreated: (created: ProvisionedInstitution
             checked={form.withAdmin}
             onChange={(event) => set('withAdmin', event.target.checked)}
           />
-          <span>Create the first college administrator now</span>
+          <span>Create the college's first placement coordinator now</span>
         </label>
 
         {form.withAdmin && (

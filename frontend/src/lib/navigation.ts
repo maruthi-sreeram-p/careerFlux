@@ -6,22 +6,21 @@ import { can } from './types';
  *
  * <p>This is deliberately plain data with no React in it. The navigation is the
  * part of the shell most likely to be got wrong in a way nobody notices — a
- * coordinator quietly offered a link meant for the platform operator — and
+ * coordinator quietly offered a link meant for the portal administrator — and
  * keeping it as a pure function means the rules can be asserted directly
  * instead of by rendering a tree and reading it back.
  *
  * Every decision is made from a permission rather than a role name. The role
  * enum is what the backend grants permissions from; screens should ask what the
- * user may do, so a sixth role added later inherits sensible navigation instead
- * of falling through to the student view. The server re-checks all of it — this
+ * user may do, so a role added later inherits sensible navigation instead of
+ * falling through to the student view. The server re-checks all of it — this
  * only decides what is worth offering.
  */
 
 export type DashboardKind =
   | 'student'
-  | 'coordinator'
-  | 'officer'
-  | 'college-admin'
+  | 'department-coordinator'
+  | 'placement-coordinator'
   | 'platform';
 
 /** Icon keys, resolved to components by the shell. Kept as strings so this module stays pure. */
@@ -54,15 +53,15 @@ export interface NavGroup {
 }
 
 /**
- * Ordered most specific first. A placement officer holds the coordinator's
- * permission as well as their own, so the broader grant has to be tested before
- * the narrower one or every officer would be shown a coordinator's screen.
+ * Ordered most specific first. A placement coordinator holds the department
+ * coordinator's permission as well as their own, so the broader grant has to be
+ * tested before the narrower one or every placement coordinator would be shown a
+ * department coordinator's screen.
  */
 export function dashboardKindFor(user: SessionUser | null): DashboardKind {
   if (can(user, 'SOURCE_MANAGE')) return 'platform';
-  if (can(user, 'INSTITUTION_SETTINGS_MANAGE')) return 'college-admin';
-  if (can(user, 'STUDENT_READ_INSTITUTION')) return 'officer';
-  if (can(user, 'STUDENT_READ_SCOPED')) return 'coordinator';
+  if (can(user, 'STUDENT_READ_INSTITUTION')) return 'placement-coordinator';
+  if (can(user, 'STUDENT_READ_SCOPED')) return 'department-coordinator';
   return 'student';
 }
 
@@ -71,11 +70,9 @@ export function dashboardTitle(kind: DashboardKind): string {
   switch (kind) {
     case 'platform':
       return 'Platform operations';
-    case 'college-admin':
-      return 'Institution';
-    case 'officer':
+    case 'placement-coordinator':
       return 'College placement';
-    case 'coordinator':
+    case 'department-coordinator':
       return 'Your department';
     default:
       return 'Your career';
@@ -86,12 +83,10 @@ export function navigationFor(user: SessionUser | null): NavGroup[] {
   switch (dashboardKindFor(user)) {
     case 'platform':
       return platformNav();
-    case 'college-admin':
-      return collegeAdminNav();
-    case 'officer':
-      return officerNav();
-    case 'coordinator':
-      return coordinatorNav();
+    case 'placement-coordinator':
+      return placementCoordinatorNav();
+    case 'department-coordinator':
+      return departmentCoordinatorNav();
     default:
       return studentNav();
   }
@@ -136,13 +131,13 @@ function studentNav(): NavGroup[] {
 }
 
 /**
- * A coordinator's screen is about their department, not their own career.
+ * A department coordinator's screen is about their department, not their own
+ * career.
  *
- * <p>Company requirements is real. Candidate discovery and shortlists are not
- * offered yet: they are later phases, and a link to a screen that does not
- * exist is worse than no link at all.
+ * <p>Company requirements are readable here; authoring them is the placement
+ * coordinator's, and the requirements screen offers only what this role may do.
  */
-function coordinatorNav(): NavGroup[] {
+function departmentCoordinatorNav(): NavGroup[] {
   return [
     { items: [{ to: '/app', label: 'Dashboard', icon: 'Dashboard', end: true }] },
     {
@@ -154,34 +149,7 @@ function coordinatorNav(): NavGroup[] {
       items: [{ to: '/app/requirements', label: 'Company requirements', icon: 'Building' }],
     },
     {
-      // No Sources entry. The registry is the platform operator's console
-      // (Decisions 12 and 15) and the server refuses it to college staff.
-      label: 'Market',
-      items: [{ to: '/app/discover', label: 'Job market', icon: 'Compass' }],
-    },
-    {
-      label: 'You',
-      items: [
-        { to: '/app/notifications', label: 'Alerts', icon: 'Bell' },
-        { to: '/app/account', label: 'Account', icon: 'User' },
-      ],
-    },
-  ];
-}
-
-function officerNav(): NavGroup[] {
-  return [
-    { items: [{ to: '/app', label: 'Dashboard', icon: 'Dashboard', end: true }] },
-    {
-      label: 'Placement',
-      items: [{ to: '/app/requirements', label: 'Company requirements', icon: 'Building' }],
-    },
-    {
-      label: 'Institution',
-      items: [{ to: '/app/students', label: 'Students', icon: 'Layers' }],
-    },
-    {
-      // No Sources entry. The registry is the platform operator's console
+      // No Sources entry. The registry is the portal administrator's console
       // (Decisions 12 and 15) and the server refuses it to college staff.
       label: 'Market',
       items: [{ to: '/app/discover', label: 'Job market', icon: 'Compass' }],
@@ -197,23 +165,32 @@ function officerNav(): NavGroup[] {
 }
 
 /**
- * The college administrator configures the institution; they do not run
- * placement and they are not a student.
+ * The placement coordinator runs the college: its placement and its setup.
  *
- * <p>There is no Students entry, and that is not an oversight. The directory
- * endpoint requires STUDENT_READ_SCOPED, which this role does not hold — the
- * dashboard shows them institution counts, which they may see, and stops there.
+ * <p>One sidebar for what used to be two roles. The placement work comes first
+ * because it is what the role does most days; setting up departments, batches
+ * and staff sits beside the student directory because both are about the
+ * college as a whole.
  */
-function collegeAdminNav(): NavGroup[] {
+function placementCoordinatorNav(): NavGroup[] {
   return [
     { items: [{ to: '/app', label: 'Dashboard', icon: 'Dashboard', end: true }] },
     {
-      // Departments, batches and staff on one screen, because setting a college
-      // up is one sitting rather than three. No Company requirements entry: this
-      // role holds neither PLACEMENT_DRIVE_MANAGE nor PLACEMENT_SHORTLIST_MANAGE,
-      // so the link would lead somewhere the server refuses.
+      label: 'Placement',
+      items: [{ to: '/app/requirements', label: 'Company requirements', icon: 'Building' }],
+    },
+    {
       label: 'Institution',
-      items: [{ to: '/app/institution', label: 'Departments & staff', icon: 'Layers' }],
+      items: [
+        { to: '/app/students', label: 'Students', icon: 'Layers' },
+        { to: '/app/institution', label: 'Departments & staff', icon: 'Sliders' },
+      ],
+    },
+    {
+      // No Sources entry. The registry is the portal administrator's console
+      // (Decisions 12 and 15) and the server refuses it to college staff.
+      label: 'Market',
+      items: [{ to: '/app/discover', label: 'Job market', icon: 'Compass' }],
     },
     {
       label: 'You',

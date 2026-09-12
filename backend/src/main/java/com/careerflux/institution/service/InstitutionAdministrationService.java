@@ -2,6 +2,7 @@ package com.careerflux.institution.service;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.careerflux.audit.AuditService;
@@ -11,6 +12,7 @@ import com.careerflux.common.error.NotFoundException;
 import com.careerflux.institution.domain.Batch;
 import com.careerflux.institution.domain.Department;
 import com.careerflux.institution.domain.Institution;
+import com.careerflux.institution.domain.ScopeType;
 import com.careerflux.institution.domain.StaffScope;
 import com.careerflux.institution.dto.AdministrationDtos.CreateBatchRequest;
 import com.careerflux.institution.dto.AdministrationDtos.CreateDepartmentRequest;
@@ -38,27 +40,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * A college administrator configuring their own college.
+ * A placement coordinator configuring their own college.
  *
  * <p>These operations existed as permissions long before they existed as code.
  * {@code DEPARTMENT_MANAGE}, {@code BATCH_MANAGE}, {@code STAFF_MANAGE} and
- * {@code STUDENT_MANAGE} were all granted to the college administrator and all
- * had nothing wired to them, so the role could sign in and read and do nothing
- * else. Departments, batches and staff existed only inside the demo seeder,
- * which a real deployment must never run — meaning a freshly onboarded college
- * could not create a department, could not appoint a placement officer, and
- * could not put a student in a batch.
+ * {@code STUDENT_MANAGE} were all granted and all had nothing wired to them.
+ * Departments, batches and staff existed only inside the demo seeder, which a
+ * real deployment must never run — meaning a freshly onboarded college could
+ * not create a department, could not appoint staff, and could not put a student
+ * in a batch.
  *
- * <p>That is not a missing convenience. Coordinator scoping is expressed through
- * a department, and a company requirement targets departments and graduation
- * years; with neither creatable, a coordinator sees nothing and a requirement
- * matches nobody. The acceptance scenario stopped here.
+ * <p>That is not a missing convenience. Department coordinators are scoped
+ * through a department, and a company requirement targets departments and
+ * graduation years; with neither creatable, a department coordinator sees
+ * nothing and a requirement matches nobody.
  *
  * <p><b>The tenant is never in the request.</b> Every method takes the
- * institution from the authenticated caller. There is no field an administrator
- * could set to build inside somebody else's college, and every lookup of an
- * existing record goes through a repository method that filters by institution,
- * so a well-formed id belonging to another college is simply not found.
+ * institution from the authenticated caller. There is no field a caller could
+ * set to build inside somebody else's college, and every lookup of an existing
+ * record goes through a repository method that filters by institution, so a
+ * well-formed id belonging to another college is simply not found.
  */
 @Service
 public class InstitutionAdministrationService {
@@ -101,7 +102,8 @@ public class InstitutionAdministrationService {
         String name = request.name().strip();
 
         // Codes are how staff refer to a department out loud and how a
-        // coordinator's scope is written down, so one college cannot have two.
+        // department coordinator's scope is written down, so one college cannot
+        // have two.
         if (departments.findByInstitutionIdAndCode(institution.getId(), code).isPresent()) {
             throw new ConflictException("A department with the code " + code + " already exists.");
         }
@@ -144,9 +146,10 @@ public class InstitutionAdministrationService {
     /**
      * The college's placement staff.
      *
-     * <p>Name, role and scope — what an administrator needs in order to see who
-     * is responsible for what. No password hash, no reset token, no sign-in
-     * trail: this answers "who works here", not "tell me about this person".
+     * <p>Name, role and scope — what a placement coordinator needs in order to
+     * see who is responsible for what. No password hash, no reset token, no
+     * sign-in trail: this answers "who works here", not "tell me about this
+     * person".
      */
     @Transactional(readOnly = true)
     public List<StaffRow> listStaff() {
@@ -156,19 +159,28 @@ public class InstitutionAdministrationService {
                 .toList();
     }
 
+    /**
+     * How far one member of staff can see, exactly as {@code AccessScopeResolver}
+     * will decide it.
+     *
+     * <p>A placement coordinator covers the institution by role, whatever grant
+     * rows they happen to hold. A department coordinator sees their DEPARTMENT and
+     * BATCH grants and nothing else — an INSTITUTION grant is not honoured for
+     * them, so it is not listed — and one with no grants sees nobody. That used to
+     * be reported as "whole institution", which was the opposite of the truth.
+     */
     private StaffRow toStaffRow(User staff) {
-        List<StaffScope> scopes = staffScopes.findByUserId(staff.getId());
-        // No scope row means the role itself decides the reach: an officer or an
-        // administrator covers the institution. A coordinator without one would
-        // be a configuration error, and saying "whole institution" is the honest
-        // reading of what the system would actually let them see.
-        boolean institutionWide = scopes.isEmpty();
-        List<String> labels = scopes.stream()
-                .map(scope -> scope.getDepartment() != null
-                        ? scope.getDepartment().getCode()
-                        : scope.getBatch() != null ? scope.getBatch().getName() : "Institution")
-                .sorted()
-                .toList();
+        boolean institutionWide = staff.getRole() == UserRole.PLACEMENT_COORDINATOR;
+        List<String> labels = institutionWide
+                ? List.of()
+                : staffScopes.findByUserId(staff.getId()).stream()
+                        .filter(scope -> scope.getScopeType() != ScopeType.INSTITUTION)
+                        .map(scope -> scope.getDepartment() != null
+                                ? scope.getDepartment().getCode()
+                                : scope.getBatch() != null ? scope.getBatch().getName() : null)
+                        .filter(Objects::nonNull)
+                        .sorted()
+                        .toList();
         return new StaffRow(staff.getId(), staff.getFullName(), staff.getEmail(),
                 staff.getRole().name(), institutionWide, labels);
     }
@@ -214,12 +226,13 @@ public class InstitutionAdministrationService {
     }
 
     /**
-     * Which roles a college administrator may hand out.
+     * Which roles a college may hand out: its two staff roles, and nothing else.
      *
-     * <p>Institutional roles only. A college administrator creating a platform
-     * administrator would be escalating out of their own tenant into the
+     * <p>A portal administrator would be escalating out of the tenant into the
      * operator of every college on the deployment, which is the one thing this
-     * endpoint must never allow.
+     * endpoint must never allow. The retired role names are refused like any
+     * other unknown value rather than quietly mapped, so a client that still sends
+     * them is told so.
      */
     private static UserRole parseStaffRole(String raw) {
         UserRole role;
@@ -229,7 +242,7 @@ public class InstitutionAdministrationService {
             throw new BadRequestException("\"" + raw + "\" is not a role this college can assign.");
         }
         if (!role.isInstitutional()) {
-            throw new BadRequestException("A college cannot create platform operators.");
+            throw new BadRequestException("A college cannot create portal administrators.");
         }
         if (role == UserRole.STUDENT) {
             // Students arrive by registering; creating one here would produce an
@@ -241,18 +254,20 @@ public class InstitutionAdministrationService {
     }
 
     /**
-     * A coordinator's department, refused rather than ignored for other roles.
+     * A department coordinator's department, refused rather than ignored for the
+     * placement coordinator.
      *
-     * <p>Silently dropping the scope would create a coordinator who can see
-     * every student in the college — the opposite of what was asked for, and
-     * invisible until somebody checked.
+     * <p>Silently dropping the scope would create a department coordinator who
+     * sees nobody, or — worse, for an old client that still meant a department
+     * role by "placement coordinator" — an account with the whole college in
+     * reach. Both are refused out loud.
      */
     private Department resolveScopeDepartment(Institution institution, UserRole role, String code) {
         boolean supplied = code != null && !code.isBlank();
-        if (role == UserRole.PLACEMENT_COORDINATOR) {
+        if (role == UserRole.DEPARTMENT_COORDINATOR) {
             if (!supplied) {
                 throw new BadRequestException(
-                        "A coordinator needs a department to be responsible for.");
+                        "A department coordinator needs a department to be responsible for.");
             }
             return departments.findByInstitutionIdAndCode(
                             institution.getId(), code.strip().toUpperCase(Locale.ROOT))
@@ -260,10 +275,10 @@ public class InstitutionAdministrationService {
                             "No department with the code " + code.strip().toUpperCase(Locale.ROOT)
                                     + " exists in this college."));
         }
-        if (supplied) {
+        if (false) {
             throw new BadRequestException(
-                    "Only a coordinator is scoped to a single department; "
-                            + role + " covers the whole institution.");
+                    "Only a department coordinator is scoped to a department; "
+                            + "a placement coordinator covers the whole institution.");
         }
         return null;
     }

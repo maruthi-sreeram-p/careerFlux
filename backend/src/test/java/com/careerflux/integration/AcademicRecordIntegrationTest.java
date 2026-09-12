@@ -294,7 +294,7 @@ class AcademicRecordIntegrationTest {
         @Test
         @DisplayName("a coordinator cannot: the role holds no eligibility permission")
         void coordinatorIsRefused() throws Exception {
-            // PLACEMENT_COORDINATOR has neither PLACEMENT_ELIGIBILITY_MANAGE nor
+            // DEPARTMENT_COORDINATOR has neither PLACEMENT_ELIGIBILITY_MANAGE nor
             // any student-write grant. This records the existing boundary rather
             // than asserting it is the right product call.
             Student student = student("coord-target@example.com");
@@ -307,20 +307,23 @@ class AcademicRecordIntegrationTest {
         }
 
         @Test
-        @DisplayName("a college administrator and a platform operator cannot either")
-        void otherRolesAreRefused() throws Exception {
+        @DisplayName("a portal administrator cannot either: owning the platform is not a college's authority")
+        void portalAdministratorIsRefused() throws Exception {
+            // A college administrator used to be refused here as well. That role
+            // is now part of the placement coordinator, which records the verified
+            // CGPA (see officerRecordsVerified); the refusal that remains is the
+            // portal administrator's.
             Student student = student("other-target@example.com");
-            String admin = login(staff("acad-admin@example.com", UserRole.COLLEGE_ADMIN,
-                    institutions.example()));
             String platform = login(staff("acad-platform@careerflux.local",
-                    UserRole.PLATFORM_ADMIN, null));
+                    UserRole.PORTAL_ADMIN, null));
 
-            for (String token : List.of(admin, platform)) {
-                mockMvc.perform(put("/api/institution/students/" + student.userId() + "/academics")
-                                .header("Authorization", "Bearer " + token)
-                                .contentType(MediaType.APPLICATION_JSON).content("{\"cgpa\":7.00}"))
-                        .andExpect(status().isForbidden());
-            }
+            mockMvc.perform(put("/api/institution/students/" + student.userId() + "/academics")
+                            .header("Authorization", "Bearer " + platform)
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"cgpa\":7.00}"))
+                    .andExpect(status().isForbidden());
+            assertThat(profileRepository.findByUserId(student.userId()).orElseThrow().getCgpa())
+                    .describedAs("nothing was written on the way to the refusal")
+                    .isNull();
         }
 
         @Test
@@ -335,7 +338,7 @@ class AcademicRecordIntegrationTest {
         @DisplayName("one college cannot record a CGPA for another's student")
         void crossInstitutionIsRefused() throws Exception {
             Student ours = student("ours@example.com");
-            User rivalOfficer = staff("rival-acad@rival.edu", UserRole.PLACEMENT_OFFICER,
+            User rivalOfficer = staff("rival-acad@rival.edu", UserRole.PLACEMENT_COORDINATOR,
                     institutions.rival());
 
             // Not-found rather than forbidden: nothing is confirmed about a
@@ -481,11 +484,11 @@ class AcademicRecordIntegrationTest {
     }
 
     private String officer(String email) throws Exception {
-        return login(staff(email, UserRole.PLACEMENT_OFFICER, institutions.example()));
+        return login(staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example()));
     }
 
     private String coordinatorScopedToCse(String email) throws Exception {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, institutions.example());
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, institutions.example());
         staffScopeRepository.saveAndFlush(StaffScope.forDepartment(
                 coordinator, institutions.example(), institutions.exampleCse()));
         return login(coordinator);

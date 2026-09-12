@@ -56,7 +56,7 @@ public class AccessGuard {
      * The caller's institution, for scoping a query.
      *
      * @throws ForbiddenException when the caller has no institution, which means
-     *         a platform administrator reached an institutional endpoint
+     *         a portal administrator reached an institutional endpoint
      */
     public UUID requireInstitutionId() {
         AccessScope scope = scope();
@@ -78,15 +78,15 @@ public class AccessGuard {
     /**
      * Confirms a record belongs to the caller's institution.
      *
-     * <p>A platform administrator passes, because they operate across tenants by
-     * definition — but note that they hold no student-read permission, so this
-     * does not give them access to student records by the back door.
+     * <p>Nobody passes by role. A portal administrator belongs to no institution,
+     * so no institutional record matches them: owning the platform is not a way
+     * into a college's data. This used to wave the portal administrator through
+     * on the grounds that they held no student-read permission anyway — true, but
+     * a check that is safe only because of a different check is one refactor away
+     * from not being safe at all.
      */
     public void requireSameInstitution(UUID resourceInstitutionId, String resourceLabel, Object resourceId) {
         AccessScope scope = scope();
-        if (scope.isPlatformAdmin()) {
-            return;
-        }
         if (resourceInstitutionId == null || !resourceInstitutionId.equals(scope.institutionId())) {
             log.warn("Cross-tenant access blocked: user {} (institution {}) requested {} {} in institution {}",
                     scope.userId(), scope.institutionId(), resourceLabel, resourceId, resourceInstitutionId);
@@ -136,7 +136,7 @@ public class AccessGuard {
      *
      * <p>Held apart from {@link #requireCanReadCandidate} on purpose. Seeing that
      * a student is ready and reading the document they wrote are different acts,
-     * and a coordinator is trusted with the first but not the second.
+     * and a department coordinator is trusted with the first but not the second.
      */
     public void requireCanReadResume(CandidateProfile candidate) {
         AccessScope scope = scope();

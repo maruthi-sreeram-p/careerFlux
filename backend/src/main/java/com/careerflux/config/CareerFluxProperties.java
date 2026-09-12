@@ -122,7 +122,21 @@ public record CareerFluxProperties(
 
             /** Shortlist additions and withdrawals per account. Deliberately loose: these are clicked in bursts. */
             @DefaultValue("120") int shortlistMutations,
-            @DefaultValue("PT1M") Duration shortlistWindow) {
+            @DefaultValue("PT1M") Duration shortlistWindow,
+
+            /**
+             * Sign-in attempts against one login identity, from any address.
+             *
+             * <p>The per-address ceiling cannot stop guesses spread across many
+             * addresses, and wherever a forwarded header is believed the address
+             * is the caller's to choose. This one counts the account itself. It
+             * is looser than the per-address ceiling so that a person mistyping
+             * their own password is not locked out, and the cost of having it is
+             * that a determined attacker can make one account wait out this
+             * window — accepted, over unlimited guessing against it.
+             */
+            @DefaultValue("20") int loginAccountAttempts,
+            @DefaultValue("PT15M") Duration loginAccountWindow) {
     }
 
     public record Jwt(

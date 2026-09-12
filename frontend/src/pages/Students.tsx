@@ -318,7 +318,7 @@ export default function Students() {
               activeFilters > 0
                 ? 'Try removing a filter, or widening the CGPA or profile thresholds.'
                 : scopeLabel === 'No scope granted'
-                  ? 'You have not been granted a department or batch yet. A college administrator assigns this.'
+                  ? 'You have not been granted a department or batch yet. Your placement coordinator assigns this.'
                   : 'No students have been enrolled into your scope yet.'
             }
           />

@@ -90,11 +90,11 @@ class CompanyDiscoveryIntegrationTest {
             String body = """
                     {"companyNames":["Nothing Here Ltd"]}""";
 
-            mockMvc.perform(request(body, token(UserRole.PLATFORM_ADMIN)))
+            mockMvc.perform(request(body, token(UserRole.PORTAL_ADMIN)))
                     .andExpect(status().isOk());
 
-            for (UserRole role : List.of(UserRole.PLACEMENT_OFFICER, UserRole.COLLEGE_ADMIN,
-                    UserRole.PLACEMENT_COORDINATOR, UserRole.STUDENT)) {
+            for (UserRole role : List.of(UserRole.PLACEMENT_COORDINATOR, UserRole.PLACEMENT_COORDINATOR,
+                    UserRole.DEPARTMENT_COORDINATOR, UserRole.STUDENT)) {
                 mockMvc.perform(request(body, token(role)))
                         .andExpect(status().isForbidden());
             }
@@ -128,7 +128,7 @@ class CompanyDiscoveryIntegrationTest {
                     "169.254.169.254", "192.168.1.1", "[::1]")) {
                 mockMvc.perform(request("""
                                 {"companyNames":["Evil"],"confirmedDomains":["%s"]}"""
-                                .formatted(hostile), token(UserRole.PLATFORM_ADMIN)))
+                                .formatted(hostile), token(UserRole.PORTAL_ADMIN)))
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.registered.length()").value(0));
             }
@@ -143,7 +143,7 @@ class CompanyDiscoveryIntegrationTest {
         void refusalIsReported() throws Exception {
             mockMvc.perform(request("""
                             {"companyNames":["Evil"],"confirmedDomains":["127.0.0.1"]}""",
-                            token(UserRole.PLATFORM_ADMIN)))
+                            token(UserRole.PORTAL_ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.registered.length()").value(0))
                     .andExpect(jsonPath("$.withoutBoard.length()").value(1));
@@ -158,7 +158,7 @@ class CompanyDiscoveryIntegrationTest {
             for (String hostile : List.of("https://127.0.0.1/jobs", "https://169.254.169.254/",
                     "http://example.com/jobs", "https://example.com:8080/jobs")) {
                 mockMvc.perform(post("/api/admin/sources")
-                                .header("Authorization", "Bearer " + token(UserRole.PLATFORM_ADMIN))
+                                .header("Authorization", "Bearer " + token(UserRole.PORTAL_ADMIN))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("""
                                         {"name":"Hostile","baseUrl":"%s"}""".formatted(hostile)))
@@ -180,7 +180,7 @@ class CompanyDiscoveryIntegrationTest {
 
             mockMvc.perform(request("""
                             {"companyNames":["Razorpay","Meesho"]}""",
-                            token(UserRole.PLATFORM_ADMIN)))
+                            token(UserRole.PORTAL_ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.registered.length()").value(0))
                     .andExpect(jsonPath("$.alreadyKnown.length()").value(0))
@@ -197,7 +197,7 @@ class CompanyDiscoveryIntegrationTest {
 
             String body = mockMvc.perform(request("""
                             {"companyNames":["Integration Test Co"]}""",
-                            token(UserRole.PLATFORM_ADMIN)))
+                            token(UserRole.PORTAL_ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.resolved.length()").value(1))
                     .andExpect(jsonPath("$.resolved[0].outcome").value("RESOLVED"))
@@ -213,7 +213,7 @@ class CompanyDiscoveryIntegrationTest {
         void notFoundIsAnAnswer() throws Exception {
             mockMvc.perform(request("""
                             {"companyNames":["Zzz Nonexistent Employer Xyz"]}""",
-                            token(UserRole.PLATFORM_ADMIN)))
+                            token(UserRole.PORTAL_ADMIN)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.notFound.length()").value(1))
                     .andExpect(jsonPath("$.notFound[0].outcome").value("NOT_FOUND"))
@@ -226,7 +226,7 @@ class CompanyDiscoveryIntegrationTest {
             for (String body : List.of("{}", """
                     {"companyNames":[]}""", """
                     {"companyNames":[null,"","   "]}""")) {
-                mockMvc.perform(request(body, token(UserRole.PLATFORM_ADMIN)))
+                mockMvc.perform(request(body, token(UserRole.PORTAL_ADMIN)))
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.resolved.length()").value(0))
                         .andExpect(jsonPath("$.registered.length()").value(0));
@@ -328,7 +328,7 @@ class CompanyDiscoveryIntegrationTest {
                 user.setPasswordHash(passwordEncoder.encode(PASSWORD));
                 user.setRole(role);
                 user.setStatus(UserStatus.ACTIVE);
-                if (role != UserRole.PLATFORM_ADMIN) {
+                if (role != UserRole.PORTAL_ADMIN) {
                     user.setInstitution(institutions.example());
                 }
                 userRepository.saveAndFlush(user);

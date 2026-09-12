@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { ApiError, api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { Button, Field, Panel, TextInput, useToast } from '../ui/primitives';
 
 /** The policy the server enforces; stated here so the message arrives before the request does. */
@@ -11,8 +12,14 @@ const MIN_LENGTH = 10;
  *
  * <p>The same panel for every role, because it is the same endpoint for every
  * role: the account being changed comes from the token, and there is no field
- * on this form that could name somebody else. A student, a placement officer and
- * a college administrator all rotate an initial password the same way.
+ * on this form that could name somebody else. A student, a department
+ * coordinator and a placement coordinator all rotate an initial password the
+ * same way.
+ *
+ * <p>Changing the password ends every session the account had, this one
+ * included — that is how anybody else signed in as you is put out. So a
+ * successful change signs you out here too, and says so, rather than leaving a
+ * screen whose next request will be refused.
  *
  * <p>Confirmation is checked here and nowhere else. The server takes one new
  * password and has no opinion about whether the person typed it twice — that is
@@ -23,6 +30,7 @@ const MIN_LENGTH = 10;
  */
 export function PasswordPanel() {
   const toast = useToast();
+  const { signOut } = useAuth();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -64,7 +72,11 @@ export function PasswordPanel() {
         newPassword: next,
       });
       reset();
-      toast.show('Password updated. Use the new one next time you sign in.', 'success');
+      toast.show(
+        'Password updated. Every session has been signed out, this one included — sign in with the new password.',
+        'success',
+      );
+      signOut();
     } catch (failure) {
       if (failure instanceof ApiError) {
         // The server says "Your current password is incorrect" for the case

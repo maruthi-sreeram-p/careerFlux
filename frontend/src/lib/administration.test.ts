@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  APPOINTABLE_ROLES,
   EMPTY_BATCH_FORM,
   EMPTY_DEPARTMENT_FORM,
   EMPTY_STAFF_FORM,
@@ -25,7 +26,7 @@ function userWith(permissions: string[]): SessionUser {
     id: 'u-1',
     email: 'someone@example.com',
     fullName: 'Someone',
-    role: 'COLLEGE_ADMIN',
+    role: 'PLACEMENT_COORDINATOR',
     permissions,
     institutionId: 'i-1',
     institutionName: 'Example College',
@@ -34,40 +35,50 @@ function userWith(permissions: string[]): SessionUser {
   };
 }
 
-const COLLEGE_ADMIN = [
+/** Copied from the backend's UserRole enum, as in the navigation tests. */
+const PLACEMENT_COORDINATOR = [
+  'STUDENT_READ_SCOPED',
+  'STUDENT_READ_INSTITUTION',
+  'STUDENT_RESUME_READ',
+  'STUDENT_MANAGE',
+  'ANALYTICS_VIEW',
+  'JOB_MARKET_VIEW',
+  'PLACEMENT_DRIVE_VIEW',
+  'PLACEMENT_DRIVE_MANAGE',
+  'PLACEMENT_SHORTLIST_MANAGE',
+  'PLACEMENT_ELIGIBILITY_MANAGE',
+  'ANNOUNCEMENT_SEND',
   'INSTITUTION_SETTINGS_MANAGE',
   'DEPARTMENT_MANAGE',
   'BATCH_MANAGE',
   'STAFF_MANAGE',
-  'STUDENT_MANAGE',
-  'ANALYTICS_VIEW',
   'AUDIT_READ_INSTITUTION',
 ];
-const OFFICER = [
+const DEPARTMENT_COORDINATOR = [
   'STUDENT_READ_SCOPED',
-  'STUDENT_READ_INSTITUTION',
+  'ANALYTICS_VIEW',
+  'JOB_MARKET_VIEW',
   'PLACEMENT_DRIVE_VIEW',
-  'PLACEMENT_DRIVE_MANAGE',
   'PLACEMENT_SHORTLIST_MANAGE',
+  'ANNOUNCEMENT_SEND',
 ];
 
 describe('who is offered college administration', () => {
-  it('offers every section to a college administrator', () => {
-    const admin = userWith(COLLEGE_ADMIN);
-    expect(canManageDepartments(admin)).toBe(true);
-    expect(canManageBatches(admin)).toBe(true);
-    expect(canManageStaff(admin)).toBe(true);
-    expect(canAdministerCollege(admin)).toBe(true);
+  it('offers every section to the placement coordinator', () => {
+    const coordinator = userWith(PLACEMENT_COORDINATOR);
+    expect(canManageDepartments(coordinator)).toBe(true);
+    expect(canManageBatches(coordinator)).toBe(true);
+    expect(canManageStaff(coordinator)).toBe(true);
+    expect(canAdministerCollege(coordinator)).toBe(true);
   });
 
-  it('offers none of it to a placement officer', () => {
-    // Running placement is not administering the college. The officer's
-    // permissions are about drives and students, not about who works here.
-    const officer = userWith(OFFICER);
-    expect(canManageDepartments(officer)).toBe(false);
-    expect(canManageBatches(officer)).toBe(false);
-    expect(canManageStaff(officer)).toBe(false);
-    expect(canAdministerCollege(officer)).toBe(false);
+  it('offers none of it to a department coordinator', () => {
+    // Supporting one department's students is not administering the college.
+    const departmentCoordinator = userWith(DEPARTMENT_COORDINATOR);
+    expect(canManageDepartments(departmentCoordinator)).toBe(false);
+    expect(canManageBatches(departmentCoordinator)).toBe(false);
+    expect(canManageStaff(departmentCoordinator)).toBe(false);
+    expect(canAdministerCollege(departmentCoordinator)).toBe(false);
   });
 
   it('offers none of it to a student or to nobody', () => {
@@ -139,10 +150,20 @@ describe('staff', () => {
   const base = {
     fullName: 'Priya Raman',
     email: 'priya@northgate.edu',
-    password: 'OfficerPass!2026',
-    role: 'PLACEMENT_OFFICER',
+    password: 'CoordinatorPass!2026',
+    role: 'PLACEMENT_COORDINATOR',
     departmentCode: '',
   };
+
+  it('offers exactly the two staff roles, with the narrower one first and by default', () => {
+    // A slip on this form should under-grant rather than hand somebody the
+    // whole college.
+    expect(APPOINTABLE_ROLES.map((role) => role.value)).toEqual([
+      'DEPARTMENT_COORDINATOR',
+      'PLACEMENT_COORDINATOR',
+    ]);
+    expect(EMPTY_STAFF_FORM.role).toBe('DEPARTMENT_COORDINATOR');
+  });
 
   it('needs a name, an email and a long enough password', () => {
     expect(canSubmitStaff(EMPTY_STAFF_FORM)).toBe(false);
@@ -152,34 +173,38 @@ describe('staff', () => {
     expect(canSubmitStaff(base)).toBe(true);
   });
 
-  it('refuses a coordinator with no department', () => {
-    // The failure this prevents is silent: a coordinator whose scope went
-    // missing can see every student in the college.
-    expect(requiresDepartment('PLACEMENT_COORDINATOR')).toBe(true);
-    expect(canSubmitStaff({ ...base, role: 'PLACEMENT_COORDINATOR' })).toBe(false);
+  it('refuses a department coordinator with no department', () => {
+    // Without one they would see nobody, which is not what was asked for.
+    expect(requiresDepartment('DEPARTMENT_COORDINATOR')).toBe(true);
+    expect(canSubmitStaff({ ...base, role: 'DEPARTMENT_COORDINATOR' })).toBe(false);
     expect(
-      canSubmitStaff({ ...base, role: 'PLACEMENT_COORDINATOR', departmentCode: 'CSE' }),
+      canSubmitStaff({ ...base, role: 'DEPARTMENT_COORDINATOR', departmentCode: 'CSE' }),
     ).toBe(true);
   });
 
-  it('does not ask an officer or an administrator for a department', () => {
-    expect(requiresDepartment('PLACEMENT_OFFICER')).toBe(false);
-    expect(requiresDepartment('COLLEGE_ADMIN')).toBe(false);
-    expect(canSubmitStaff({ ...base, role: 'COLLEGE_ADMIN' })).toBe(true);
+  it('never asks the placement coordinator for a department', () => {
+    // PLACEMENT_COORDINATOR once named the department role; it now covers the
+    // whole institution, and the server refuses a department sent with it.
+    expect(requiresDepartment('PLACEMENT_COORDINATOR')).toBe(false);
+    expect(canSubmitStaff({ ...base, role: 'PLACEMENT_COORDINATOR' })).toBe(true);
+    expect(
+      buildStaffRequest({ ...base, role: 'PLACEMENT_COORDINATOR', departmentCode: 'CSE' }),
+    ).not.toHaveProperty('departmentCode');
   });
 
-  it('refuses a role a college may not appoint', () => {
-    // A college cannot mint a platform operator. The server refuses this too;
-    // the form simply never offers it.
-    expect(canSubmitStaff({ ...base, role: 'PLATFORM_ADMIN' })).toBe(false);
-    expect(canSubmitStaff({ ...base, role: 'STUDENT' })).toBe(false);
+  it('refuses a role a college may not appoint, the retired names included', () => {
+    // A college cannot mint a portal administrator. The server refuses these
+    // too; the form simply never offers them.
+    for (const role of ['PORTAL_ADMIN', 'STUDENT', 'PLACEMENT_OFFICER', 'COLLEGE_ADMIN', 'PLATFORM_ADMIN']) {
+      expect(canSubmitStaff({ ...base, role })).toBe(false);
+    }
   });
 
-  it('sends a department only for a coordinator', () => {
+  it('sends a department only for a department coordinator', () => {
     expect(buildStaffRequest(base)).not.toHaveProperty('departmentCode');
     expect(
-      buildStaffRequest({ ...base, role: 'PLACEMENT_COORDINATOR', departmentCode: ' cse ' }),
-    ).toMatchObject({ role: 'PLACEMENT_COORDINATOR', departmentCode: 'CSE' });
+      buildStaffRequest({ ...base, role: 'DEPARTMENT_COORDINATOR', departmentCode: ' cse ' }),
+    ).toMatchObject({ role: 'DEPARTMENT_COORDINATOR', departmentCode: 'CSE' });
   });
 
   it('lower-cases the email and does not trim the password', () => {
@@ -197,16 +222,18 @@ describe('staff', () => {
 });
 
 describe('how a staff member’s reach reads', () => {
-  it('says whole institution when nothing narrows them', () => {
+  it('says whole institution only when the server says so', () => {
     expect(scopeLabel({ institutionWide: true, scopeLabels: [] })).toBe('Whole institution');
   });
 
-  it('lists the departments a coordinator covers', () => {
+  it('lists the departments and batches a department coordinator covers', () => {
     expect(scopeLabel({ institutionWide: false, scopeLabels: ['CSE'] })).toBe('CSE');
     expect(scopeLabel({ institutionWide: false, scopeLabels: ['CSE', 'IT'] })).toBe('CSE, IT');
   });
 
-  it('falls back to whole institution rather than showing an empty cell', () => {
-    expect(scopeLabel({ institutionWide: false, scopeLabels: [] })).toBe('Whole institution');
+  it('says so when a department coordinator has nothing yet, rather than claiming the college', () => {
+    // A department coordinator with no grant sees nobody. Calling that the whole
+    // institution was the opposite of the truth.
+    expect(scopeLabel({ institutionWide: false, scopeLabels: [] })).toBe('No department or batch yet');
   });
 });

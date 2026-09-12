@@ -122,7 +122,7 @@ public class AdminOpsController {
                 eventRepository.countByStatus(PipelineEventStatus.FAILED),
                 eventsByTopic,
                 userRepository.count(),
-                userRepository.countByRole(UserRole.PLATFORM_ADMIN),
+                userRepository.countByRole(UserRole.PORTAL_ADMIN),
                 eventBus.transportName(),
                 aiClient.isAvailable(),
                 aiClient.modelName(),

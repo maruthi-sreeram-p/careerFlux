@@ -101,26 +101,27 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("a coordinator may shortlist but may not author a requirement")
         void coordinatorHoldsOnlyTheNarrowOne() {
-            assertThat(UserRole.PLACEMENT_COORDINATOR.has(Permission.PLACEMENT_SHORTLIST_MANAGE))
+            assertThat(UserRole.DEPARTMENT_COORDINATOR.has(Permission.PLACEMENT_SHORTLIST_MANAGE))
                     .describedAs("shortlisting within their department is the point of the split")
                     .isTrue();
-            assertThat(UserRole.PLACEMENT_COORDINATOR.has(Permission.PLACEMENT_DRIVE_MANAGE))
+            assertThat(UserRole.DEPARTMENT_COORDINATOR.has(Permission.PLACEMENT_DRIVE_MANAGE))
                     .describedAs("authoring a requirement is unscoped and is not theirs")
                     .isFalse();
         }
 
         @Test
-        @DisplayName("an officer keeps both")
-        void officerHoldsBoth() {
-            assertThat(UserRole.PLACEMENT_OFFICER.has(Permission.PLACEMENT_SHORTLIST_MANAGE)).isTrue();
-            assertThat(UserRole.PLACEMENT_OFFICER.has(Permission.PLACEMENT_DRIVE_MANAGE)).isTrue();
+        @DisplayName("the placement coordinator holds both")
+        void placementCoordinatorHoldsBoth() {
+            assertThat(UserRole.PLACEMENT_COORDINATOR.has(Permission.PLACEMENT_SHORTLIST_MANAGE)).isTrue();
+            assertThat(UserRole.PLACEMENT_COORDINATOR.has(Permission.PLACEMENT_DRIVE_MANAGE)).isTrue();
         }
 
         @Test
         @DisplayName("nobody else acquired either of them")
         void nobodyElseGainedPlacementAuthority() {
-            for (UserRole role : new UserRole[] {UserRole.STUDENT, UserRole.COLLEGE_ADMIN,
-                    UserRole.PLATFORM_ADMIN}) {
+            // The college administrator used to be listed here. It is now part of
+            // the placement coordinator, which holds both by design.
+            for (UserRole role : new UserRole[] {UserRole.STUDENT, UserRole.PORTAL_ADMIN}) {
                 assertThat(role.has(Permission.PLACEMENT_SHORTLIST_MANAGE))
                         .describedAs("%s must not be able to shortlist", role)
                         .isFalse();
@@ -133,8 +134,8 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("viewing was not touched")
         void viewPermissionUnchanged() {
+            assertThat(UserRole.DEPARTMENT_COORDINATOR.has(Permission.PLACEMENT_DRIVE_VIEW)).isTrue();
             assertThat(UserRole.PLACEMENT_COORDINATOR.has(Permission.PLACEMENT_DRIVE_VIEW)).isTrue();
-            assertThat(UserRole.PLACEMENT_OFFICER.has(Permission.PLACEMENT_DRIVE_VIEW)).isTrue();
         }
     }
 
@@ -147,7 +148,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("can shortlist a student in their own department, and take them off again")
         void shortlistsWithinScope() throws Exception {
-            String officer = signIn(staff("split-officer@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             String coordinator = signIn(coordinatorFor(institutions.exampleCse(),
                     "split-cse-coord@example.com"));
@@ -173,7 +174,7 @@ class ShortlistPermissionSplitTest {
         void cannotCrossDepartment() throws Exception {
             // The permission is now reachable, so this is the check that matters:
             // reaching the endpoint is not the same as reaching the student.
-            String officer = signIn(staff("split-officer2@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer2@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             String coordinator = signIn(coordinatorFor(institutions.exampleCse(),
                     "split-cse-coord2@example.com"));
@@ -193,7 +194,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("cannot shortlist a student from another college")
         void cannotCrossInstitution() throws Exception {
-            String officer = signIn(staff("split-officer3@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer3@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             String coordinator = signIn(coordinatorFor(institutions.exampleCse(),
                     "split-cse-coord3@example.com"));
@@ -226,7 +227,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("still cannot edit, publish or close a requirement")
         void cannotMutateRequirement() throws Exception {
-            String officer = signIn(staff("split-officer5@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer5@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             String coordinator = signIn(coordinatorFor(institutions.exampleCse(),
                     "split-cse-coord5@example.com"));
@@ -246,7 +247,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("can still read the requirement and its candidates, as before")
         void readingIsUnchanged() throws Exception {
-            String officer = signIn(staff("split-officer6@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer6@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             String coordinator = signIn(coordinatorFor(institutions.exampleCse(),
                     "split-cse-coord6@example.com"));
@@ -272,7 +273,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("can still shortlist and unshortlist")
         void shortlistStillWorks() throws Exception {
-            String officer = signIn(staff("split-officer7@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer7@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             UUID candidate = student("split-officer-student@example.com", institutions.exampleMech());
 
@@ -289,7 +290,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("can still author requirements")
         void authoringStillWorks() throws Exception {
-            String officer = signIn(staff("split-officer8@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer8@example.com", UserRole.PLACEMENT_COORDINATOR, null));
 
             String created = mockMvc.perform(post("/api/requirements")
                             .header("Authorization", "Bearer " + officer)
@@ -318,7 +319,7 @@ class ShortlistPermissionSplitTest {
         @Test
         @DisplayName("a student cannot shortlist")
         void studentCannot() throws Exception {
-            String officer = signIn(staff("split-officer9@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer9@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             UUID candidate = student("split-self-student@example.com", institutions.exampleCse());
             String studentToken = signIn(userRepository.findById(
@@ -332,25 +333,28 @@ class ShortlistPermissionSplitTest {
         }
 
         @Test
-        @DisplayName("a college administrator cannot shortlist")
-        void collegeAdminCannot() throws Exception {
-            // Administering a college is not a reason to decide who goes forward.
-            String officer = signIn(staff("split-officer10@example.com", UserRole.PLACEMENT_OFFICER, null));
+        @DisplayName("any placement coordinator in the college may shortlist, not only the requirement's author")
+        void anyPlacementCoordinatorMay() throws Exception {
+            // This used to refuse a college administrator, on the grounds that
+            // administering a college is not deciding who goes forward. In the
+            // four-actor model the college's administrator is the placement
+            // coordinator, whose job is exactly that decision.
+            String officer = signIn(staff("split-officer10@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
             UUID candidate = student("split-admin-student@example.com", institutions.exampleCse());
-            String admin = signIn(staff("split-admin@example.com", UserRole.COLLEGE_ADMIN, null));
+            String colleague = signIn(staff("split-admin@example.com", UserRole.PLACEMENT_COORDINATOR, null));
 
             mockMvc.perform(post("/api/requirements/" + requirement + "/shortlist")
-                            .header("Authorization", "Bearer " + admin)
+                            .header("Authorization", "Bearer " + colleague)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"candidateId\":\"%s\"}".formatted(candidate)))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isCreated());
         }
 
         @Test
         @DisplayName("an anonymous caller is refused before anything else")
         void anonymousCannot() throws Exception {
-            String officer = signIn(staff("split-officer11@example.com", UserRole.PLACEMENT_OFFICER, null));
+            String officer = signIn(staff("split-officer11@example.com", UserRole.PLACEMENT_COORDINATOR, null));
             String requirement = openRequirement(officer);
 
             mockMvc.perform(post("/api/requirements/" + requirement + "/shortlist")
@@ -382,7 +386,7 @@ class ShortlistPermissionSplitTest {
     }
 
     private User coordinatorFor(Department department, String email) {
-        User coordinator = staff(email, UserRole.PLACEMENT_COORDINATOR, department);
+        User coordinator = staff(email, UserRole.DEPARTMENT_COORDINATOR, department);
         staffScopes.save(StaffScope.forDepartment(coordinator, institutions.example(), department));
         return coordinator;
     }

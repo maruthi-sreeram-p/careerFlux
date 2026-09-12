@@ -39,18 +39,20 @@ export const EMPTY_STAFF_FORM: StaffFormState = {
   fullName: '',
   email: '',
   password: '',
-  role: 'PLACEMENT_OFFICER',
+  // The narrower role by default. Appointing department coordinators is the
+  // everyday case, and a slip on this form should under-grant, not hand
+  // somebody the whole college.
+  role: 'DEPARTMENT_COORDINATOR',
   departmentCode: '',
 };
 
 /** Mirrors the server's minimum. Catching it here saves a round trip, nothing more. */
 export const MIN_PASSWORD_LENGTH = 10;
 
-/** The roles a college may appoint. Deliberately no platform operator. */
+/** The roles a college may appoint. Deliberately no portal administrator. */
 export const APPOINTABLE_ROLES = [
-  { value: 'PLACEMENT_OFFICER', label: 'Placement officer' },
+  { value: 'DEPARTMENT_COORDINATOR', label: 'Department coordinator' },
   { value: 'PLACEMENT_COORDINATOR', label: 'Placement coordinator' },
-  { value: 'COLLEGE_ADMIN', label: 'College administrator' },
 ] as const;
 
 /** Which of the three sections this person is offered. */
@@ -104,9 +106,15 @@ export function buildBatchRequest(form: BatchFormState) {
   return { name: form.name.trim(), graduationYear: Number(form.graduationYear.trim()) };
 }
 
-/** A coordinator is responsible for one department; nobody else is. */
+/**
+ * A department coordinator is responsible for a department; nobody else is.
+ *
+ * <p>PLACEMENT_COORDINATOR once named the department-scoped role. It now names
+ * the college's own administrator, who covers the whole institution, so this
+ * must answer for DEPARTMENT_COORDINATOR only.
+ */
 export function requiresDepartment(role: string): boolean {
-  return role === 'PLACEMENT_COORDINATOR';
+  return role === 'DEPARTMENT_COORDINATOR';
 }
 
 export function canSubmitStaff(form: StaffFormState): boolean {
@@ -120,8 +128,8 @@ export function canSubmitStaff(form: StaffFormState): boolean {
   if (!APPOINTABLE_ROLES.some((role) => role.value === form.role)) {
     return false;
   }
-  // Refused rather than quietly dropped: a coordinator whose scope went missing
-  // can see every student in the college, which is the opposite of the request.
+  // Refused rather than quietly dropped: a department coordinator with no
+  // department would see nobody, which is not what was asked for.
   if (requiresDepartment(form.role)) {
     return form.departmentCode.trim().length > 0;
   }
@@ -151,10 +159,19 @@ export function buildStaffRequest(form: StaffFormState) {
   return body;
 }
 
-/** How a staff member's reach reads in the list. */
+/**
+ * How a staff member's reach reads in the list.
+ *
+ * <p>"Whole institution" only when the server says so. A department coordinator
+ * with no department or batch sees nobody, and the list used to call that the
+ * whole institution — the one reading it certainly is not.
+ */
 export function scopeLabel(staff: { institutionWide: boolean; scopeLabels: string[] }): string {
-  if (!staff.institutionWide && staff.scopeLabels.length > 0) {
+  if (staff.institutionWide) {
+    return 'Whole institution';
+  }
+  if (staff.scopeLabels.length > 0) {
     return staff.scopeLabels.join(', ');
   }
-  return 'Whole institution';
+  return 'No department or batch yet';
 }
