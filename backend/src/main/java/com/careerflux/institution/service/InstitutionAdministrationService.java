@@ -275,7 +275,7 @@ public class InstitutionAdministrationService {
                             "No department with the code " + code.strip().toUpperCase(Locale.ROOT)
                                     + " exists in this college."));
         }
-        if (false) {
+        if (supplied) {
             throw new BadRequestException(
                     "Only a department coordinator is scoped to a department; "
                             + "a placement coordinator covers the whole institution.");

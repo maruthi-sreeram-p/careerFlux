@@ -92,8 +92,7 @@ public enum UserRole {
             // coordinator's own AccessScope, so this permission reaches exactly
             // the students STUDENT_READ_SCOPED already lets them see.
             PLACEMENT_SHORTLIST_MANAGE,
-            ANNOUNCEMENT_SEND,
-            STAFF_MANAGE)),
+            ANNOUNCEMENT_SEND)),
 
     /**
      * The college's own administrator, who also runs its placement: departments,
