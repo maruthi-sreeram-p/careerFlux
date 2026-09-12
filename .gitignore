@@ -39,6 +39,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+# TypeScript's incremental build record, rewritten by every `tsc -b`.
+*.tsbuildinfo
 
 # --- Editors and OS -----------------------------------------------------------
 .idea/
