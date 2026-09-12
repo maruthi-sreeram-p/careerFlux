@@ -87,6 +87,10 @@ services:
       CAREERFLUX_DEMO_ALLOW_SEEDING_INTO_POPULATED_CORPUS: 'false'
       CAREERFLUX_INGESTION_SCHEDULER_ENABLED: 'false'
 
+      # `prod`, which brings `postgres` with it. Under `prod` the backend refuses
+      # to start alongside dev, test or demo, or while the secret, database or
+      # origins above are missing or still development values.
+      #
       # No `demo` profile. It exists to create demo accounts and has no place
       # on a college's instance.
       #
@@ -98,7 +102,7 @@ services:
       # to run, monitor, back up and lose, in exchange for throughput a college
       # of a hundred students will not reach. Kafka stays in the project and can
       # be switched back on by adding it here.
-      SPRING_PROFILES_ACTIVE: postgres
+      SPRING_PROFILES_ACTIVE: prod
 
     # The base file publishes 8080 for a developer with a REST client. A pilot
     # must not: nginx reaches the backend over the compose network, so a

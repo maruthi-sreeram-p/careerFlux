@@ -12,9 +12,11 @@ against a real deployment.
 
 ## Required environment
 
-The application refuses to start without these under any profile other than
-`dev` or `test`. That is deliberate: every one of them has a default that is
-either public or guessable, and starting anyway would be worse than not
+Under the `prod` profile the application refuses to start until every required
+variable below holds a real value, and it refuses the published JWT fallback
+under any profile other than `dev` or `test`. Without any profile at all it
+refuses to start too. That is deliberate: every one of them has a default that
+is either public or guessable, and starting anyway would be worse than not
 starting.
 
 | Variable | Required | Notes |
@@ -49,11 +51,11 @@ docker compose up -d postgres kafka
 Backend only, against an existing database:
 
 ```bash
-java -jar backend/target/careerflux-backend-0.1.0.jar --spring.profiles.active=postgres
+java -jar backend/target/careerflux-backend-0.1.0.jar --spring.profiles.active=prod
 ```
 
-Add `,kafka` to route pipeline events through Kafka instead of the in-process
-outbox. Both transports run the same pipeline.
+`prod` brings `postgres` with it. Add `,kafka` to route pipeline events through
+Kafka instead of the in-process outbox. Both transports run the same pipeline.
 
 ## Stop
 

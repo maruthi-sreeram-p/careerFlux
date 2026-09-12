@@ -154,11 +154,10 @@ function coordinatorNav(): NavGroup[] {
       items: [{ to: '/app/requirements', label: 'Company requirements', icon: 'Building' }],
     },
     {
+      // No Sources entry. The registry is the platform operator's console
+      // (Decisions 12 and 15) and the server refuses it to college staff.
       label: 'Market',
-      items: [
-        { to: '/app/discover', label: 'Job market', icon: 'Compass' },
-        { to: '/app/sources', label: 'Sources', icon: 'Radar' },
-      ],
+      items: [{ to: '/app/discover', label: 'Job market', icon: 'Compass' }],
     },
     {
       label: 'You',
@@ -182,11 +181,10 @@ function officerNav(): NavGroup[] {
       items: [{ to: '/app/students', label: 'Students', icon: 'Layers' }],
     },
     {
+      // No Sources entry. The registry is the platform operator's console
+      // (Decisions 12 and 15) and the server refuses it to college staff.
       label: 'Market',
-      items: [
-        { to: '/app/discover', label: 'Job market', icon: 'Compass' },
-        { to: '/app/sources', label: 'Sources', icon: 'Radar' },
-      ],
+      items: [{ to: '/app/discover', label: 'Job market', icon: 'Compass' }],
     },
     {
       label: 'You',

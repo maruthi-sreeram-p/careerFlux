@@ -13,6 +13,7 @@ import {
 } from '../components/ui/primitives';
 import { useMarkNotificationsRead, useNotifications } from '../lib/queries';
 import { relativeTime, titleize } from '../lib/format';
+import { ALERTS_SUBTITLE, PRIORITY_LABEL } from '../lib/productCopy';
 import type { NotificationView } from '../lib/types';
 
 const PRIORITY_TONE = {
@@ -46,7 +47,7 @@ function NotificationRow({
       <div className="grow">
         <div className="row wrap gap-2" style={{ marginBottom: 2 }}>
           <Badge tone={PRIORITY_TONE[notification.priority]} square>
-            {notification.priority}
+            {PRIORITY_LABEL[notification.priority]}
           </Badge>
           <span className="text-faint" style={{ fontSize: 'var(--text-2xs)' }}>
             {titleize(notification.category)}
@@ -94,7 +95,7 @@ export default function Notifications() {
     <div className="page">
       <PageHeader
         title="Alerts"
-        subtitle="CareerFlux only tells you about a role once, and only when it clears your threshold. Above 95% is immediate, 85–94% is high priority, 70–84% waits for the daily digest, and anything below 70% is never sent."
+        subtitle={ALERTS_SUBTITLE}
         actions={
           unreadCount > 0 && (
             <Button

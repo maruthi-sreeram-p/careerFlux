@@ -133,9 +133,12 @@ fi
 echo
 echo "Demo safety"
 if profiles="$(docker exec "${BACKEND_CONTAINER}" printenv SPRING_PROFILES_ACTIVE 2>/dev/null)"; then
-    case "$profiles" in
-        *demo*|*test*) bad "active profiles include demo or test: ${profiles}" ;;
-        *)             ok "active profiles are ${profiles}" ;;
+    # Matched as whole names in a comma-separated list, so `prod` means the
+    # profile and not a substring of some other name.
+    case ",$(printf '%s' "$profiles" | tr -d ' ')," in
+        *,dev,*|*,demo,*|*,test,*) bad "active profiles include dev, demo or test: ${profiles}" ;;
+        *,prod,*)                  ok "active profiles are ${profiles}" ;;
+        *)                         bad "active profiles do not include prod: ${profiles}" ;;
     esac
 fi
 for pair in "CAREERFLUX_DEMO_SEED_SAMPLE_JOBS=false" \

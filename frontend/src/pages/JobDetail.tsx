@@ -12,6 +12,7 @@ import {
   Skeleton,
   useToast,
 } from '../components/ui/primitives';
+import { useAuth } from '../lib/auth';
 import { useJob, useJobInteraction } from '../lib/queries';
 import {
   employmentLabel,
@@ -24,7 +25,7 @@ import {
   titleize,
   workModeLabel,
 } from '../lib/format';
-import type { ChangeEntry, ProvenanceEntry } from '../lib/types';
+import { can, type ChangeEntry, type ProvenanceEntry } from '../lib/types';
 
 function DataItem({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
@@ -40,6 +41,9 @@ function DataItem({ label, value, mono }: { label: string; value: React.ReactNod
  * it should have been there. This panel is the trust story.
  */
 function ProvenanceCard({ entry }: { entry: ProvenanceEntry }) {
+  // The registry behind this link is the platform operator's alone (Decisions
+  // 12 and 15). Everyone else sees the name, not a link the server would refuse.
+  const canOpenSource = can(useAuth().user, 'SOURCE_VIEW');
   const stateTone =
     entry.sourceState === 'ACTIVE'
       ? 'positive'
@@ -62,9 +66,13 @@ function ProvenanceCard({ entry }: { entry: ProvenanceEntry }) {
     <div className="provenance__entry">
       <div className="provenance__head">
         <div>
-          <Link to={`/app/sources/${entry.sourceId}`} className="provenance__name">
-            {entry.sourceName}
-          </Link>
+          {canOpenSource ? (
+            <Link to={`/app/sources/${entry.sourceId}`} className="provenance__name">
+              {entry.sourceName}
+            </Link>
+          ) : (
+            <span className="provenance__name">{entry.sourceName}</span>
+          )}
           <div className="row wrap gap-2" style={{ marginTop: 'var(--space-2)' }}>
             <Badge tone={stateTone} dot square>
               {entry.sourceState}

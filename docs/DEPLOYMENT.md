@@ -53,7 +53,7 @@ leaving you to infer it.
                               |
    ┌──────────────────────────────────────────────────────────┐
    │  careerflux-backend         Spring Boot, port 8080       │
-   │  profiles: postgres                                      │
+   │  profiles: prod (brings postgres)                        │
    │  NO published port — reachable only through nginx        │
    └──────────────────────────────────────────────────────────┘
               |                    |                    |
@@ -345,7 +345,7 @@ consumer group is `careerflux-ingestion` and the producer uses `acks=all`.
 > presented as anything else.
 
 That is survivable because Kafka is not on the critical path — and the pilot no
-longer takes the path at all. `SPRING_PROFILES_ACTIVE` is `postgres`, so pipeline
+longer takes the path at all. `SPRING_PROFILES_ACTIVE` is `prod`, without `kafka`, so pipeline
 events go through the in-process transactional outbox, with the same topic names
 and the same handlers. The outbox is the better fit at this size for a reason
 beyond one less service to run: it writes the event in the same transaction as
@@ -402,7 +402,7 @@ disk comes from.
                                             | Render private network
         +-----------------------------------v-+
         |  careerflux-backend  (pserv, private)|  no public address at all
-        |    SPRING_PROFILES_ACTIVE=postgres   |  single instance
+        |    SPRING_PROFILES_ACTIVE=prod       |  single instance
         +----+--------------------------+------+
              |                          |
    +---------v---------+     +----------v----------+

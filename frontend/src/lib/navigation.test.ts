@@ -184,6 +184,15 @@ describe('institutional navigation', () => {
     }
   });
 
+  it('offers the source registry to the platform operator and nobody else', () => {
+    // /api/sources is Portal Admin only (Decisions 12 and 15). A link for
+    // anyone else would lead to a refusal.
+    for (const person of [STUDENT, COORDINATOR, OFFICER, COLLEGE_ADMIN]) {
+      expect(navigationTargets(person)).not.toContain('/app/sources');
+    }
+    expect(navigationTargets(PLATFORM_ADMIN)).toContain('/app/sources');
+  });
+
   it('keeps the platform operator on platform concerns', () => {
     const targets = navigationTargets(PLATFORM_ADMIN);
     expect(targets).toContain('/app/admin/sources');

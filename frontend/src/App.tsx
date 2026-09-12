@@ -237,8 +237,22 @@ export default function App() {
                     </RequirePermission>
                   }
                 />
-                <Route path="sources" element={<Sources />} />
-                <Route path="sources/:sourceId" element={<SourceDetail />} />
+                <Route
+                  path="sources"
+                  element={
+                    <RequirePermission permission="SOURCE_VIEW">
+                      <Sources />
+                    </RequirePermission>
+                  }
+                />
+                <Route
+                  path="sources/:sourceId"
+                  element={
+                    <RequirePermission permission="SOURCE_VIEW">
+                      <SourceDetail />
+                    </RequirePermission>
+                  }
+                />
                 <Route path="profile" element={<Profile />} />
                 <Route path="account" element={<Account />} />
                 <Route path="notifications" element={<Notifications />} />

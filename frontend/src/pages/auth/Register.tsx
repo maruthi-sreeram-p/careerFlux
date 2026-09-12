@@ -5,6 +5,7 @@ import { AuthAlert, AuthLayout } from './AuthLayout';
 import { Button, Field, TextInput, cn } from '../../components/ui/primitives';
 import { ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { REGISTER_PRIVACY_NOTE } from '../../lib/productCopy';
 
 const MIN_PASSWORD = 10;
 
@@ -162,8 +163,7 @@ export default function Register() {
         </Button>
 
         <p className="text-faint" style={{ fontSize: 'var(--text-xs)', textAlign: 'center' }}>
-          Your resume and profile are treated as sensitive data. Deleting your account removes the
-          document and everything derived from it.
+          {REGISTER_PRIVACY_NOTE}
         </p>
       </form>
     </AuthLayout>

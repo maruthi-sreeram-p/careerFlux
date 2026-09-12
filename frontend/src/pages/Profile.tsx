@@ -20,6 +20,7 @@ import {
   useToast,
 } from '../components/ui/primitives';
 import { ApiError } from '../lib/api';
+import { IMMEDIATE_ALERTS_HINT, RESUME_HANDLING, SHOW_DIGEST_PREFERENCE } from '../lib/productCopy';
 import {
   usePendingProposal,
   useProfile,
@@ -381,25 +382,27 @@ function PreferencesTab({ profile }: { profile: CandidateProfile }) {
             <span>
               <span style={{ display: 'block', fontSize: 'var(--text-sm)' }}>Immediate alerts</span>
               <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>
-                For matches at 95% and above. Turning this off downgrades them to the digest rather
-                than dropping them.
+                {IMMEDIATE_ALERTS_HINT}
               </span>
             </span>
           </label>
-          <label className="switch">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={dailyDigest}
-              onChange={(event) => setDailyDigest(event.target.checked)}
-            />
-            <span>
-              <span style={{ display: 'block', fontSize: 'var(--text-sm)' }}>Daily digest</span>
-              <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>
-                Everything from 70% to 94%, once a day.
+          {/* Hidden while nothing delivers a digest (PD-2). The stored value is saved unchanged. */}
+          {SHOW_DIGEST_PREFERENCE && (
+            <label className="switch">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={dailyDigest}
+                onChange={(event) => setDailyDigest(event.target.checked)}
+              />
+              <span>
+                <span style={{ display: 'block', fontSize: 'var(--text-sm)' }}>Daily digest</span>
+                <span className="text-muted" style={{ fontSize: 'var(--text-xs)' }}>
+                  Everything from 70% to 94%, once a day.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
         </div>
       </Panel>
 
@@ -546,11 +549,7 @@ function ResumeTab({ profile }: { profile: CandidateProfile }) {
 
       <Panel title="What happens to your resume">
         <ul className="grid" style={{ gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
-          {[
-            'The file is stored on disk under a generated name. The name you uploaded is kept for display only.',
-            'The extracted text is used to build your profile, which you always get to correct.',
-            'Deleting your account removes the file, the extracted text and everything derived from it.',
-          ].map((line) => (
+          {RESUME_HANDLING.map((line) => (
             <li key={line} className="row gap-3 items-start">
               <Icon.Check size={13} style={{ color: 'var(--positive)', marginTop: 3, flex: 'none' }} />
               <span className="text-secondary">{line}</span>

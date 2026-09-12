@@ -72,15 +72,30 @@ class ProductionHardeningTest {
         }
 
         @Test
-        @DisplayName("stays usable for local work, which is the only reason it exists")
+        @DisplayName("is refused when no profile is named, which used to count as dev")
+        void refusedWithoutAProfile() {
+            // The case that made the fallback dangerous: a deployment that forgot
+            // SPRING_PROFILES_ACTIVE. It used to be accepted here as "dev".
+            assertThatThrownBy(() -> new JwtService(propertiesWith(PUBLISHED_DEV_SECRET), profiles()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("CAREERFLUX_JWT_SECRET");
+        }
+
+        @Test
+        @DisplayName("stays usable for local work under an explicitly named dev or test profile")
         void allowedInDevelopment() {
             assertThatCode(() -> new JwtService(propertiesWith(PUBLISHED_DEV_SECRET), profiles("dev")))
                     .doesNotThrowAnyException();
             assertThatCode(() -> new JwtService(propertiesWith(PUBLISHED_DEV_SECRET), profiles("test")))
                     .doesNotThrowAnyException();
-            // No profile named at all falls back to dev.
-            assertThatCode(() -> new JwtService(propertiesWith(PUBLISHED_DEV_SECRET), profiles()))
-                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("is refused under prod even if a development profile is also named")
+        void productionWinsOverDevelopment() {
+            assertThatThrownBy(() ->
+                    new JwtService(propertiesWith(PUBLISHED_DEV_SECRET), profiles("prod", "dev")))
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 

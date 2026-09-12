@@ -58,6 +58,12 @@ services:
     # wants: the rate limiter counts in this JVM's memory and the schedulers
     # assume a single runner.
     plan: starter
+    # One instance, declared rather than implied by the disk (Decision 11).
+    # Nothing yet claims work across instances, so a second one needs the
+    # limiter, the schedulers and the outbox made safe first, not just this
+    # number raised. Field name to be checked on first import, like the rest
+    # of this file.
+    numInstances: 1
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /actuator/health
@@ -72,12 +78,12 @@ services:
       sizeGB: 10
 
     envVars:
-      # Without this the application falls back to `spring.profiles.default`,
-      # which is `dev`: an H2 file database on ephemeral storage, the published
-      # JWT secret accepted, and the H2 console served. It fails silently and
-      # looks like it worked, so it is stated here rather than left to memory.
+      # `prod` names this as a real deployment and brings `postgres` with it.
+      # Without any profile the application now refuses to start (it used to
+      # fall back to `dev`), and under `prod` it refuses to start until the
+      # secret, database and origins below are real values.
       - key: SPRING_PROFILES_ACTIVE
-        value: postgres
+        value: prod
       - key: SERVER_PORT
         value: 8080
 
@@ -90,6 +96,13 @@ services:
       # Every request arrives through the frontend nginx, which OVERWRITES
       # X-Forwarded-For with the peer address rather than appending to it, so a
       # caller cannot put an address of their own choosing in front of it.
+      #
+      # KNOWN GAP: that holds only while nginx is the one way in. As a public
+      # `web` service the backend also answers directly, and a direct caller
+      # may be able to choose its own X-Forwarded-For (whether Render's edge
+      # overwrites it is unverified), which the sign-in limiter would then
+      # trust. Closing it is network-boundary work: a private service, or a
+      # backend that refuses traffic not sent through the proxy.
       - key: CAREERFLUX_FORWARD_HEADERS
         value: framework
 

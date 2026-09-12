@@ -16,6 +16,10 @@ backend/data/
 *.mv.db
 *.trace.db
 
+# Database dumps hold everything the database did: account emails, password
+# hashes, resumes. Keep them off-site and encrypted, never in the repository.
+/backups/
+
 # --- Java / Maven -------------------------------------------------------------
 target/
 !.mvn/wrapper/maven-wrapper.jar

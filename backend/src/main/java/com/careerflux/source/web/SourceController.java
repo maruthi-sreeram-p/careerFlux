@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.data.domain.Page;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,20 +21,23 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Read-only view of the source registry, available to anyone signed in.
+ * Read-only view of the source registry, for the Portal Admin only.
  *
- * <p>Deliberately not gated behind {@code SOURCE_VIEW}. Source intelligence is a
- * product feature rather than an operational detail: a student looking at a job
- * should be able to see where it came from and whether that source is trusted
- * and healthy. The registry holds no tenant data — sources and jobs are global —
- * so there is nothing here to isolate.
+ * <p>This used to be open to anyone signed in, on the reasoning that sources
+ * hold no tenant data. But the detail view carries each source's policy record,
+ * including the staff who reviewed it, and source governance belongs to the
+ * platform operator (Decisions 12 and 15). A student still sees where a job came
+ * from: a job's provenance is served with the job, not from here.
  *
- * <p>Everything that <em>changes</em> a source is on the platform admin routes
- * and does require {@code SOURCE_MANAGE}.
+ * <p>Guarded twice, like the rest of the platform console: the URL rule in
+ * {@link com.careerflux.security.SecurityConfig} and {@code SOURCE_VIEW} below,
+ * which only the platform role holds. Everything that <em>changes</em> a source
+ * is on the platform admin routes and requires {@code SOURCE_MANAGE}.
  */
 @RestController
 @RequestMapping("/api/sources")
 @Tag(name = "Source intelligence")
+@PreAuthorize("hasAuthority('SOURCE_VIEW')")
 public class SourceController {
 
     private final SourceQueryService queryService;

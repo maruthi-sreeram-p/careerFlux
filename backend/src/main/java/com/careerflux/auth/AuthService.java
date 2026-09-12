@@ -122,9 +122,12 @@ public class AuthService {
 
     /**
      * Starts a password reset. Always succeeds from the caller's point of view so
-     * the endpoint cannot be used to enumerate registered addresses. There is no
-     * mail transport wired up yet, so the token is returned to the operator
-     * through the log rather than pretending an email was sent.
+     * the endpoint cannot be used to enumerate registered addresses.
+     *
+     * <p>There is no mail transport wired up yet. The token is returned to the
+     * caller only under the dev and demo profiles (see {@code AuthController}),
+     * and it is never written to the log, which everyone who operates the
+     * service can read.
      */
     @Transactional
     public Optional<String> beginPasswordReset(String rawEmail) {

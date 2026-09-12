@@ -11,6 +11,7 @@ import com.careerflux.auth.AuthDtos.RegisterRequest;
 import com.careerflux.auth.AuthDtos.ResetPasswordRequest;
 import com.careerflux.auth.AuthDtos.SessionUser;
 import com.careerflux.candidate.service.CandidateProfileService;
+import com.careerflux.config.DeploymentProfiles;
 import com.careerflux.security.CurrentUser;
 import com.careerflux.security.ratelimit.RateLimiter;
 import com.careerflux.user.UserRepository;
@@ -40,7 +41,7 @@ public class AuthController {
     private final UserRepository userRepository;
     private final CandidateProfileService candidateProfileService;
     private final RateLimiter rateLimiter;
-    private final boolean devProfile;
+    private final boolean discloseResetToken;
 
     public AuthController(AuthService authService,
                           CurrentUser currentUser,
@@ -53,7 +54,7 @@ public class AuthController {
         this.userRepository = userRepository;
         this.candidateProfileService = candidateProfileService;
         this.rateLimiter = rateLimiter;
-        this.devProfile = environment.matchesProfiles("dev", "demo");
+        this.discloseResetToken = DeploymentProfiles.mayDiscloseResetTokens(environment);
     }
 
     @PostMapping("/register")
@@ -94,9 +95,13 @@ public class AuthController {
 
     /**
      * Always returns 202 regardless of whether the address is registered, so the
-     * endpoint cannot be used to discover accounts. Outside production profiles
-     * the token is echoed back, because there is no mail transport yet and
-     * pretending an email was delivered would be a lie.
+     * endpoint cannot be used to discover accounts.
+     *
+     * <p>There is no mail transport yet, so under the {@code dev} and
+     * {@code demo} profiles the token is echoed back rather than pretending an
+     * email was delivered. Never under {@code prod}, and never under any other
+     * profile. An unnamed profile used to count as {@code dev} here, which put
+     * the token in the response of any deployment that forgot to name one.
      */
     @PostMapping("/forgot-password")
     @SecurityRequirements
@@ -105,9 +110,10 @@ public class AuthController {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("status", "accepted");
         body.put("message", "If that address has an account, a reset link is on its way.");
-        if (devProfile && token.isPresent()) {
+        if (discloseResetToken && token.isPresent()) {
             body.put("devResetToken", token.get());
-            body.put("devNotice", "Returned only outside production because email delivery is not wired up yet.");
+            body.put("devNotice", "Returned only under the dev and demo profiles, because email delivery "
+                    + "is not wired up yet.");
         }
         return ResponseEntity.accepted().body(body);
     }

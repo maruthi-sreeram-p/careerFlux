@@ -241,6 +241,21 @@ class AuthAndAuthorizationIntegrationTest {
     }
 
     @Test
+    @DisplayName("a password-reset token is not returned outside the dev and demo profiles")
+    void resetTokenIsNotEchoedOutsideDevAndDemo() throws Exception {
+        // A real account, so the service does issue a token. The response must
+        // still not carry it: the test profile, like prod, is not dev or demo.
+        register("reset-echo@example.com");
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"reset-echo@example.com"}
+                                """))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.devResetToken").doesNotExist());
+    }
+
+    @Test
     @DisplayName("public endpoints stay public")
     void publicEndpointsAreReachable() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());

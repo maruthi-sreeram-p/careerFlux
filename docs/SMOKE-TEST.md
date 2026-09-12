@@ -30,7 +30,7 @@ Use an operator account, not a student's.
 | 7 | `.map` files refused | Frontend source is downloadable |
 | 8 | Security headers present, no version in `Server` | Header inheritance was dropped in an nginx block |
 | 9 | Backend actuator health `UP`, no component detail unauthenticated | Database unreachable, or health is describing the infrastructure |
-| 10 | Active profiles exclude `demo` and `test` | The pilot is running development configuration |
+| 10 | Active profiles include `prod` and exclude `dev`, `demo` and `test` | The pilot is not running as a production deployment, or is running development configuration |
 | 11 | Seeding and scheduler flags are `false` | Sample jobs may appear in a real corpus |
 | 12 | Sign-in is rate limited | The limiter is not wired |
 | 13 | Optional authenticated round trip | Sign-in or JWT handling is broken |

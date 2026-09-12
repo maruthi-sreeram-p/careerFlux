@@ -12,7 +12,16 @@ spring:
     # discovery over a full college is the longest request the system serves.
     timeout-per-shutdown-phase: 25s
   profiles:
-    default: dev
+    # No default. Starting without a named profile used to mean `dev` (an H2
+    # file database, the published JWT secret and an open database console), and
+    # a deployment that forgot SPRING_PROFILES_ACTIVE ran like that without a
+    # word. DeploymentProfileGuard now refuses to start instead.
+    #
+    # `prod` is the profile a real deployment runs under. It brings `postgres`
+    # with it, and the guard refuses it alongside dev, test or demo, or without
+    # its secret, database and origins.
+    group:
+      prod: postgres
   jpa:
     open-in-view: false
     hibernate:
@@ -95,6 +104,9 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      # Only the platform operator sees component detail. With no roles listed,
+      # "authorized" meant anyone signed in, students included.
+      roles: PLATFORM_ADMIN
 
 springdoc:
   swagger-ui:

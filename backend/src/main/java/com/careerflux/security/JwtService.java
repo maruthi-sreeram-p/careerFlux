@@ -3,14 +3,13 @@ package com.careerflux.security;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Arrays;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import javax.crypto.SecretKey;
 
 import com.careerflux.config.CareerFluxProperties;
+import com.careerflux.config.DeploymentProfiles;
 import com.careerflux.user.User;
 
 import io.jsonwebtoken.Claims;
@@ -52,9 +51,6 @@ public class JwtService {
     private static final String DEVELOPMENT_FALLBACK_SECRET =
             "dev-only-insecure-secret-change-me-0123456789abcdef";
 
-    /** Profiles where the published fallback is an acceptable convenience. */
-    private static final Set<String> PROFILES_ALLOWING_FALLBACK = Set.of("dev", "test");
-
     public JwtService(CareerFluxProperties properties, Environment environment) {
         this.config = properties.security().jwt();
         String secretValue = config.secret();
@@ -66,8 +62,9 @@ public class JwtService {
         // Length was never the risk. A known value is, and this one is in the
         // repository: without this check a deployment that simply forgot to set
         // the variable would sign real sessions with a public key and start
-        // perfectly happily.
-        if (DEVELOPMENT_FALLBACK_SECRET.equals(secretValue) && !developmentLike(environment)) {
+        // perfectly happily. Only an explicitly named dev or test profile may
+        // use it; no profile at all used to count as dev, and no longer does.
+        if (isPublishedDevelopmentSecret(secretValue) && !DeploymentProfiles.isDevelopment(environment)) {
             throw new IllegalStateException(
                     "CAREERFLUX_JWT_SECRET is still the built-in development value, which is public "
                             + "in the source repository. Set a real secret in the environment "
@@ -80,13 +77,14 @@ public class JwtService {
         this.signingKey = Keys.hmacShaKeyFor(secret);
     }
 
-    private static boolean developmentLike(Environment environment) {
-        String[] active = environment.getActiveProfiles();
-        // No profile named at all means the default, which is dev.
-        if (active.length == 0) {
-            return true;
-        }
-        return Arrays.stream(active).anyMatch(PROFILES_ALLOWING_FALLBACK::contains);
+    /**
+     * Whether a value is the signing secret published in this repository.
+     *
+     * <p>Public so the startup guard can refuse it before the application
+     * context exists, not only once this service is built.
+     */
+    public static boolean isPublishedDevelopmentSecret(String value) {
+        return DEVELOPMENT_FALLBACK_SECRET.equals(value);
     }
 
     public String issueAccessToken(User user) {

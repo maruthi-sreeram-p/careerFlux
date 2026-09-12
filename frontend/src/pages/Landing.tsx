@@ -5,6 +5,7 @@ import { FlowDiagram } from '../components/marketing/FlowDiagram';
 import { MatchExplanation, MatchRing } from '../components/job/MatchScore';
 import { Icon } from '../components/ui/Icon';
 import { Badge, Chip } from '../components/ui/primitives';
+import { LANDING_FOOTNOTE } from '../lib/productCopy';
 import type { MatchAnalysis } from '../lib/types';
 
 /**
@@ -129,10 +130,7 @@ export default function Landing() {
                 See how it works
               </a>
             </div>
-            <p className="hero__footnote">
-              Free while in development. Your resume stays yours — delete your account and the
-              derived data goes with it.
-            </p>
+            <p className="hero__footnote">{LANDING_FOOTNOTE}</p>
           </div>
 
           <FlowDiagram />

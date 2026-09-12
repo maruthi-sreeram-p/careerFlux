@@ -1,11 +1,10 @@
 package com.careerflux.security;
 
 import java.util.List;
-import java.util.Arrays;
-import java.util.Set;
 
 import com.careerflux.common.error.ApiError;
 import com.careerflux.config.CareerFluxProperties;
+import com.careerflux.config.DeploymentProfiles;
 import com.careerflux.security.ratelimit.RateLimitFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -47,9 +46,6 @@ public class SecurityConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
-    /** Profiles where a database console and a published API map are conveniences. */
-    private static final Set<String> DEVELOPMENT_PROFILES = Set.of("dev", "test");
-
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RateLimitFilter rateLimitFilter;
     private final CareerFluxProperties properties;
@@ -59,9 +55,10 @@ public class SecurityConfig {
      * Whether to publish the developer tooling.
      *
      * <p>Decided once, from the active profiles, rather than left permanently
-     * open. An unnamed profile falls back to {@code dev}, so this is true there
-     * too — the protection that matters is that naming {@code postgres} for a
-     * real deployment closes both.
+     * open, and only for a profile that is explicitly {@code dev} or
+     * {@code test}. An unnamed profile used to count as {@code dev} and open
+     * both; it no longer does, and the application now refuses to start without
+     * a profile at all (see {@link com.careerflux.config.DeploymentProfileGuard}).
      */
     private final boolean developmentTooling;
 
@@ -74,9 +71,7 @@ public class SecurityConfig {
         this.rateLimitFilter = rateLimitFilter;
         this.properties = properties;
         this.objectMapper = objectMapper;
-        String[] active = environment.getActiveProfiles();
-        this.developmentTooling = active.length == 0
-                || Arrays.stream(active).anyMatch(DEVELOPMENT_PROFILES::contains);
+        this.developmentTooling = DeploymentProfiles.isDevelopment(environment);
         if (!developmentTooling) {
             log.info("Developer tooling is not published: the H2 console and API documentation "
                     + "endpoints require authentication under the active profiles.");
@@ -112,12 +107,21 @@ public class SecurityConfig {
                                 "/api/auth/reset-password",
                                 "/api/public/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        // Everything else the actuator publishes describes the
+                        // running system (metrics today, whatever is exposed
+                        // tomorrow) and is the platform operator's alone. It used
+                        // to fall through to "anyone signed in".
+                        .requestMatchers("/actuator/**").hasRole("PLATFORM_ADMIN")
                         // Coarse gates only. Anything finer is a @PreAuthorize on
                         // the method, because a URL prefix cannot express "this
                         // student, in your department" — and that is the check
                         // that actually matters in a multi-tenant system.
                         .requestMatchers("/api/platform/**").hasRole("PLATFORM_ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("PLATFORM_ADMIN")
+                        // The source registry, read side included. Source
+                        // governance is the platform operator's, and the policy
+                        // records name the staff who reviewed each source.
+                        .requestMatchers("/api/sources/**").hasRole("PLATFORM_ADMIN")
                         .requestMatchers("/api/institution/**").hasAnyRole(
                                 "COLLEGE_ADMIN", "PLACEMENT_OFFICER", "PLACEMENT_COORDINATOR")
                         .anyRequest().authenticated();
