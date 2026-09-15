@@ -95,7 +95,7 @@ public class AuthService {
         userRepository.save(user);
 
         CandidateProfile profile = candidateProfileService.createForUser(user);
-        auditService.recordSystem(email, "USER_REGISTERED", "User", user.getId(),
+        auditService.recordAsAccount(user, "USER_REGISTERED", "User", user.getId(),
                 "Self-service registration into " + institution.getSlug());
         log.info("Registered student {} into institution {}", user.getId(), institution.getSlug());
         return issueTokens(user, profile);
@@ -176,7 +176,9 @@ public class AuthService {
         String token = HexFormat.of().formatHex(bytes);
         user.setPasswordResetToken(digest(token));
         user.setPasswordResetExpiresAt(Instant.now().plus(RESET_TOKEN_TTL_MINUTES, ChronoUnit.MINUTES));
-        auditService.recordSystem(email, "PASSWORD_RESET_REQUESTED", "User", user.getId(), null);
+        // Anybody may ask for a reset for any address, so the event belongs to
+        // the account's college but is not attributed to the account holder.
+        auditService.recordAboutAccount(user, "PASSWORD_RESET_REQUESTED", "User", user.getId(), null);
         log.info("Password reset token issued for user {} (valid {} minutes)", user.getId(), RESET_TOKEN_TTL_MINUTES);
         return Optional.of(token);
     }
@@ -201,7 +203,8 @@ public class AuthService {
         user.setPasswordResetToken(null);
         user.setPasswordResetExpiresAt(null);
         user.revokeSessions();
-        auditService.recordSystem(user.getEmail(), "PASSWORD_RESET_COMPLETED", "User", user.getId(), null);
+        // Whoever held the link acted as the account, which is what the link is for.
+        auditService.recordAsAccount(user, "PASSWORD_RESET_COMPLETED", "User", user.getId(), null);
     }
 
     /**

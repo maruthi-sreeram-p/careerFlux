@@ -87,15 +87,6 @@ export default function PlacementOfficerDashboard() {
                   : 'Across students with a profile'
               }
             />
-            <Stat
-              label="Applications recorded"
-              value={data.totalApplications}
-              note={
-                data.totalApplications === 0
-                  ? 'No application activity yet'
-                  : `From ${data.studentsWhoApplied} of ${data.studentsInScope} students`
-              }
-            />
           </StatRow>
 
           <section className="section">
@@ -116,12 +107,6 @@ export default function PlacementOfficerDashboard() {
               <Coverage
                 label="Skills recorded"
                 covered={data.withSkills}
-                total={data.studentsInScope}
-                noun="students"
-              />
-              <Coverage
-                label="Applied at least once"
-                covered={data.studentsWhoApplied}
                 total={data.studentsInScope}
                 noun="students"
               />

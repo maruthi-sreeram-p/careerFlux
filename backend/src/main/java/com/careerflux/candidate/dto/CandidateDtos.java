@@ -16,6 +16,14 @@ public final class CandidateDtos {
     private CandidateDtos() {
     }
 
+    /**
+     * One skill on a profile.
+     *
+     * <p>{@code slug} and {@code category} are null for a skill the shared
+     * dictionary does not know: those are kept on the student's own profile only
+     * and are never matched. On the way in only the name is read, so a client
+     * that round-trips the list keeps both kinds.
+     */
     public record SkillItem(
             UUID id,
             @NotBlank @Size(max = 60) String name,
@@ -88,11 +96,11 @@ public final class CandidateDtos {
             List<EducationItem> education,
             PreferencesPayload preferences,
             ResumeSummary resume,
-            /* Null means nobody has recorded one. An absent CGPA is not zero. */
-            BigDecimal cgpa,
+            /* The figure the student entered themselves. Null when they have not. */
+            BigDecimal reportedCgpa,
+            /* The college's record, and the only CGPA eligibility reads. Null when none. */
+            BigDecimal verifiedCgpa,
             BigDecimal cgpaScale,
-            /* STUDENT or INSTITUTION; only the latter is used for eligibility. */
-            String cgpaSource,
             boolean cgpaVerified) {
     }
 
@@ -124,16 +132,24 @@ public final class CandidateDtos {
     }
 
     /**
-     * @param verified whether an institution recorded this, which is the only
-     *                 form eligibility will read
+     * A student's academic record: their own figure and the college's, never one
+     * standing in for the other.
+     *
+     * @param reportedCgpa   what the student entered for themselves; shown as
+     *                       theirs and never used to decide eligibility
+     * @param verifiedCgpa   what the college recorded; the only figure eligibility
+     *                       reads
+     * @param verified       whether a verified figure exists
+     * @param verifiedByName who at the college recorded it, when one exists
      */
     public record AcademicRecord(
-            BigDecimal cgpa,
             BigDecimal cgpaScale,
-            String source,
-            boolean verified,
-            String recordedByName,
-            java.time.Instant recordedAt) {
+            BigDecimal reportedCgpa,
+            Instant reportedAt,
+            BigDecimal verifiedCgpa,
+            String verifiedByName,
+            Instant verifiedAt,
+            boolean verified) {
     }
 
     public record ResumeSummary(

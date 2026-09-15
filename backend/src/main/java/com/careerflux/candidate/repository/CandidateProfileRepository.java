@@ -80,10 +80,14 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
      * The cohort's profiles, selected by scope rather than by a list of ids.
      *
      * <p>One fixed query shape however large the college is. The id-list form
-     * below is still right for a page of twenty-five, but handing it two
+     * above is still right for a page of twenty-five, but handing it two
      * thousand parameters made the database rebuild a plan per distinct length:
      * 83 seconds for the first 2,000-id call against the college fixture, and
      * 70 milliseconds once that exact shape had been seen before.
+     *
+     * <p>{@code allDepartments} is only ever true for an institution-wide caller,
+     * and {@code anyGrantedBatch} is false exactly when a department coordinator
+     * is narrowed to batches (see {@code DiscoveryScope}).
      */
     @Query("""
             select p from CandidateProfile p
@@ -95,10 +99,13 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
               and u.role = com.careerflux.user.UserRole.STUDENT
               and (:allDepartments = true or d.id in :departmentIds)
               and (:anyBatch = true or b.graduationYear = :graduationYear)
+              and (:anyGrantedBatch = true or b.id in :grantedBatchIds)
             """)
     List<CandidateProfile> findForDiscoveryScoped(@Param("institutionId") UUID institutionId,
                                                   @Param("allDepartments") boolean allDepartments,
                                                   @Param("departmentIds") Collection<UUID> departmentIds,
                                                   @Param("anyBatch") boolean anyBatch,
-                                                  @Param("graduationYear") Integer graduationYear);
+                                                  @Param("graduationYear") Integer graduationYear,
+                                                  @Param("anyGrantedBatch") boolean anyGrantedBatch,
+                                                  @Param("grantedBatchIds") Collection<UUID> grantedBatchIds);
 }

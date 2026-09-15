@@ -70,7 +70,9 @@ public class AccessGuard {
     public void requirePermission(Permission permission) {
         AuthenticatedUser principal = currentUser.require();
         if (!principal.hasPermission(permission)) {
-            log.warn("Denied {} to {} (role {})", permission, principal.getEmail(), principal.getRole());
+            // The account id, never the address: a denial log is read by whoever
+            // operates the platform, and a student's email is not theirs to read.
+            log.warn("Denied {} to user {} (role {})", permission, principal.getUserId(), principal.getRole());
             throw new ForbiddenException("You do not have permission to do that.");
         }
     }

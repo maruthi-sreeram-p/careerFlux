@@ -29,6 +29,10 @@ public final class InstitutionDtos {
      * <p>Contains no contact details beyond the institutional email and no
      * resume content. Whether the caller may open the resume is a separate
      * permission, answered on a separate route.
+     *
+     * <p>Two CGPA figures, never merged: the college's record and the student's
+     * own. Only the first is verified, and only the first is what filters, sorts
+     * and eligibility compare.
      */
     public record StudentRow(
             UUID userId,
@@ -42,10 +46,12 @@ public final class InstitutionDtos {
             String onboardingStage,
             int profileCompleteness,
             boolean resumeUploaded,
-            /** As the institution records it, on their own scale. */
-            BigDecimal cgpa,
+            /** As the college recorded it, on its own scale. Null when it has not. */
+            BigDecimal verifiedCgpa,
+            /** What the student entered for themselves. Not verified. */
+            BigDecimal reportedCgpa,
             BigDecimal cgpaScale,
-            /** The same figure on a ten-point scale, which is what filters compare. */
+            /** The verified figure on a ten-point scale, which is what filters compare. */
             BigDecimal normalisedCgpa,
             Instant joinedAt) {
     }
@@ -75,11 +81,12 @@ public final class InstitutionDtos {
     /**
      * One dated, placement-relevant thing that happened.
      *
-     * <p>Composed from records that already exist — resumes, job interactions,
-     * shortlist stage changes — rather than from an audit log. System audit
-     * events are not included: they are keyed by actor and entity rather than by
-     * student, and showing a placement officer everything the platform recorded
-     * about a person is surveillance rather than placement work.
+     * <p>Composed from records that already exist — resumes and shortlist stage
+     * changes — rather than from an audit log. What a student does with public
+     * job postings is not here at all: which jobs they viewed is private, saves
+     * are private until a product decision says otherwise, and CareerFlux cannot
+     * tell an Apply click from a confirmed application, so none of the three
+     * ever reaches staff.
      */
     public record StudentActivityEntry(Instant at, String type, String summary) {
     }
@@ -95,10 +102,10 @@ public final class InstitutionDtos {
             StudentRow summary,
             String headline,
             String location,
-            BigDecimal cgpa,
+            BigDecimal verifiedCgpa,
+            BigDecimal reportedCgpa,
             BigDecimal cgpaScale,
             BigDecimal normalisedCgpa,
-            String cgpaSource,
             List<StudentSkillRef> skills,
             List<String> preferences,
             List<StudentPlacement> placements,

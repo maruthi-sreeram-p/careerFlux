@@ -55,8 +55,9 @@ public class AccessScopeResolver {
                     true, Set.of(), Set.of());
         }
 
-        // A department coordinator sees exactly the departments and batches they
-        // have been granted.
+        // A department coordinator sees the departments they have been granted,
+        // narrowed to their granted batches when they hold any. A batch grant
+        // on its own is not a scope: it narrows a department and adds nobody.
         List<StaffScope> grants = staffScopeRepository.findByUserId(principal.getUserId());
         Set<UUID> departments = new HashSet<>();
         Set<UUID> batches = new HashSet<>();
@@ -77,8 +78,14 @@ public class AccessScopeResolver {
             }
         }
 
-        // A department coordinator with no grants sees nobody. That is the safe
-        // default: an unconfigured account should be useless, not omniscient.
+        // A department coordinator with no department sees nobody. That is the
+        // safe default: an unconfigured account should be useless, not
+        // omniscient. Batch grants alone leave them there, and are worth a
+        // warning, because whoever issued them presumably expected otherwise.
+        if (departments.isEmpty() && !batches.isEmpty()) {
+            log.warn("Department coordinator {} holds batch grants but no department, so they see nobody",
+                    principal.getUserId());
+        }
         return new AccessScope(principal.getUserId(), principal.getInstitutionId(), role,
                 false, departments, batches);
     }

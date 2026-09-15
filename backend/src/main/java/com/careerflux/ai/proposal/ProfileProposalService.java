@@ -238,10 +238,15 @@ public class ProfileProposalService {
         }
 
         // Keys, never values. An audit trail records which fields a student
-        // changed, not what their phone number is.
+        // changed, not what their phone number is. Skills are counted rather
+        // than listed: a skill the dictionary does not know is keyed by the
+        // student's own words, and those stay on their profile alone.
+        List<String> appliedFields = applied.stream().filter(key -> !key.startsWith("skill:")).toList();
+        long appliedSkills = applied.size() - appliedFields.size();
         auditService.record("AI_PROPOSAL_APPROVED", "AiProfileProposal", proposal.getId(),
                 "applied=" + applied.size() + " of=" + items.size()
-                        + (applied.isEmpty() ? "" : " keys=" + String.join(",", applied)));
+                        + (appliedFields.isEmpty() ? "" : " keys=" + String.join(",", appliedFields))
+                        + (appliedSkills == 0 ? "" : " skills=" + appliedSkills));
         log.info("Candidate {} approved {} of {} proposed items on proposal {}",
                 profile.getId(), applied.size(), items.size(), proposal.getId());
 

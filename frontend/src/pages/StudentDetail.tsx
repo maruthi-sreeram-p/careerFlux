@@ -108,15 +108,28 @@ export default function StudentDetail() {
             value={summary.batchName ?? <span className="text-muted">Unassigned</span>}
           />
           <Fact
-            label="CGPA"
+            label="CGPA, verified by the college"
             value={
-              detail.cgpa ? (
+              detail.verifiedCgpa ? (
                 <>
                   {detail.normalisedCgpa}
-                  <span className="text-faint"> ({detail.cgpa} / {detail.cgpaScale})</span>
+                  <span className="text-faint"> ({detail.verifiedCgpa} / {detail.cgpaScale})</span>
                 </>
               ) : (
-                <span className="text-muted">Not recorded</span>
+                <span className="text-muted">Not recorded by the college</span>
+              )
+            }
+          />
+          <Fact
+            label="CGPA, as the student reports it"
+            value={
+              detail.reportedCgpa ? (
+                <>
+                  {detail.reportedCgpa}
+                  <span className="text-faint"> / {detail.cgpaScale} · not verified</span>
+                </>
+              ) : (
+                <span className="text-muted">Not entered</span>
               )
             }
           />

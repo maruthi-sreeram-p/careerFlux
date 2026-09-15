@@ -127,11 +127,11 @@ export interface ResumeSummary {
 
 export interface CandidateProfile {
   id: string;
-  /** Null when nobody has recorded one. Absent is not zero. */
-  cgpa?: number | null;
+  /** The figure the student entered for themselves. Null when they have not; absent is not zero. */
+  reportedCgpa?: number | null;
+  /** The college's record, and the only CGPA eligibility reads. Null when it has none. */
+  verifiedCgpa?: number | null;
   cgpaScale?: number | null;
-  /** STUDENT or INSTITUTION; only the latter is used for eligibility. */
-  cgpaSource?: 'STUDENT' | 'INSTITUTION' | null;
   cgpaVerified?: boolean;
   fullName: string;
   email: string;
@@ -579,9 +579,15 @@ export interface PipelineEventView {
   processedAt: string | null;
 }
 
+/**
+ * One audit row. People are named by account id and role, never by email; the
+ * label is the role, or a system actor's name.
+ */
 export interface AuditView {
   id: string;
-  actor: string;
+  actorUserId: string | null;
+  actorRole: string | null;
+  actorLabel: string;
   action: string;
   entityType: string | null;
   entityId: string | null;
@@ -616,10 +622,11 @@ export interface InstitutionOverview {
   withResume: number;
   withSkills: number;
   averageProfileCompleteness: number | null;
-  studentsWhoApplied: number;
-  totalApplications: number;
-  studentsWithoutApplications: number;
-  savedJobs: number;
+  /*
+   * Nothing about what students do with public job postings. Views and saves
+   * are the student's own, and an Apply click is not a confirmed application,
+   * so the server no longer counts any of them for staff.
+   */
   byDepartment: CohortCount[];
   byBatch: CohortCount[];
   topSkills: CohortCount[];
@@ -642,10 +649,12 @@ export interface StudentRow {
   /** Always a number: the server sends 0 for a student with no profile yet. */
   profileCompleteness: number;
   resumeUploaded: boolean;
-  /** The stored value on the institution's own scale, or null if never recorded. */
-  cgpa: string | null;
+  /** The college's record on its own scale, or null if it has not recorded one. */
+  verifiedCgpa: string | null;
+  /** What the student entered for themselves. Never verified, never compared. */
+  reportedCgpa: string | null;
   cgpaScale: string | null;
-  /** The same figure on a ten-point scale, which is what filters compare. */
+  /** The verified figure on a ten-point scale, which is what filters compare. */
   normalisedCgpa: string | null;
   joinedAt: string | null;
 }
@@ -674,10 +683,12 @@ export interface StudentDetail {
   summary: StudentRow;
   headline: string | null;
   location: string | null;
-  cgpa: string | null;
+  /** The college's record. The only CGPA eligibility reads. */
+  verifiedCgpa: string | null;
+  /** The student's own figure, labelled as theirs. Never verified. */
+  reportedCgpa: string | null;
   cgpaScale: string | null;
   normalisedCgpa: string | null;
-  cgpaSource: string | null;
   skills: StudentSkillRef[];
   preferences: string[];
   placements: StudentPlacement[];
@@ -956,14 +967,20 @@ export interface ShortlistResult {
   shortlistedCount: number;
 }
 
-/** A student's academic record as the server returns it after a change. */
+/**
+ * A student's academic record as the server returns it after a change: their
+ * own figure and the college's, never one standing in for the other.
+ */
 export interface AcademicRecord {
-  cgpa: number | null;
   cgpaScale: number | null;
-  source: 'STUDENT' | 'INSTITUTION' | null;
+  /** What the student entered for themselves. Never used for eligibility. */
+  reportedCgpa: number | null;
+  reportedAt: string | null;
+  /** What the college recorded. The only figure eligibility reads. */
+  verifiedCgpa: number | null;
+  verifiedByName: string | null;
+  verifiedAt: string | null;
   verified: boolean;
-  recordedByName: string | null;
-  recordedAt: string | null;
 }
 
 /** A college as the platform operator sees it in the onboarding list. */

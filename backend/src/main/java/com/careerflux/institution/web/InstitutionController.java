@@ -3,6 +3,8 @@ package com.careerflux.institution.web;
 import java.util.List;
 import java.util.UUID;
 
+import com.careerflux.audit.AuditQueryService;
+import com.careerflux.audit.AuditQueryService.AuditView;
 import com.careerflux.institution.dto.AdministrationDtos.CreateBatchRequest;
 import com.careerflux.institution.dto.AdministrationDtos.CreateDepartmentRequest;
 import com.careerflux.institution.dto.AdministrationDtos.CreateStaffRequest;
@@ -30,6 +32,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import org.springframework.data.domain.Page;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,15 +67,18 @@ public class InstitutionController {
     private final InstitutionOverviewService overviewService;
     private final AcademicRecordService academicRecords;
     private final InstitutionAdministrationService administration;
+    private final AuditQueryService auditQuery;
 
     public InstitutionController(StudentDirectoryService directoryService,
                                  InstitutionOverviewService overviewService,
                                  AcademicRecordService academicRecords,
-                                 InstitutionAdministrationService administration) {
+                                 InstitutionAdministrationService administration,
+                                 AuditQueryService auditQuery) {
         this.overviewService = overviewService;
         this.academicRecords = academicRecords;
         this.administration = administration;
         this.directoryService = directoryService;
+        this.auditQuery = auditQuery;
     }
 
     @GetMapping("/me/scope")
@@ -113,17 +119,32 @@ public class InstitutionController {
     }
 
     /**
-     * The counts the coordinator, officer and college-admin dashboards render.
+     * The counts the coordinator dashboards render.
      *
      * <p>Gated on {@code ANALYTICS_VIEW}, which students do not hold. The scope
-     * inside is what makes a coordinator's answer their department rather than
-     * the college.
+     * inside is what makes a department coordinator's answer their department
+     * rather than the college.
      */
     @GetMapping("/overview")
     @Operation(summary = "Scope-aware institutional counts for the staff dashboards")
     @PreAuthorize("hasAuthority('ANALYTICS_VIEW')")
     public InstitutionOverview overview() {
         return overviewService.overview();
+    }
+
+    /**
+     * This college's own audit trail.
+     *
+     * <p>What its staff and students did, for its placement coordinator, and
+     * nothing from any other college: the college comes from the session. Rows
+     * name people by account id and role, never by email address.
+     */
+    @GetMapping("/audit")
+    @Operation(summary = "This college's audit trail")
+    @PreAuthorize("hasAuthority('AUDIT_READ_INSTITUTION')")
+    public Page<AuditView> audit(@RequestParam(defaultValue = "0") int page,
+                                 @RequestParam(defaultValue = "50") int size) {
+        return auditQuery.institutionEvents(page, size);
     }
 
     /**
@@ -172,11 +193,11 @@ public class InstitutionController {
 
     // ---------------------------------------------------------- configuration
     //
-    // A college administrator building their own college. Each of these is
+    // A placement coordinator building their own college. Each of these is
     // gated on a permission that has existed since the roles were defined and
     // had nothing wired to it, so the role could read its college and change
     // nothing about it — no departments, so no coordinator scoping and no
-    // requirement targeting; no staff, so no placement officer.
+    // requirement targeting; no staff, so no department coordinators.
     //
     // None of them take an institution id. The tenant comes from the session.
 
@@ -197,13 +218,6 @@ public class InstitutionController {
     }
 
     /**
-     * Appoints placement staff.
-     *
-     * <p>A coordinator must be given a department; anyone else must not. That
-     * asymmetry is enforced rather than tidied away, because a coordinator whose
-     * scope was quietly dropped can see every student in the college.
-     */
-    /**
      * Who works in placement at this college.
      *
      * <p>Gated on {@code STAFF_MANAGE} rather than a general read permission:
@@ -217,9 +231,17 @@ public class InstitutionController {
         return administration.listStaff();
     }
 
+    /**
+     * Appoints placement staff.
+     *
+     * <p>A department coordinator must be given a department; a placement
+     * coordinator must not. That asymmetry is enforced rather than tidied away,
+     * because a coordinator whose scope was quietly dropped can see every
+     * student in the college.
+     */
     @PostMapping("/staff")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Appoint a placement officer, coordinator or administrator")
+    @Operation(summary = "Appoint a department or placement coordinator")
     @PreAuthorize("hasAuthority('STAFF_MANAGE')")
     public StaffCreated createStaff(@Valid @RequestBody CreateStaffRequest request) {
         return administration.createStaff(request);

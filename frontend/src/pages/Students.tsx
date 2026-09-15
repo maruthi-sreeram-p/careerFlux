@@ -355,9 +355,18 @@ export default function Students() {
                     <td>{student.departmentName ?? <span className="text-muted">Unassigned</span>}</td>
                     <td>{student.batchName ?? <span className="text-muted">Unassigned</span>}</td>
                     <td className="numeric">
-                      {student.cgpa ? (
-                        <span title={`${student.cgpa} on a ${student.cgpaScale} scale`}>
+                      {student.verifiedCgpa ? (
+                        <span
+                          title={`${student.verifiedCgpa} on a ${student.cgpaScale} scale, recorded by the college`}
+                        >
                           {student.normalisedCgpa}
+                        </span>
+                      ) : student.reportedCgpa ? (
+                        <span
+                          className="text-muted"
+                          title="Entered by the student and not verified by the college"
+                        >
+                          {student.reportedCgpa} (self-reported)
                         </span>
                       ) : (
                         <span className="text-muted">Not recorded</span>

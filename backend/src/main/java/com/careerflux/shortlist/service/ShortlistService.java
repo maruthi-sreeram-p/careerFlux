@@ -12,7 +12,7 @@ import com.careerflux.common.error.NotFoundException;
 import com.careerflux.discovery.service.DiscoveryScope;
 import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.requirement.domain.RequirementStatus;
-import com.careerflux.requirement.repository.CompanyRequirementRepository;
+import com.careerflux.requirement.service.RequirementAccess;
 import com.careerflux.security.access.AccessGuard;
 import com.careerflux.security.access.AccessScope;
 import com.careerflux.shortlist.domain.ShortlistEntry;
@@ -43,9 +43,9 @@ import org.springframework.transaction.annotation.Transactional;
  * exact failure the product exists to prevent.
  *
  * <p>What is refused is acting outside the caller's authority. Every write
- * checks, in order: the permission, the requirement's ownership, its lifecycle
- * state, the candidate's presence in the caller's own discovery scope, and
- * finally whether the row already exists.
+ * checks, in order: the permission, the requirement's ownership and visibility
+ * to this caller, its lifecycle state, the candidate's presence in the caller's
+ * own discovery scope, and finally whether the row already exists.
  *
  * <p>The permission is {@code PLACEMENT_SHORTLIST_MANAGE} rather than
  * {@code PLACEMENT_DRIVE_MANAGE}, and the difference is what lets a coordinator
@@ -60,24 +60,23 @@ public class ShortlistService {
 
     private static final Logger log = LoggerFactory.getLogger(ShortlistService.class);
 
-    private static final String REQUIREMENT = "Company requirement";
     private static final String CANDIDATE = "Candidate";
 
     private final ShortlistRepository shortlists;
-    private final CompanyRequirementRepository requirements;
+    private final RequirementAccess requirementAccess;
     private final CandidateProfileRepository candidates;
     private final UserRepository users;
     private final DiscoveryScope discoveryScope;
     private final AccessGuard accessGuard;
 
     public ShortlistService(ShortlistRepository shortlists,
-                            CompanyRequirementRepository requirements,
+                            RequirementAccess requirementAccess,
                             CandidateProfileRepository candidates,
                             UserRepository users,
                             DiscoveryScope discoveryScope,
                             AccessGuard accessGuard) {
         this.shortlists = shortlists;
-        this.requirements = requirements;
+        this.requirementAccess = requirementAccess;
         this.candidates = candidates;
         this.users = users;
         this.discoveryScope = discoveryScope;
@@ -169,13 +168,12 @@ public class ShortlistService {
      * A requirement this caller may see at all.
      *
      * <p>Loaded by id <em>and</em> institution, so another college's
-     * requirement is never in memory. Not-found rather than forbidden: a 403
-     * would confirm the requirement exists.
+     * requirement is never in memory, and refused to a coordinator outside the
+     * departments it targets — the same rule its own page applies. Not-found
+     * rather than forbidden: a 403 would confirm the requirement exists.
      */
     private CompanyRequirement readableRequirement(UUID requirementId) {
-        UUID institutionId = accessGuard.requireInstitutionId();
-        return requirements.findByIdAndInstitutionId(requirementId, institutionId)
-                .orElseThrow(() -> NotFoundException.of(REQUIREMENT, requirementId));
+        return requirementAccess.visible(requirementId);
     }
 
     /** The same, and open for business. Matches the Phase 3 lifecycle exactly. */

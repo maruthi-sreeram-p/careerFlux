@@ -240,8 +240,13 @@ class InstitutionalAuthorizationIntegrationTest {
         }
 
         @Test
-        @DisplayName("granted a batch sees that batch across departments")
-        void batchGrantCrossesDepartments() throws Exception {
+        @DisplayName("granted only a batch sees nobody: a batch narrows a department, it is not a scope")
+        void batchGrantAloneIsNotAScope() throws Exception {
+            // This test used to assert the opposite: a batch grant on its own
+            // opened that batch across every department. The locked rule is that
+            // a department coordinator is department-scoped and a batch only
+            // narrows that, so a coordinator holding nothing but a batch sees
+            // nobody rather than a slice of the whole college.
             Batch batch = institutions.exampleBatch2026();
             Student cse = registerStudent("batch-cse@example.com", institutions.exampleCse());
             Student mech = registerStudent("batch-mech@example.com", institutions.exampleMech());
@@ -258,7 +263,48 @@ class InstitutionalAuthorizationIntegrationTest {
             JsonNode page = readJson(get("/api/institution/students?size=100")
                     .header("Authorization", bearer(token)));
 
-            assertThat(emails(page)).containsExactlyInAnyOrder("batch-cse@example.com", "batch-mech@example.com");
+            assertThat(page.get("totalElements").asLong()).isZero();
+            for (UUID student : new UUID[] {cse.userId, mech.userId}) {
+                mockMvc.perform(get("/api/institution/students/" + student)
+                                .header("Authorization", bearer(token)))
+                        .andExpect(status().isNotFound());
+            }
+        }
+
+        @Test
+        @DisplayName("granted a department and a batch sees that batch inside the department, and no more")
+        void batchNarrowsTheDepartment() throws Exception {
+            Batch batch = institutions.exampleBatch2026();
+            Student cseInBatch = registerStudent("narrow-cse-2026@example.com", institutions.exampleCse());
+            Student mechInBatch = registerStudent("narrow-mech-2026@example.com", institutions.exampleMech());
+            Student cseOtherYear = registerStudent("narrow-cse-2027@example.com", institutions.exampleCse());
+            assignBatch(cseInBatch.userId, batch);
+            assignBatch(mechInBatch.userId, batch);
+            assignBatch(cseOtherYear.userId, institutions.exampleBatch2027());
+
+            User coordinator = staff("coordinator-narrow@example.com",
+                    UserRole.DEPARTMENT_COORDINATOR, institutions.example());
+            staffScopeRepository.saveAndFlush(StaffScope.forDepartment(
+                    coordinator, institutions.example(), institutions.exampleCse()));
+            staffScopeRepository.saveAndFlush(
+                    StaffScope.forBatch(coordinator, institutions.example(), batch));
+            String token = login(coordinator);
+
+            JsonNode page = readJson(get("/api/institution/students?size=100")
+                    .header("Authorization", bearer(token)));
+
+            assertThat(emails(page)).contains("narrow-cse-2026@example.com")
+                    .doesNotContain("narrow-mech-2026@example.com", "narrow-cse-2027@example.com");
+            mockMvc.perform(get("/api/institution/students/" + cseInBatch.userId)
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isOk());
+            // The batch did not reach into another department, and the department
+            // did not reach past the batch.
+            for (UUID outside : new UUID[] {mechInBatch.userId, cseOtherYear.userId}) {
+                mockMvc.perform(get("/api/institution/students/" + outside)
+                                .header("Authorization", bearer(token)))
+                        .andExpect(status().isNotFound());
+            }
         }
     }
 

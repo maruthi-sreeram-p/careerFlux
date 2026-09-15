@@ -23,20 +23,30 @@ import org.springframework.stereotype.Component;
  * a candidate who could be shortlisted but never appeared, or worse, one who
  * appeared to a coordinator who was not entitled to act on them.
  *
- * <p>Three constraints, intersected:
+ * <p>Four constraints, intersected:
  *
  * <ul>
  *   <li>the college the requirement belongs to;
- *   <li>the departments and batch the company said it will consider;
- *   <li>the departments the caller was granted.
+ *   <li>the departments and graduation year the company said it will consider;
+ *   <li>the departments the caller was granted;
+ *   <li>the batches the caller was narrowed to, if any.
  * </ul>
  *
  * <p>The intersection, never the union. A requirement naming Computer Science
  * and Information Technology widens what the <em>company</em> will look at; it
  * does not widen what a coordinator granted only Computer Science may touch.
+ *
+ * <p><b>It fails closed.</b> "All departments" is only ever the answer for an
+ * institution-wide caller. A department coordinator is never given it, whatever
+ * their grants turn out to be: one with no department — nothing granted, or
+ * batches only — sees nobody, because a batch grant narrows a department and is
+ * not a scope of its own.
  */
 @Component
 public class DiscoveryScope {
+
+    /** Stands in for an unused restriction: an empty {@code in} list is invalid JPQL. */
+    private static final List<UUID> UNUSED = List.of(new UUID(0, 0));
 
     private final UserRepository users;
 
@@ -55,25 +65,30 @@ public class DiscoveryScope {
      * milliseconds on repeat. The ids were derived from these predicates in the
      * first place, so handing the predicates onward keeps one fixed query shape.
      *
-     * @param allDepartments true when no department restriction applies
-     * @param departmentIds  never empty — an empty {@code in} list is invalid
-     *                       JPQL, so an unused restriction carries one
-     *                       impossible id
-     * @param anyBatch       true when no graduation year was named
+     * @param allDepartments  true when no department restriction applies; only
+     *                        ever for an institution-wide caller
+     * @param departmentIds   never empty — an unused restriction carries one
+     *                        impossible id
+     * @param anyBatch        true when the company named no graduation year
+     * @param anyGrantedBatch true when the caller is not narrowed to batches
+     * @param grantedBatchIds never empty, for the same reason as departmentIds
      */
     public record Criteria(UUID institutionId, boolean allDepartments,
                            Collection<UUID> departmentIds, boolean anyBatch,
-                           Integer graduationYear, boolean empty) {
+                           Integer graduationYear, boolean anyGrantedBatch,
+                           Collection<UUID> grantedBatchIds, boolean empty) {
 
-        /** A caller with no grant at all, who may see nobody. */
+        /** A caller who may see nobody. */
         static Criteria nobody(UUID institutionId) {
-            return new Criteria(institutionId, false, List.of(new UUID(0, 0)), true, null, true);
+            return new Criteria(institutionId, false, UNUSED, true, null, true, UNUSED, true);
         }
     }
 
     /** The same intersection {@link #studentIds} applies, expressed as predicates. */
     public Criteria criteriaFor(CompanyRequirement requirement, UUID institutionId,
                                 AccessScope scope) {
+        // No department, no students: this covers the coordinator granted
+        // nothing and the one granted only batches.
         if (scope.isEmpty()) {
             return Criteria.nobody(institutionId);
         }
@@ -81,31 +96,44 @@ public class DiscoveryScope {
         Set<UUID> targetDepartments = requirement.getDepartments().stream()
                 .map(Department::getId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        Integer graduationYear = requirement.getGraduationYear();
 
-        Set<UUID> allowed;
         if (scope.seesWholeInstitution()) {
-            allowed = targetDepartments;
-        } else if (targetDepartments.isEmpty()) {
-            allowed = new LinkedHashSet<>(scope.departmentIds());
-        } else {
-            allowed = targetDepartments.stream()
-                    .filter(scope.departmentIds()::contains)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            if (allowed.isEmpty()) {
-                return Criteria.nobody(institutionId);
-            }
+            // The placement coordinator: every department the company named, or
+            // the whole college when it named none.
+            return new Criteria(institutionId,
+                    targetDepartments.isEmpty(),
+                    targetDepartments.isEmpty() ? UNUSED : targetDepartments,
+                    graduationYear == null,
+                    graduationYear,
+                    true,
+                    UNUSED,
+                    false);
         }
 
-        Integer graduationYear = requirement.getGraduationYear();
+        // A department coordinator: the departments the company named that are
+        // also theirs, or all of theirs when the company named none.
+        Set<UUID> allowed = targetDepartments.isEmpty()
+                ? new LinkedHashSet<>(scope.departmentIds())
+                : targetDepartments.stream()
+                        .filter(scope.departmentIds()::contains)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (allowed.isEmpty()) {
+            return Criteria.nobody(institutionId);
+        }
+        boolean narrowedToBatches = scope.hasBatchRestriction();
         return new Criteria(institutionId,
-                allowed.isEmpty(),
-                allowed.isEmpty() ? List.of(new UUID(0, 0)) : allowed,
+                // Never "all departments" for a department coordinator.
+                false,
+                allowed,
                 graduationYear == null,
                 graduationYear,
+                !narrowedToBatches,
+                narrowedToBatches ? scope.batchIds() : UNUSED,
                 false);
     }
 
-    /** Every student in scope. Empty when the caller has no grant at all. */
+    /** Every student in scope. Empty when the caller may see nobody. */
     public List<UUID> studentIds(CompanyRequirement requirement, UUID institutionId,
                                  AccessScope scope) {
         Criteria criteria = criteriaFor(requirement, institutionId, scope);
@@ -113,7 +141,8 @@ public class DiscoveryScope {
             return List.of();
         }
         return users.findStudentsForDiscovery(criteria.institutionId(), criteria.allDepartments(),
-                criteria.departmentIds(), criteria.anyBatch(), criteria.graduationYear());
+                criteria.departmentIds(), criteria.anyBatch(), criteria.graduationYear(),
+                criteria.anyGrantedBatch(), criteria.grantedBatchIds());
     }
 
     /**
@@ -135,6 +164,6 @@ public class DiscoveryScope {
         // rows to decide whether it may.
         return users.isStudentInDiscoveryScope(criteria.institutionId(), criteria.allDepartments(),
                 criteria.departmentIds(), criteria.anyBatch(), criteria.graduationYear(),
-                studentUserId);
+                criteria.anyGrantedBatch(), criteria.grantedBatchIds(), studentUserId);
     }
 }

@@ -240,16 +240,29 @@ export default function JobDetail() {
 
       <div className="row wrap gap-2" style={{ marginBottom: 'var(--space-6)' }}>
         {detail.applyUrl ? (
-          <a
-            href={detail.applyUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="btn btn--primary"
-            onClick={() => act('applied', 'Marked as applied. Good luck.')}
-          >
-            Apply on the employer site
-            <Icon.External size={14} />
-          </a>
+          <>
+            {/*
+              Opening the employer's page is not applying, so the link records
+              nothing. Only the student saying they applied does — and the
+              button beside it is how they say so.
+            */}
+            <a
+              href={detail.applyUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="btn btn--primary"
+            >
+              Apply on the employer site
+              <Icon.External size={14} />
+            </a>
+            <Button
+              variant="secondary"
+              disabled={summary.interaction.applied}
+              onClick={() => act('applied', 'Marked as applied. Good luck.')}
+            >
+              {summary.interaction.applied ? 'Marked as applied' : 'I have applied'}
+            </Button>
+          </>
         ) : (
           // The server returns null for a link it could not vouch for, which
           // covers both a posting that never carried one and a value that failed

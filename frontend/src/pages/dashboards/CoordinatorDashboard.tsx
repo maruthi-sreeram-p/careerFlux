@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 
 import { PageHeader } from '../../components/layout/AppShell';
 import { Panel } from '../../components/ui/primitives';
@@ -93,17 +92,6 @@ export default function CoordinatorDashboard() {
                   : 'Across students with a profile'
               }
             />
-            <Stat
-              label="Applications recorded"
-              value={data.totalApplications}
-              note={
-                data.totalApplications === 0
-                  ? 'No application activity yet'
-                  : `From ${data.studentsWhoApplied} ${
-                      data.studentsWhoApplied === 1 ? 'student' : 'students'
-                    }`
-              }
-            />
           </StatRow>
 
           <ScopeNote scopeLabel={data.scopeLabel} students={data.studentsInScope} />
@@ -135,17 +123,6 @@ export default function CoordinatorDashboard() {
           <section className="section">
             <h2 className="section__title">Needs attention</h2>
             <div className="grid grid--two">
-              <Panel title="Students with no applications">
-                <p className="stat__value">{data.studentsWithoutApplications}</p>
-                <p className="text-muted">
-                  {data.studentsWithoutApplications === 0
-                    ? 'Every student in your scope has recorded at least one application.'
-                    : `of ${data.studentsInScope} have not recorded an application yet.`}
-                </p>
-                <Link className="btn btn--secondary" to="/app/students">
-                  Open student list
-                </Link>
-              </Panel>
               <Panel title="Students without a resume">
                 <p className="stat__value">{data.studentsInScope - data.withResume}</p>
                 <p className="text-muted">

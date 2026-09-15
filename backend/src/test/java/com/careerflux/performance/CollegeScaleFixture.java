@@ -121,8 +121,8 @@ public class CollegeScaleFixture {
             // Roughly two thirds have a CGPA on file, which is the state a
             // college reaches partway through collecting them.
             if (i % 3 != 0) {
-                profile.recordCgpa(new BigDecimal(String.format("%.2f", 6.0 + (i % 40) / 10.0)),
-                        CgpaSource.INSTITUTION, null);
+                profile.recordVerifiedCgpa(new BigDecimal(String.format("%.2f", 6.0 + (i % 40) / 10.0)),
+                        null);
             }
 
             // A varying slice of the dictionary, so scores spread out instead of

@@ -8,9 +8,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.careerflux.ai.AiClient;
+import com.careerflux.audit.AuditQueryService;
+import com.careerflux.audit.AuditQueryService.AuditView;
 import com.careerflux.ingestion.service.JobReenrichmentService;
-import com.careerflux.audit.AuditEvent;
-import com.careerflux.audit.AuditEventRepository;
 import com.careerflux.ingestion.domain.IngestionStatus;
 import com.careerflux.ingestion.domain.PipelineEvent;
 import com.careerflux.ingestion.domain.PipelineEventStatus;
@@ -54,7 +54,7 @@ public class AdminOpsController {
     private final JobRepository jobRepository;
     private final JobChangeRepository changeRepository;
     private final UserRepository userRepository;
-    private final AuditEventRepository auditRepository;
+    private final AuditQueryService auditQuery;
     private final SourceQueryService sourceQueryService;
     private final PipelineEventBus eventBus;
     private final AiClient aiClient;
@@ -65,7 +65,7 @@ public class AdminOpsController {
                               JobRepository jobRepository,
                               JobChangeRepository changeRepository,
                               UserRepository userRepository,
-                              AuditEventRepository auditRepository,
+                              AuditQueryService auditQuery,
                               SourceQueryService sourceQueryService,
                               PipelineEventBus eventBus,
                               AiClient aiClient,
@@ -76,7 +76,7 @@ public class AdminOpsController {
         this.jobRepository = jobRepository;
         this.changeRepository = changeRepository;
         this.userRepository = userRepository;
-        this.auditRepository = auditRepository;
+        this.auditQuery = auditQuery;
         this.sourceQueryService = sourceQueryService;
         this.eventBus = eventBus;
         this.aiClient = aiClient;
@@ -161,16 +161,20 @@ public class AdminOpsController {
                 event.getAttempts(), event.getError(), event.getCreatedAt(), event.getProcessedAt()));
     }
 
+    /**
+     * The platform's own audit trail.
+     *
+     * <p>Portal Admin actions and scheduled work: the rows that belong to no
+     * college. A college's events — what its staff and students did — are that
+     * college's, read by its placement coordinator at {@code /api/institution/audit}.
+     * Running the platform is not a reason to read them, so no route returns
+     * every college's rows.
+     */
     @GetMapping("/audit")
+    @Operation(summary = "The platform's audit trail, without any college's events")
     public Page<AuditView> audit(@RequestParam(defaultValue = "0") int page,
                                  @RequestParam(defaultValue = "50") int size) {
-        return auditRepository.findAllByOrderByOccurredAtDesc(PageRequest.of(page, Math.min(size, 200)))
-                .map(this::toAuditView);
-    }
-
-    private AuditView toAuditView(AuditEvent event) {
-        return new AuditView(event.getId(), event.getActor(), event.getAction(), event.getEntityType(),
-                event.getEntityId(), event.getDetail(), event.getOccurredAt());
+        return auditQuery.platformEvents(page, size);
     }
 
     public record SystemStats(
@@ -195,10 +199,5 @@ public class AdminOpsController {
     public record PipelineEventView(
             UUID id, String topic, String eventKey, String status, int attempts,
             String error, Instant createdAt, Instant processedAt) {
-    }
-
-    public record AuditView(
-            UUID id, String actor, String action, String entityType, String entityId,
-            String detail, Instant occurredAt) {
     }
 }

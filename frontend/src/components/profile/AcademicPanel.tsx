@@ -11,20 +11,23 @@ import type { CandidateProfile } from '../../lib/types';
  * decides nothing about how well a student's skills fit a role — so it sits
  * beside their department and batch rather than being given a screen of its own.
  *
- * <p>Two things this is careful about. An absent CGPA reads as "not provided",
- * never as a zero, because a zero looks measured and would be a lie about a
- * student who simply has not entered one. And a figure a student types is
- * labelled as theirs: it is shown back to them and is not what a company's
- * stated minimum is judged against, which the panel says plainly rather than
- * letting them assume otherwise.
+ * <p>Two figures, shown apart. The one the student types is theirs: it appears
+ * on their profile and never replaces the college's. The college's is the
+ * official record and the only one a company's stated minimum is checked
+ * against. An absent CGPA reads as "not provided", never as a zero, because a
+ * zero looks measured and would be a lie about a student who simply has not
+ * entered one.
  */
 export function AcademicPanel({ profile }: { profile: CandidateProfile }) {
   const scale = profile.cgpaScale ?? 10;
+  const verified = profile.verifiedCgpa ?? null;
   const save = useUpdateOwnAcademics();
   const toast = useToast();
-  const [value, setValue] = useState(profile.cgpa === null || profile.cgpa === undefined
-    ? ''
-    : String(profile.cgpa));
+  const [value, setValue] = useState(
+    profile.reportedCgpa === null || profile.reportedCgpa === undefined
+      ? ''
+      : String(profile.reportedCgpa),
+  );
 
   const submit = async () => {
     const trimmed = value.trim();
@@ -35,7 +38,7 @@ export function AcademicPanel({ profile }: { profile: CandidateProfile }) {
     }
     try {
       await save.mutateAsync(parsed);
-      toast.show(parsed === null ? 'CGPA cleared.' : 'CGPA saved.', 'success');
+      toast.show(parsed === null ? 'Your CGPA was cleared.' : 'Your CGPA was saved.', 'success');
     } catch (error) {
       toast.show(
         error instanceof Error ? error.message : 'Your CGPA could not be saved.',
@@ -47,17 +50,17 @@ export function AcademicPanel({ profile }: { profile: CandidateProfile }) {
   return (
     <Panel
       title="Academic information"
-      action={
-        profile.cgpaVerified ? (
-          <Badge tone="positive">Verified by your college</Badge>
-        ) : profile.cgpa !== null && profile.cgpa !== undefined ? (
-          <Badge tone="neutral">Entered by you</Badge>
-        ) : null
-      }
+      action={verified !== null ? <Badge tone="positive">Verified by your college</Badge> : null}
     >
+      <p className="text-secondary">
+        {verified !== null
+          ? `Your college has recorded ${verified} out of ${scale} as your official CGPA. Companies that state a minimum are checked against that figure.`
+          : 'Your college has not recorded an official CGPA for you yet. Where a company states a minimum, you show as unknown until it does — never as failing.'}
+      </p>
+
       <Field
-        label={`CGPA (out of ${scale})`}
-        hint="Leave empty if you would rather not enter one. An empty field is not a zero."
+        label={`Your own CGPA (out of ${scale})`}
+        hint="Shown on your profile as the figure you gave. It never replaces your college's record and is not used to check eligibility. Leave it empty if you would rather not enter one — an empty field is not a zero."
       >
         {({ id }) => (
           <TextInput
@@ -70,14 +73,8 @@ export function AcademicPanel({ profile }: { profile: CandidateProfile }) {
         )}
       </Field>
 
-      <p className="text-muted">
-        {profile.cgpaVerified
-          ? 'Your college has recorded this as your official CGPA, and companies asking for a minimum will be checked against it.'
-          : 'A CGPA you enter yourself appears on your profile. Where a company states a minimum, your college has to record the official figure before it can be checked — until then it shows as unknown rather than counting against you.'}
-      </p>
-
       <Button onClick={submit} disabled={save.isPending}>
-        {save.isPending ? 'Saving…' : 'Save CGPA'}
+        {save.isPending ? 'Saving…' : 'Save your CGPA'}
       </Button>
     </Panel>
   );

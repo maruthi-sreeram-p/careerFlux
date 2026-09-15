@@ -39,27 +39,6 @@ public interface UserRepository extends JpaRepository<User, UUID>,
     Page<User> findStudentsInInstitution(@Param("institutionId") UUID institutionId, Pageable pageable);
 
     /**
-     * Students inside a coordinator's granted departments or batches.
-     *
-     * <p>Note that a student with neither a department nor a batch matches
-     * nothing here. Being unassigned must not make somebody visible to every
-     * coordinator in the college; they stay visible only to institution-wide
-     * staff, who can then assign them.
-     */
-    @Query("""
-            select u from User u
-            left join fetch u.department
-            left join fetch u.batch
-            where u.institution.id = :institutionId
-              and u.role = com.careerflux.user.UserRole.STUDENT
-              and (u.department.id in :departmentIds or u.batch.id in :batchIds)
-            """)
-    Page<User> findStudentsInScope(@Param("institutionId") UUID institutionId,
-                                   @Param("departmentIds") Collection<UUID> departmentIds,
-                                   @Param("batchIds") Collection<UUID> batchIds,
-                                   Pageable pageable);
-
-    /**
      * The ids of every student a caller may see, institution-wide.
      *
      * <p>Ids rather than rows because the overview only counts. Deriving the
@@ -74,15 +53,30 @@ public interface UserRepository extends JpaRepository<User, UUID>,
             """)
     List<UUID> findStudentIdsInInstitution(@Param("institutionId") UUID institutionId);
 
-    /** The same cohort, narrowed to a coordinator's granted departments or batches. */
+    /**
+     * The same cohort for a department coordinator: their departments, narrowed
+     * to their granted batches when they hold any.
+     *
+     * <p>A batch grant only narrows. It never adds a student from another
+     * department, so a student outside every granted department is excluded
+     * whatever batch they are in. A student with no department matches nothing
+     * here; they stay visible only to institution-wide staff, who can assign
+     * them.
+     *
+     * @param anyBatch true when the coordinator holds no batch grant, so no batch
+     *                 narrowing applies
+     */
     @Query("""
             select u.id from User u
+            left join u.batch b
             where u.institution.id = :institutionId
               and u.role = com.careerflux.user.UserRole.STUDENT
-              and (u.department.id in :departmentIds or u.batch.id in :batchIds)
+              and u.department.id in :departmentIds
+              and (:anyBatch = true or b.id in :batchIds)
             """)
     List<UUID> findStudentIdsInScope(@Param("institutionId") UUID institutionId,
                                      @Param("departmentIds") Collection<UUID> departmentIds,
+                                     @Param("anyBatch") boolean anyBatch,
                                      @Param("batchIds") Collection<UUID> batchIds);
 
     long countByIdInAndStatus(Collection<UUID> ids, UserStatus status);
@@ -132,9 +126,11 @@ public interface UserRepository extends JpaRepository<User, UUID>,
      * after the fact, so a student outside the scope is never loaded, never
      * scored and never available to be filtered back in by a client.
      *
-     * <p>The two booleans carry "no restriction" because an empty {@code in}
-     * clause is invalid in JPQL and a null collection parameter behaves
-     * inconsistently across providers.
+     * <p>The booleans carry "no restriction" because an empty {@code in} clause
+     * is invalid in JPQL and a null collection parameter behaves inconsistently
+     * across providers. {@code allDepartments} is only ever true for an
+     * institution-wide caller: {@code DiscoveryScope} never sets it for a
+     * department coordinator.
      *
      * <p><b>The joins are explicit and left.</b> Writing {@code u.batch.graduationYear}
      * in the where clause produces an implicit <em>inner</em> join, which drops
@@ -142,8 +138,8 @@ public interface UserRepository extends JpaRepository<User, UUID>,
      * the join is applied before the condition short-circuits. That silently
      * returned nobody against real data where students are not yet assigned to a
      * batch. A student with no batch is still excluded when a graduation year
-     * <em>is</em> named, which is correct: an unassigned student cannot be shown
-     * to satisfy a batch the company asked for.
+     * <em>is</em> named, or when the coordinator is narrowed to batches, which is
+     * correct: an unassigned student cannot be shown to satisfy either.
      */
     @Query("""
             select u.id from User u
@@ -153,12 +149,15 @@ public interface UserRepository extends JpaRepository<User, UUID>,
               and u.role = com.careerflux.user.UserRole.STUDENT
               and (:allDepartments = true or d.id in :departmentIds)
               and (:anyBatch = true or b.graduationYear = :graduationYear)
+              and (:anyGrantedBatch = true or b.id in :grantedBatchIds)
             """)
     List<UUID> findStudentsForDiscovery(@Param("institutionId") UUID institutionId,
                                         @Param("allDepartments") boolean allDepartments,
                                         @Param("departmentIds") Collection<UUID> departmentIds,
                                         @Param("anyBatch") boolean anyBatch,
-                                        @Param("graduationYear") Integer graduationYear);
+                                        @Param("graduationYear") Integer graduationYear,
+                                        @Param("anyGrantedBatch") boolean anyGrantedBatch,
+                                        @Param("grantedBatchIds") Collection<UUID> grantedBatchIds);
 
     /**
      * Whether one student falls inside a discovery scope.
@@ -176,11 +175,14 @@ public interface UserRepository extends JpaRepository<User, UUID>,
               and u.role = com.careerflux.user.UserRole.STUDENT
               and (:allDepartments = true or d.id in :departmentIds)
               and (:anyBatch = true or b.graduationYear = :graduationYear)
+              and (:anyGrantedBatch = true or b.id in :grantedBatchIds)
             """)
     boolean isStudentInDiscoveryScope(@Param("institutionId") UUID institutionId,
                                       @Param("allDepartments") boolean allDepartments,
                                       @Param("departmentIds") Collection<UUID> departmentIds,
                                       @Param("anyBatch") boolean anyBatch,
                                       @Param("graduationYear") Integer graduationYear,
+                                      @Param("anyGrantedBatch") boolean anyGrantedBatch,
+                                      @Param("grantedBatchIds") Collection<UUID> grantedBatchIds,
                                       @Param("userId") UUID userId);
 }

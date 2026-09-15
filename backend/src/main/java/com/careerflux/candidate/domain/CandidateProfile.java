@@ -85,9 +85,13 @@ public class CandidateProfile extends BaseEntity {
     private int profileCompleteness;
 
     /**
-     * The student's cumulative grade average, or null when nobody has recorded
-     * one. Null is a real state and is not zero: a student with no CGPA on file
-     * is unknown, not failing.
+     * The student's cumulative grade average <b>as the college recorded it</b>,
+     * or null when the college has not. This is the verified record and the only
+     * CGPA eligibility reads. The student's own figure is {@link #reportedCgpa},
+     * a separate field they can change without touching this one (V19).
+     *
+     * <p>Null is a real state and is not zero: a student with no CGPA on file is
+     * unknown, not failing.
      *
      * <p>This is deliberately here rather than on {@code CandidateEducation}.
      * That is an ordered list of qualifications — school, higher secondary,
@@ -99,11 +103,11 @@ public class CandidateProfile extends BaseEntity {
     @Column(name = "cgpa", precision = 4, scale = 2)
     private BigDecimal cgpa;
 
-    /** The maximum of the scale {@link #cgpa} is expressed on. Ten in India. */
+    /** The maximum of the scale both CGPA figures are expressed on. Ten in India. */
     @Column(name = "cgpa_scale", nullable = false, precision = 4, scale = 2)
     private BigDecimal cgpaScale = Cgpa.DEFAULT_SCALE;
 
-    /** Who recorded it, which is what decides whether eligibility may read it. */
+    /** Always INSTITUTION when {@link #cgpa} holds a value, and null when it does not. */
     @Enumerated(EnumType.STRING)
     @Column(name = "cgpa_source", length = 24)
     private CgpaSource cgpaSource;
@@ -115,8 +119,28 @@ public class CandidateProfile extends BaseEntity {
     @Column(name = "cgpa_recorded_at")
     private Instant cgpaRecordedAt;
 
+    /**
+     * The figure the student entered for themselves, or null. Shown back to them
+     * and to their placement staff, labelled as theirs. Never verified and never
+     * read by eligibility — a student cannot answer a company's stated minimum
+     * about themselves.
+     */
+    @Column(name = "reported_cgpa", precision = 4, scale = 2)
+    private BigDecimal reportedCgpa;
+
+    @Column(name = "reported_cgpa_recorded_at")
+    private Instant reportedCgpaRecordedAt;
+
     @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<CandidateSkill> skills = new ArrayList<>();
+
+    /**
+     * Skills this student named that the shared dictionary does not know. Kept
+     * here and nowhere else: never added to the dictionary, never shown to
+     * staff, never matched. See {@link CandidateCustomSkill}.
+     */
+    @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<CandidateCustomSkill> customSkills = new ArrayList<>();
 
     @OneToMany(mappedBy = "candidate", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("displayOrder ASC")
@@ -249,6 +273,10 @@ public class CandidateProfile extends BaseEntity {
         return skills;
     }
 
+    public List<CandidateCustomSkill> getCustomSkills() {
+        return customSkills;
+    }
+
     public List<CandidateExperience> getExperiences() {
         return experiences;
     }
@@ -268,6 +296,7 @@ public class CandidateProfile extends BaseEntity {
         }
     }
 
+    /** The college's recorded CGPA as stored. Prefer {@link #getVerifiedCgpa()} for any decision. */
     public BigDecimal getCgpa() {
         return cgpa;
     }
@@ -292,6 +321,14 @@ public class CandidateProfile extends BaseEntity {
         return cgpaRecordedAt;
     }
 
+    public BigDecimal getReportedCgpa() {
+        return reportedCgpa;
+    }
+
+    public Instant getReportedCgpaRecordedAt() {
+        return reportedCgpaRecordedAt;
+    }
+
     /**
      * The CGPA eligibility may compare against, or null.
      *
@@ -304,15 +341,28 @@ public class CandidateProfile extends BaseEntity {
     }
 
     /**
-     * Records a CGPA, or clears it.
+     * The college recording its CGPA for this student, or clearing it.
      *
-     * <p>Clearing wipes the provenance too: a value with no source could not be
-     * judged, and a source with no value means nothing.
+     * <p>Only this writes the verified record, and it never touches the
+     * student's own figure. Clearing wipes the provenance too: a value with no
+     * source could not be judged, and a source with no value means nothing.
      */
-    public void recordCgpa(BigDecimal value, CgpaSource source, User by) {
+    public void recordVerifiedCgpa(BigDecimal value, User by) {
         this.cgpa = value;
-        this.cgpaSource = value == null ? null : source;
+        this.cgpaSource = value == null ? null : CgpaSource.INSTITUTION;
         this.cgpaRecordedBy = value == null ? null : by;
         this.cgpaRecordedAt = value == null ? null : Instant.now();
+    }
+
+    /**
+     * The student recording their own figure, or clearing it.
+     *
+     * <p>Writes nothing but the student's own field. The verified record, its
+     * source and who recorded it are out of reach from here, which is the whole
+     * point: a student's entry can no longer replace the college's.
+     */
+    public void recordReportedCgpa(BigDecimal value) {
+        this.reportedCgpa = value;
+        this.reportedCgpaRecordedAt = value == null ? null : Instant.now();
     }
 }

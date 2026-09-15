@@ -46,15 +46,17 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Two authorization boundaries, deliberately different. Reading is gated on
  * {@code PLACEMENT_DRIVE_VIEW}, which a coordinator holds; writing is gated on
- * {@code PLACEMENT_DRIVE_MANAGE}, which only a placement officer holds. That
+ * {@code PLACEMENT_DRIVE_MANAGE}, which only a placement coordinator holds. That
  * split is not invented here — it is what the role model already granted, and
- * it matches how a placement office works: the officer takes the company's
- * brief, the coordinator works their department against it.
+ * it matches how a placement office works: the placement coordinator takes the
+ * company's brief, the department coordinator works their department against it.
  *
  * <p>Every read is scoped twice. The institution filter is in the query, so a
- * requirement from another college cannot be loaded at all; a coordinator is
- * then narrowed again to requirements naming one of their departments, plus
- * those naming none, which mean the whole college.
+ * requirement from another college cannot be loaded at all; a department
+ * coordinator is then narrowed again to requirements naming one of their
+ * departments, plus those naming none, which mean the whole college. That rule
+ * lives in {@link RequirementAccess}, which discovery, the shortlist and
+ * placement history use too, so none of them can show what this refuses.
  *
  * <p>Nothing here discovers candidates. Turning a requirement into a ranked
  * list of students is the next phase, and the requirement's skills are stored
@@ -67,7 +69,6 @@ public class CompanyRequirementService {
     private static final Logger log = LoggerFactory.getLogger(CompanyRequirementService.class);
 
     private static final int MAX_PAGE_SIZE = 100;
-    private static final String LABEL = "Company requirement";
 
     private final CompanyRequirementRepository requirements;
     private final DepartmentRepository departments;
@@ -75,19 +76,22 @@ public class CompanyRequirementService {
     private final UserRepository users;
     private final SkillResolver skillResolver;
     private final AccessGuard accessGuard;
+    private final RequirementAccess requirementAccess;
 
     public CompanyRequirementService(CompanyRequirementRepository requirements,
                                      DepartmentRepository departments,
                                      InstitutionRepository institutions,
                                      UserRepository users,
                                      SkillResolver skillResolver,
-                                     AccessGuard accessGuard) {
+                                     AccessGuard accessGuard,
+                                     RequirementAccess requirementAccess) {
         this.requirements = requirements;
         this.departments = departments;
         this.institutions = institutions;
         this.users = users;
         this.skillResolver = skillResolver;
         this.accessGuard = accessGuard;
+        this.requirementAccess = requirementAccess;
     }
 
     // ------------------------------------------------------------------ read
@@ -112,7 +116,7 @@ public class CompanyRequirementService {
         // is a second scoped query, which is worth doing once colleges run more
         // requirements than fit on a page.
         List<RequirementView> visible = found.getContent().stream()
-                .filter(requirement -> isVisibleTo(requirement, scope))
+                .filter(requirement -> requirementAccess.isVisibleTo(requirement, scope))
                 .map(this::toView)
                 .toList();
 
@@ -131,7 +135,7 @@ public class CompanyRequirementService {
     @Transactional(readOnly = true)
     public RequirementView get(UUID id) {
         accessGuard.requirePermission(Permission.PLACEMENT_DRIVE_VIEW);
-        return toView(load(id));
+        return toView(requirementAccess.visible(id));
     }
 
     // ----------------------------------------------------------------- write
@@ -173,7 +177,7 @@ public class CompanyRequirementService {
     @Transactional
     public RequirementView update(UUID id, UpdateRequirement request) {
         accessGuard.requirePermission(Permission.PLACEMENT_DRIVE_MANAGE);
-        CompanyRequirement requirement = load(id);
+        CompanyRequirement requirement = requirementAccess.visible(id);
 
         if (TextUtils.hasText(request.companyName())) {
             requirement.setCompanyName(request.companyName().strip());
@@ -228,42 +232,6 @@ public class CompanyRequirementService {
     }
 
     // --------------------------------------------------------------- helpers
-
-    /**
-     * Loads a requirement the caller is entitled to see, or reports not-found.
-     *
-     * <p>The institution is part of the query rather than checked afterwards,
-     * so a row from another college never enters memory.
-     */
-    private CompanyRequirement load(UUID id) {
-        UUID institutionId = accessGuard.requireInstitutionId();
-        CompanyRequirement requirement = requirements.findByIdAndInstitutionId(id, institutionId)
-                .orElseThrow(() -> NotFoundException.of(LABEL, id));
-        if (!isVisibleTo(requirement, accessGuard.scope())) {
-            // Outside a coordinator's departments. Same answer as a requirement
-            // that does not exist, for the same reason.
-            throw NotFoundException.of(LABEL, id);
-        }
-        return requirement;
-    }
-
-    /**
-     * Whether this caller may see this requirement.
-     *
-     * <p>Institution-wide staff see everything in their college. A scoped
-     * coordinator sees requirements naming one of their departments, and those
-     * naming none — a requirement open to the whole college is open to theirs.
-     */
-    private boolean isVisibleTo(CompanyRequirement requirement, AccessScope scope) {
-        if (scope.seesWholeInstitution()) {
-            return true;
-        }
-        if (requirement.getDepartments().isEmpty()) {
-            return true;
-        }
-        return requirement.getDepartments().stream()
-                .anyMatch(department -> scope.departmentIds().contains(department.getId()));
-    }
 
     /**
      * Replaces the skill set.

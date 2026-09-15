@@ -550,7 +550,7 @@ class AiProfileProposalIntegrationTest {
         private void recordInstitutionalCgpa() {
             ownTransaction().executeWithoutResult(status -> {
                 CandidateProfile profile = profiles.findById(aarav.profileId()).orElseThrow();
-                profile.recordCgpa(new BigDecimal("8.50"), CgpaSource.INSTITUTION,
+                profile.recordVerifiedCgpa(new BigDecimal("8.50"),
                         users.findById(aarav.userId()).orElseThrow());
                 profiles.save(profile);
             });

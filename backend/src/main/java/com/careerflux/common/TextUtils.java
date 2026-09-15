@@ -34,6 +34,27 @@ public final class TextUtils {
     }
 
     /**
+     * The slug a skill is identified by.
+     *
+     * <p>{@link #slugify} drops every character that is not a letter or a digit,
+     * which is right for a URL or a job's de-duplication key and wrong for a
+     * skill: "C", "C++" and "C#" all collapse to {@code c}. Here the two symbols
+     * that tell programming languages apart are spelled out first, giving
+     * {@code c}, {@code c-plus-plus} and {@code c-sharp}. Anything without a plus
+     * or a hash slugs exactly as {@link #slugify} does.
+     *
+     * <p>Kept separate from {@code slugify} on purpose. That one also builds job
+     * de-duplication keys and institution and company slugs, and changing it
+     * would silently re-key every stored job with "C++" in its title.
+     */
+    public static String skillSlug(String input) {
+        if (input == null || input.isBlank()) {
+            return "";
+        }
+        return slugify(input.replace("+", " plus ").replace("#", " sharp "));
+    }
+
+    /**
      * Canonical form used when comparing free text such as job titles: lowercase,
      * accent-free, punctuation removed, whitespace collapsed. Plus, hash and dot
      * survive so that "C++", "C#" and ".NET" stay distinguishable.

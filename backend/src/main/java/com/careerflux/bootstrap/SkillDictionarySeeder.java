@@ -122,7 +122,9 @@ public class SkillDictionarySeeder implements ApplicationRunner {
         for (var categoryEntry : DICTIONARY.entrySet()) {
             for (var skillEntry : categoryEntry.getValue().entrySet()) {
                 String canonical = skillEntry.getKey();
-                String slug = TextUtils.slugify(canonical);
+                // The skill slug, not slugify: "C#" and "C++" used to share `c`,
+                // and this map's order decided which of them was ever created.
+                String slug = TextUtils.skillSlug(canonical);
                 if (skillRepository.findBySlug(slug).isPresent()) {
                     continue;
                 }
@@ -130,7 +132,7 @@ public class SkillDictionarySeeder implements ApplicationRunner {
                 skill.setCanonicalName(canonical);
                 skill.setSlug(slug);
                 skill.setCategory(categoryEntry.getKey());
-                skillEntry.getValue().forEach(alias -> skill.addAlias(TextUtils.slugify(alias)));
+                skillEntry.getValue().forEach(alias -> skill.addAlias(TextUtils.skillSlug(alias)));
                 skillRepository.save(skill);
                 created++;
             }
@@ -138,5 +140,21 @@ public class SkillDictionarySeeder implements ApplicationRunner {
         if (created > 0) {
             log.info("Seeded {} canonical skills into the dictionary", created);
         }
+        warnIfCFamilyStillShared();
+    }
+
+    /**
+     * Says so when V21 could not give C# or C++ its own slug.
+     *
+     * <p>V21 moves the one row that held {@code c} only when the slug it needs is
+     * free, rather than merging two rows on a guess. If another row already owned
+     * it, the old row stays on {@code c} and this is the only place that notices.
+     */
+    private void warnIfCFamilyStillShared() {
+        skillRepository.findBySlug("c")
+                .filter(skill -> "C#".equals(skill.getCanonicalName()) || "C++".equals(skill.getCanonicalName()))
+                .ifPresent(skill -> log.warn("The skill '{}' still holds the slug 'c' because the slug V21 would "
+                        + "have moved it to was already taken. Review the skills table by hand.",
+                        skill.getCanonicalName()));
     }
 }

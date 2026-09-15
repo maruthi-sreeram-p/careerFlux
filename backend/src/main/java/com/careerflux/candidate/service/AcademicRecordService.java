@@ -3,9 +3,9 @@ package com.careerflux.candidate.service;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.careerflux.audit.AuditService;
 import com.careerflux.candidate.domain.Cgpa;
 import com.careerflux.candidate.domain.CandidateProfile;
-import com.careerflux.candidate.domain.CgpaSource;
 import com.careerflux.candidate.dto.CandidateDtos.AcademicRecord;
 import com.careerflux.candidate.repository.CandidateProfileRepository;
 import com.careerflux.common.error.NotFoundException;
@@ -22,11 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Recording a student's CGPA.
  *
- * <p>Two ways in, and they do not mean the same thing. A student may write
- * their own figure onto their own profile; placement staff may record the
- * institution's. Only the second is verified, and only the verified one is ever
- * compared against a company's stated minimum — otherwise a student would be
- * answering a question about their own eligibility for a drive.
+ * <p>Two figures, two owners, two fields. A student may write their own onto
+ * their profile; placement staff record the college's. They are stored apart
+ * (V19), so neither can replace the other: a student saving a figure leaves the
+ * college's record exactly as it was. Only the college's is verified, and only
+ * it is ever compared against a company's stated minimum — otherwise a student
+ * would be answering a question about their own eligibility for a drive.
  *
  * <p>Nothing here parses, infers or converts. There is no percentage-to-CGPA
  * formula, no reading of {@code CandidateEducation.grade}, and no derivation
@@ -35,7 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>An empty field is not a zero. Clearing a CGPA removes the value and its
  * provenance together, and returns the student to unknown rather than to
- * failing.
+ * failing. Every change to the college's record is audited, with the figures
+ * before and after, in that college's own audit trail.
  */
 @Service
 public class AcademicRecordService {
@@ -45,22 +47,26 @@ public class AcademicRecordService {
     private final CandidateProfileRepository profiles;
     private final UserRepository users;
     private final AccessGuard accessGuard;
+    private final AuditService audit;
 
     public AcademicRecordService(CandidateProfileRepository profiles,
                                  UserRepository users,
-                                 AccessGuard accessGuard) {
+                                 AccessGuard accessGuard,
+                                 AuditService audit) {
         this.profiles = profiles;
         this.users = users;
         this.accessGuard = accessGuard;
+        this.audit = audit;
     }
 
     /**
      * A student recording their own CGPA.
      *
      * <p>The student is taken from the authenticated principal and never from
-     * the request, so there is no id to tamper with. Stored as
-     * {@link CgpaSource#STUDENT}: shown back to them, and not used to judge them
-     * against a company's requirement.
+     * the request, so there is no id to tamper with. It is written to the
+     * student's own field only: shown back to them and to their placement
+     * staff as theirs, never used to judge them against a company's requirement,
+     * and unable to change the college's record.
      */
     @Transactional
     public AcademicRecord updateOwn(BigDecimal cgpa) {
@@ -71,7 +77,7 @@ public class AcademicRecordService {
                 .orElseThrow(() -> new NotFoundException("No candidate profile for this account."));
 
         BigDecimal checked = Cgpa.validate(cgpa, profile.getCgpaScale());
-        profile.recordCgpa(checked, CgpaSource.STUDENT, profile.getUser());
+        profile.recordReportedCgpa(checked);
         profiles.save(profile);
 
         log.info("Student {} recorded their own CGPA", userId);
@@ -88,7 +94,7 @@ public class AcademicRecordService {
      *
      * <p>The student is resolved from the database and checked against the
      * caller's own scope, so a user id in the path proves nothing on its own.
-     * Stored as {@link CgpaSource#INSTITUTION}, which is what "verified" means.
+     * This is the only way a verified CGPA is ever written.
      */
     @Transactional
     public AcademicRecord updateForStudent(UUID studentUserId, BigDecimal cgpa) {
@@ -102,10 +108,16 @@ public class AcademicRecordService {
         accessGuard.requireCanReadCandidate(profile);
 
         BigDecimal checked = Cgpa.validate(cgpa, profile.getCgpaScale());
+        BigDecimal previous = profile.getVerifiedCgpa();
         User recordedBy = users.findById(accessGuard.currentUserId()).orElse(null);
-        profile.recordCgpa(checked, CgpaSource.INSTITUTION, recordedBy);
+        profile.recordVerifiedCgpa(checked, recordedBy);
         profiles.save(profile);
 
+        // The figures, which is what a dispute would ask about, and no name: the
+        // row belongs to this college's own trail, keyed by the student's id.
+        audit.record(checked == null ? "VERIFIED_CGPA_CLEARED" : "VERIFIED_CGPA_RECORDED", "User", studentUserId,
+                "previous=" + plain(previous) + " new=" + plain(checked)
+                        + " scale=" + plain(profile.getCgpaScale()));
         log.info("Institutional CGPA recorded for student {} by {}",
                 studentUserId, accessGuard.currentUserId());
         return toRecord(profile);
@@ -121,13 +133,20 @@ public class AcademicRecordService {
         return toRecord(profile);
     }
 
+    private static String plain(BigDecimal value) {
+        return value == null ? "none" : value.stripTrailingZeros().toPlainString();
+    }
+
     private static AcademicRecord toRecord(CandidateProfile profile) {
+        BigDecimal verified = profile.getVerifiedCgpa();
         return new AcademicRecord(
-                profile.getCgpa(),
                 profile.getCgpaScale(),
-                profile.getCgpaSource() == null ? null : profile.getCgpaSource().name(),
-                profile.getVerifiedCgpa() != null,
-                profile.getCgpaRecordedBy() == null ? null : profile.getCgpaRecordedBy().getFullName(),
-                profile.getCgpaRecordedAt());
+                profile.getReportedCgpa(),
+                profile.getReportedCgpaRecordedAt(),
+                verified,
+                verified == null || profile.getCgpaRecordedBy() == null
+                        ? null : profile.getCgpaRecordedBy().getFullName(),
+                verified == null ? null : profile.getCgpaRecordedAt(),
+                verified != null);
     }
 }

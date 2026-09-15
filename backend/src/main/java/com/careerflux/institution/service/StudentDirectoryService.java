@@ -14,14 +14,12 @@ import java.util.UUID;
 
 import com.careerflux.candidate.domain.CandidateProfile;
 import com.careerflux.candidate.domain.CandidateSkill;
+import com.careerflux.candidate.domain.CgpaSource;
 import com.careerflux.candidate.domain.Resume;
 import com.careerflux.candidate.repository.CandidatePreferenceValueRepository;
 import com.careerflux.candidate.repository.CandidateProfileRepository;
 import com.careerflux.candidate.repository.ResumeRepository;
 import com.careerflux.common.TextUtils;
-import com.careerflux.engagement.domain.InteractionType;
-import com.careerflux.engagement.domain.JobInteraction;
-import com.careerflux.engagement.repository.JobInteractionRepository;
 import com.careerflux.common.error.NotFoundException;
 import com.careerflux.institution.dto.InstitutionDtos.BatchView;
 import com.careerflux.institution.dto.InstitutionDtos.DepartmentView;
@@ -69,6 +67,10 @@ import org.springframework.transaction.annotation.Transactional;
  * single-student read then re-checks through {@link AccessGuard}, so guessing an
  * id gets you nothing either. Belt and braces is the right posture here: the
  * list filter is an efficiency, the guard is the guarantee.
+ *
+ * <p>Nothing here reads what a student did with public job postings. Job views
+ * and saves are the student's own, and an Apply click is not a confirmed
+ * application, so the job-interaction table is not a source for any staff view.
  */
 @Service
 public class StudentDirectoryService {
@@ -95,7 +97,6 @@ public class StudentDirectoryService {
     private final CandidatePreferenceValueRepository preferenceRepository;
     private final ShortlistRepository shortlistRepository;
     private final PlacementStageChangeRepository stageChangeRepository;
-    private final JobInteractionRepository interactionRepository;
     private final AccessGuard accessGuard;
 
     public StudentDirectoryService(UserRepository userRepository,
@@ -107,7 +108,6 @@ public class StudentDirectoryService {
                                    CandidatePreferenceValueRepository preferenceRepository,
                                    ShortlistRepository shortlistRepository,
                                    PlacementStageChangeRepository stageChangeRepository,
-                                   JobInteractionRepository interactionRepository,
                                    AccessGuard accessGuard) {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
@@ -118,7 +118,6 @@ public class StudentDirectoryService {
         this.preferenceRepository = preferenceRepository;
         this.shortlistRepository = shortlistRepository;
         this.stageChangeRepository = stageChangeRepository;
-        this.interactionRepository = interactionRepository;
         this.accessGuard = accessGuard;
     }
 
@@ -160,8 +159,9 @@ public class StudentDirectoryService {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);
 
-        // A coordinator with no grants sees nobody. That default is stated here
-        // rather than left to an in-clause, so the intent is visible.
+        // A coordinator with no department sees nobody — including one whose only
+        // grants are batches. That default is stated here rather than left to an
+        // in-clause, so the intent is visible.
         if (scope.isEmpty()) {
             return new StudentPage(List.of(), pageNumber, pageSize, 0, 0);
         }
@@ -229,12 +229,15 @@ public class StudentDirectoryService {
             predicates.add(builder.equal(root.get("role"), UserRole.STUDENT));
 
             if (!scope.seesWholeInstitution()) {
-                // Exactly the rule the previous JPQL stated: granted department
-                // OR granted batch. A student with neither stays invisible to
-                // coordinators rather than visible to all of them.
-                predicates.add(builder.or(
-                        root.get("department").get("id").in(nonEmpty(scope.departmentIds())),
-                        root.get("batch").get("id").in(nonEmpty(scope.batchIds()))));
+                // A department coordinator: their departments, and — only when they
+                // hold batch grants — just those batches inside them. A batch grant
+                // narrows; it never adds a student from another department. A
+                // student with no department stays invisible to coordinators
+                // rather than visible to all of them.
+                predicates.add(root.get("department").get("id").in(nonEmpty(scope.departmentIds())));
+                if (scope.hasBatchRestriction()) {
+                    predicates.add(root.get("batch").get("id").in(scope.batchIds()));
+                }
             }
 
             if (TextUtils.hasText(filter.query())) {
@@ -313,7 +316,8 @@ public class StudentDirectoryService {
     }
 
     /**
-     * Students whose CGPA reaches the floor once put on a ten-point scale.
+     * Students whose <b>verified</b> CGPA reaches the floor once put on a
+     * ten-point scale.
      *
      * <p>Written as {@code cgpa * 10 >= scale * floor} rather than
      * {@code cgpa / scale * 10 >= floor}. The two are equivalent for any positive
@@ -322,15 +326,17 @@ public class StudentDirectoryService {
      * about and no way for a bad row to divide by zero. It is also plain
      * arithmetic that H2 and PostgreSQL treat identically.
      *
-     * <p>A student with no CGPA is excluded rather than defaulted. Unknown is not
-     * zero and it is not "probably fine": nobody can be said to meet a
-     * requirement that was never recorded for them.
+     * <p>Only the college's record counts. A figure the student entered for
+     * themselves is stored apart and never reaches this comparison, so a filter
+     * on CGPA cannot be passed on a student's own word. A student with no
+     * verified CGPA is excluded rather than defaulted: unknown is not zero.
      */
     private Subquery<UUID> atLeastCgpa(double floor, CriteriaQuery<?> query, CriteriaBuilder builder) {
         Subquery<UUID> qualifying = query.subquery(UUID.class);
         Root<CandidateProfile> profile = qualifying.from(CandidateProfile.class);
         return qualifying.select(profile.get("user").get("id"))
                 .where(builder.isNotNull(profile.get("cgpa")),
+                        builder.equal(profile.get("cgpaSource"), CgpaSource.INSTITUTION),
                         builder.greaterThanOrEqualTo(
                                 builder.prod(profile.<BigDecimal>get("cgpa"), TEN),
                                 builder.prod(profile.<BigDecimal>get("cgpaScale"),
@@ -358,6 +364,7 @@ public class StudentDirectoryService {
         return uploaded.select(resume.get("candidate").get("user").get("id"));
     }
 
+    /** The verified CGPA on a ten-point scale, for sorting. A student's own figure is never ranked. */
     private Subquery<BigDecimal> normalisedCgpa(Root<User> root, CriteriaQuery<?> query,
                                                 CriteriaBuilder builder) {
         Subquery<BigDecimal> score = query.subquery(BigDecimal.class);
@@ -365,7 +372,8 @@ public class StudentDirectoryService {
         return score.select(builder.quot(
                         builder.prod(profile.<BigDecimal>get("cgpa"), TEN),
                         profile.<BigDecimal>get("cgpaScale")).as(BigDecimal.class))
-                .where(builder.equal(profile.get("user").get("id"), root.get("id")));
+                .where(builder.equal(profile.get("user").get("id"), root.get("id")),
+                        builder.equal(profile.get("cgpaSource"), CgpaSource.INSTITUTION));
     }
 
     private Subquery<BigDecimal> completeness(Root<User> root, CriteriaQuery<?> query,
@@ -410,9 +418,10 @@ public class StudentDirectoryService {
      * detail here widens what a permitted caller sees and not who may call.
      *
      * <p>What is deliberately absent: the password hash and every other
-     * credential, the phone number, and the contents of the resume. Whether the
-     * caller may open the resume is a separate permission on a separate route,
-     * and that has not changed.
+     * credential, the phone number, the contents of the resume, the student's
+     * private skills, and everything they did with public job postings. Whether
+     * the caller may open the resume is a separate permission on a separate
+     * route, and that has not changed.
      */
     @Transactional(readOnly = true)
     public StudentDetail studentDetail(UUID userId) {
@@ -448,38 +457,41 @@ public class StudentDirectoryService {
                 .toList();
 
         return new StudentDetail(summary, profile.getHeadline(), profile.getLocation(),
-                profile.getCgpa(), profile.getCgpaScale(), normalise(profile),
-                profile.getCgpaSource() == null ? null : profile.getCgpaSource().name(),
-                skills, preferences, placements, activityFor(profile, shortlists));
+                profile.getVerifiedCgpa(), profile.getReportedCgpa(), profile.getCgpaScale(),
+                normalise(profile), skills, preferences, placements, activityFor(profile, shortlists));
     }
 
     /**
-     * The student's CGPA on a ten-point scale, or null when there isn't one.
+     * The verified CGPA on a ten-point scale, or null when there isn't one.
      *
      * <p>Computed for display only. The stored value and the institution's own
      * scale are returned alongside it, so the officer sees "4.00 / 5" as well as
-     * the 8.00 the filters compare against.
+     * the 8.00 the filters compare against. A student's own figure is never
+     * normalised: it is not what anything compares.
      */
     private BigDecimal normalise(CandidateProfile profile) {
-        if (profile.getCgpa() == null || profile.getCgpaScale() == null
+        BigDecimal verified = profile.getVerifiedCgpa();
+        if (verified == null || profile.getCgpaScale() == null
                 || profile.getCgpaScale().signum() <= 0) {
             return null;
         }
-        return profile.getCgpa().multiply(TEN)
+        return verified.multiply(TEN)
                 .divide(profile.getCgpaScale(), 2, RoundingMode.HALF_UP);
     }
 
     /**
      * A placement-relevant timeline, composed from records that already exist.
      *
-     * <p>Three sources: resumes, the student's own job interactions, and the
-     * stage changes on their shortlist entries. No new table, and no
-     * {@code AuditEvent} — those are keyed by actor and entity rather than by
-     * student, and replaying everything the platform recorded about a person is
-     * surveillance rather than placement work.
+     * <p>Two sources: resumes, and the stage changes on the student's shortlist
+     * entries. No new table, and no {@code AuditEvent} — those are keyed by actor
+     * and entity rather than by student, and replaying everything the platform
+     * recorded about a person is surveillance rather than placement work.
      *
-     * <p>Dismissals are left out for the same reason. A student deciding a job is
-     * not for them is theirs to decide, and an officer does not need the list.
+     * <p>What a student did with public job postings is not a source at all,
+     * and is not even read. Which jobs they viewed is theirs alone; saves are
+     * theirs until a product decision says staff may see them; and an Apply
+     * click cannot be told apart from an application actually made, so showing
+     * it would present a click as an application.
      */
     private List<StudentActivityEntry> activityFor(CandidateProfile profile,
                                                    List<ShortlistEntry> shortlists) {
@@ -489,24 +501,6 @@ public class StudentDirectoryService {
             entries.add(new StudentActivityEntry(resume.getUploadedAt(), "RESUME_UPLOADED",
                     "Resume uploaded" + (TextUtils.hasText(resume.getOriginalFilename())
                             ? ": " + resume.getOriginalFilename() : "")));
-        }
-
-        for (JobInteraction interaction
-                : interactionRepository.findByCandidateIdOrderByCreatedAtDesc(profile.getId())) {
-            if (interaction.getInteractionType() == InteractionType.DISMISSED) {
-                continue;
-            }
-            String title = interaction.getJob() == null ? "a job" : interaction.getJob().getTitle();
-            entries.add(new StudentActivityEntry(
-                    interaction.getInteractionType() == InteractionType.APPLIED
-                            && interaction.getAppliedAt() != null
-                            ? interaction.getAppliedAt() : interaction.getCreatedAt(),
-                    "JOB_" + interaction.getInteractionType().name(),
-                    switch (interaction.getInteractionType()) {
-                        case APPLIED -> "Applied to " + title;
-                        case SAVED -> "Saved " + title;
-                        default -> "Viewed " + title;
-                    }));
         }
 
         for (ShortlistEntry shortlist : shortlists) {
@@ -598,7 +592,8 @@ public class StudentDirectoryService {
                 profile == null ? "NOT_STARTED" : profile.getOnboardingStage().name(),
                 profile == null ? 0 : profile.getProfileCompleteness(),
                 profile != null && withResume.contains(profile.getId()),
-                profile == null ? null : profile.getCgpa(),
+                profile == null ? null : profile.getVerifiedCgpa(),
+                profile == null ? null : profile.getReportedCgpa(),
                 profile == null ? null : profile.getCgpaScale(),
                 profile == null ? null : normalise(profile),
                 user.getCreatedAt());

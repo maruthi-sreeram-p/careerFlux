@@ -184,9 +184,9 @@ class AcademicRecordIntegrationTest {
                     .content("{\"cgpa\":9.50}"), student.token(), 200);
 
             JsonNode profile = readJson(get("/api/candidate/profile"), student.token(), 200);
-            assertThat(profile.get("cgpa").decimalValue()).isEqualByComparingTo("9.50");
+            assertThat(profile.get("reportedCgpa").decimalValue()).isEqualByComparingTo("9.50");
+            assertThat(profile.get("verifiedCgpa").isNull()).isTrue();
             assertThat(profile.get("cgpaVerified").asBoolean()).isFalse();
-            assertThat(profile.get("cgpaSource").asText()).isEqualTo("STUDENT");
 
             assertThat(eligibilityOf(officer, requirement, student)).isEqualTo("UNKNOWN");
         }
@@ -287,8 +287,8 @@ class AcademicRecordIntegrationTest {
                     officer, 200);
 
             assertThat(record.get("verified").asBoolean()).isTrue();
-            assertThat(record.get("source").asText()).isEqualTo("INSTITUTION");
-            assertThat(record.get("recordedByName").isNull()).isFalse();
+            assertThat(record.get("verifiedCgpa").decimalValue()).isEqualByComparingTo("7.42");
+            assertThat(record.get("verifiedByName").isNull()).isFalse();
         }
 
         @Test
@@ -401,7 +401,7 @@ class AcademicRecordIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON).content("{\"cgpa\":null}"),
                     officer, 200);
 
-            assertThat(cleared.get("cgpa").isNull()).isTrue();
+            assertThat(cleared.get("verifiedCgpa").isNull()).isTrue();
             assertThat(cleared.get("verified").asBoolean()).isFalse();
             CandidateProfile profile = profileRepository.findByUserId(student.userId()).orElseThrow();
             assertThat(profile.getCgpa()).isNull();

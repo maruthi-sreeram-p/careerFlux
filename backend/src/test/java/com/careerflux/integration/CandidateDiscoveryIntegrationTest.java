@@ -364,7 +364,7 @@ class CandidateDiscoveryIntegrationTest {
         }
 
         @Test
-        @DisplayName("a coordinator outside the targeted departments sees nobody")
+        @DisplayName("a coordinator outside the targeted departments is refused the requirement")
         void coordinatorOutsideTargetSeesNobody() throws Exception {
             String officer = officer("outside-officer@example.com");
             student("mech-only@example.com", institutions.exampleMech(),
@@ -372,8 +372,10 @@ class CandidateDiscoveryIntegrationTest {
 
             String id = openRequirement(officer, institutions.exampleMech().getId());
 
-            JsonNode scoped = discover(id, coordinatorScopedToCse("outside-coord@example.com"));
-            assertThat(scoped.get("content")).isEmpty();
+            // Phase 2A, F12: the same answer the requirement itself gives. An
+            // empty page here still described the requirement it was for.
+            JsonNode refused = readJson(get(url(id)), coordinatorScopedToCse("outside-coord@example.com"), 404);
+            assertThat(refused.toString()).doesNotContain("XYZ Technologies").doesNotContain("mech-only");
         }
 
         @Test

@@ -346,7 +346,7 @@ class FourActorAuthorizationMatrixTest {
                     .isEqualTo(403);
             JsonNode academics = json(get("/api/institution/students/" + cseStudent.userId() + "/academics"),
                     placementCoordinator);
-            assertThat(academics.get("cgpa").isNull())
+            assertThat(academics.get("verifiedCgpa").isNull())
                     .describedAs("no CGPA was recorded")
                     .isTrue();
         }

@@ -197,12 +197,16 @@ class InstitutionOverviewAuthorizationTest {
                 institutions.example());
         JsonNode overview = readJson(get(OVERVIEW), login(officer));
 
-        // Nobody uploaded a resume or applied to anything in this test, and the
-        // overview must say so rather than inferring activity from headcount.
+        // Nobody uploaded a resume in this test, and the overview must say so
+        // rather than inferring activity from headcount.
         assertThat(overview.get("withResume").asInt()).isZero();
-        assertThat(overview.get("studentsWhoApplied").asInt()).isZero();
-        assertThat(overview.get("totalApplications").asInt()).isZero();
-        assertThat(overview.get("studentsWithoutApplications").asInt()).isEqualTo(2);
+        // And nothing about what students did with job postings is counted for
+        // staff at all: views and saves are private, and an Apply click is not
+        // a confirmed application.
+        assertThat(overview.has("studentsWhoApplied")).isFalse();
+        assertThat(overview.has("totalApplications")).isFalse();
+        assertThat(overview.has("studentsWithoutApplications")).isFalse();
+        assertThat(overview.has("savedJobs")).isFalse();
     }
 
     // ----------------------------------------------------------------- helpers

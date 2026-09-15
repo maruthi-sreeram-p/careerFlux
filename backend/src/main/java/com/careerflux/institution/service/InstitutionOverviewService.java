@@ -7,8 +7,6 @@ import java.util.UUID;
 
 import com.careerflux.candidate.repository.CandidateProfileRepository;
 import com.careerflux.candidate.repository.ResumeRepository;
-import com.careerflux.engagement.domain.InteractionType;
-import com.careerflux.engagement.repository.JobInteractionRepository;
 import com.careerflux.institution.dto.OverviewDtos.CohortCount;
 import com.careerflux.institution.dto.OverviewDtos.InstitutionOverview;
 import com.careerflux.institution.repository.BatchRepository;
@@ -25,8 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The counts behind the coordinator, placement officer and college admin
- * dashboards.
+ * The counts behind the coordinator dashboards.
  *
  * <p>Scope is resolved once, at the top, into the list of student ids the caller
  * may see. Every aggregate below is then keyed on that list. This is the same
@@ -34,9 +31,13 @@ import org.springframework.transaction.annotation.Transactional;
  * reason: a coordinator asking for their department's numbers must not be able
  * to obtain the college's, and no id in the cohort ever comes from the request.
  *
- * <p>A caller with no grant gets zeroes rather than the institution. That is the
- * safe default, and it is stated here rather than emerging from an empty
+ * <p>A caller with no department gets zeroes rather than the institution. That
+ * is the safe default, and it is stated here rather than emerging from an empty
  * {@code in} clause.
+ *
+ * <p>Nothing counted here comes from what students did with public job
+ * postings: views and saves are theirs, and an Apply click is not a confirmed
+ * application.
  */
 @Service
 public class InstitutionOverviewService {
@@ -48,7 +49,6 @@ public class InstitutionOverviewService {
     private final UserRepository userRepository;
     private final CandidateProfileRepository profileRepository;
     private final ResumeRepository resumeRepository;
-    private final JobInteractionRepository interactionRepository;
     private final InstitutionRepository institutionRepository;
     private final DepartmentRepository departmentRepository;
     private final BatchRepository batchRepository;
@@ -57,7 +57,6 @@ public class InstitutionOverviewService {
                                       UserRepository userRepository,
                                       CandidateProfileRepository profileRepository,
                                       ResumeRepository resumeRepository,
-                                      JobInteractionRepository interactionRepository,
                                       InstitutionRepository institutionRepository,
                                       DepartmentRepository departmentRepository,
                                       BatchRepository batchRepository) {
@@ -65,7 +64,6 @@ public class InstitutionOverviewService {
         this.userRepository = userRepository;
         this.profileRepository = profileRepository;
         this.resumeRepository = resumeRepository;
-        this.interactionRepository = interactionRepository;
         this.institutionRepository = institutionRepository;
         this.departmentRepository = departmentRepository;
         this.batchRepository = batchRepository;
@@ -92,13 +90,6 @@ public class InstitutionOverviewService {
         }
 
         List<UUID> candidateIds = profileRepository.findIdsByUserIdIn(studentIds);
-
-        long applied = candidateIds.isEmpty() ? 0
-                : interactionRepository.countCandidatesWithInteraction(candidateIds, InteractionType.APPLIED);
-        long applications = candidateIds.isEmpty() ? 0
-                : interactionRepository.countByCandidateIdInAndInteractionType(candidateIds, InteractionType.APPLIED);
-        long saved = candidateIds.isEmpty() ? 0
-                : interactionRepository.countByCandidateIdInAndInteractionType(candidateIds, InteractionType.SAVED);
         long withResume = candidateIds.isEmpty() ? 0
                 : resumeRepository.countCandidatesWithResume(candidateIds);
 
@@ -115,10 +106,6 @@ public class InstitutionOverviewService {
                 withResume,
                 profileRepository.countWithAnySkill(studentIds),
                 meanCompleteness == null ? null : (int) Math.round(meanCompleteness),
-                applied,
-                applications,
-                studentIds.size() - applied,
-                saved,
                 toCohort(userRepository.countByDepartment(studentIds)),
                 toCohort(userRepository.countByBatch(studentIds)),
                 toCohort(profileRepository.topSkills(studentIds, PageRequest.of(0, TOP_SKILL_LIMIT))),
@@ -140,7 +127,8 @@ public class InstitutionOverviewService {
         return scope.seesWholeInstitution()
                 ? userRepository.findStudentIdsInInstitution(institutionId)
                 : userRepository.findStudentIdsInScope(institutionId,
-                        nonEmpty(scope.departmentIds()), nonEmpty(scope.batchIds()));
+                        nonEmpty(scope.departmentIds()),
+                        !scope.hasBatchRestriction(), nonEmpty(scope.batchIds()));
     }
 
     /** What the caller is looking at, so a short list is not read as a small college. */
@@ -148,25 +136,33 @@ public class InstitutionOverviewService {
         if (scope.seesWholeInstitution()) {
             return "Whole institution";
         }
-        List<String> names = new ArrayList<>();
-        scope.departmentIds().forEach(id -> departmentRepository
-                .findByIdAndInstitutionId(id, institutionId)
-                .ifPresent(department -> names.add(department.getName())));
-        scope.batchIds().forEach(id -> batchRepository
-                .findByIdAndInstitutionId(id, institutionId)
-                .ifPresent(batch -> names.add(batch.getName())));
-        if (names.isEmpty()) {
+        // No department means no scope, whatever batches were granted: a batch
+        // only narrows a department and on its own shows nobody.
+        if (scope.isEmpty()) {
             return "No scope granted";
         }
-        names.sort(String::compareTo);
-        return String.join(", ", names);
+        List<String> departments = new ArrayList<>();
+        scope.departmentIds().forEach(id -> departmentRepository
+                .findByIdAndInstitutionId(id, institutionId)
+                .ifPresent(department -> departments.add(department.getName())));
+        List<String> batches = new ArrayList<>();
+        scope.batchIds().forEach(id -> batchRepository
+                .findByIdAndInstitutionId(id, institutionId)
+                .ifPresent(batch -> batches.add(batch.getName())));
+        if (departments.isEmpty()) {
+            return "No scope granted";
+        }
+        departments.sort(String::compareTo);
+        batches.sort(String::compareTo);
+        String label = String.join(", ", departments);
+        return batches.isEmpty() ? label : label + " — " + String.join(", ", batches) + " only";
     }
 
     private static InstitutionOverview empty(String institutionName, String scopeLabel,
                                              boolean institutionWide, long departments,
                                              long batches, long staff) {
         return new InstitutionOverview(institutionName, scopeLabel, institutionWide,
-                0, 0, 0, 0, 0, 0, null, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, null,
                 List.of(), List.of(), List.of(), departments, batches, staff);
     }
 

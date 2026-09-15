@@ -127,15 +127,42 @@ class AccessScopeResolverTest {
         }
 
         @Test
-        @DisplayName("sees a granted batch, with batch semantics unchanged by the four-role model")
-        void batchGrant() {
+        @DisplayName("is not given a scope by a batch grant alone: a batch narrows a department")
+        void batchGrantAloneSeesNobody() {
+            // This used to assert that a batch grant opened that batch across
+            // every department. The locked rule is that a department coordinator
+            // is department-scoped and a batch only narrows that.
             User coordinator = user(UserRole.DEPARTMENT_COORDINATOR);
             Batch classOf2027 = batch();
 
             AccessScope scope = resolve(coordinator, grant(coordinator, ScopeType.BATCH, null, classOf2027));
 
-            assertThat(scope.covers(UUID.randomUUID(), classOf2027.getId())).isTrue();
-            assertThat(scope.covers(UUID.randomUUID(), UUID.randomUUID())).isFalse();
+            assertThat(scope.isEmpty()).isTrue();
+            assertThat(scope.seesWholeInstitution()).isFalse();
+            assertThat(scope.covers(UUID.randomUUID(), classOf2027.getId())).isFalse();
+            assertThat(scope.covers(null, classOf2027.getId())).isFalse();
+        }
+
+        @Test
+        @DisplayName("is narrowed to a granted batch inside their department, and never past it")
+        void batchNarrowsTheDepartment() {
+            User coordinator = user(UserRole.DEPARTMENT_COORDINATOR);
+            Department cse = department();
+            Batch classOf2027 = batch();
+
+            AccessScope scope = resolve(coordinator,
+                    grant(coordinator, ScopeType.DEPARTMENT, cse, null),
+                    grant(coordinator, ScopeType.BATCH, null, classOf2027));
+
+            assertThat(scope.isEmpty()).isFalse();
+            assertThat(scope.hasBatchRestriction()).isTrue();
+            assertThat(scope.covers(cse.getId(), classOf2027.getId())).isTrue();
+            assertThat(scope.covers(cse.getId(), UUID.randomUUID()))
+                    .describedAs("the department does not reach past the batch").isFalse();
+            assertThat(scope.covers(cse.getId(), null))
+                    .describedAs("a student with no batch is outside a batch-narrowed scope").isFalse();
+            assertThat(scope.covers(UUID.randomUUID(), classOf2027.getId()))
+                    .describedAs("the batch does not reach into another department").isFalse();
         }
 
         @Test

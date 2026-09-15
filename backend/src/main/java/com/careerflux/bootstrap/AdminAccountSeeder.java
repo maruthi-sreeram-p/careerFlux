@@ -78,6 +78,8 @@ public class AdminAccountSeeder implements ApplicationRunner {
         admin.setStatus(UserStatus.ACTIVE);
         admin.setEmailVerified(true);
         userRepository.save(admin);
-        log.info("Created administrator account for {}", email);
+        // By id. The address is in the environment the operator set; the log
+        // has no need of a copy.
+        log.info("Created the administrator account {}", admin.getId());
     }
 }

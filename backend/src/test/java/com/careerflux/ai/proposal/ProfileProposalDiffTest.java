@@ -3,6 +3,8 @@ package com.careerflux.ai.proposal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -43,7 +45,7 @@ class ProfileProposalDiffTest {
     @BeforeEach
     void setUp() {
         skillResolver = mock(SkillResolver.class);
-        when(skillResolver.resolve(anyString())).thenReturn(Optional.empty());
+        when(skillResolver.lookup(anyString())).thenReturn(Optional.empty());
         builder = new ProfileProposalBuilder(skillResolver);
 
         profile = new CandidateProfile();
@@ -240,7 +242,7 @@ class ProfileProposalDiffTest {
         @Test
         @DisplayName("a grade that disagrees with the recorded one is a CONFLICT that still changes nothing")
         void disagreeingGradeIsANonActionableConflict() {
-            profile.recordCgpa(new BigDecimal("8.50"), CgpaSource.INSTITUTION, new User());
+            profile.recordVerifiedCgpa(new BigDecimal("8.50"), new User());
 
             ProposedItem academic = item(withGrade("9.1 CGPA"), "academic:0");
 
@@ -254,7 +256,7 @@ class ProfileProposalDiffTest {
         @Test
         @DisplayName("no proposal item anywhere can write a CGPA")
         void nothingProposesACgpaField() {
-            profile.recordCgpa(new BigDecimal("8.50"), CgpaSource.INSTITUTION, new User());
+            profile.recordVerifiedCgpa(new BigDecimal("8.50"), new User());
 
             List<ProposedItem> items = builder.build(profile, withGrade("9.1 CGPA"));
 
@@ -283,7 +285,7 @@ class ProfileProposalDiffTest {
         @DisplayName("a skill the candidate does not have is NEW and carries the slug to save")
         void newSkill() {
             Skill java = skill("Java", "java");
-            when(skillResolver.resolve("Java")).thenReturn(Optional.of(java));
+            when(skillResolver.lookup("Java")).thenReturn(Optional.of(java));
 
             ExtractedResume extracted = new ExtractedResume(null, null, null, null, null, null, null,
                     null, null, null, null, null, List.of("Java"), List.of(), List.of());
@@ -300,7 +302,7 @@ class ProfileProposalDiffTest {
         @DisplayName("a skill the candidate already has is UNCHANGED, not a duplicate to accept")
         void heldSkill() {
             Skill java = skill("Java", "java");
-            when(skillResolver.resolve("Java")).thenReturn(Optional.of(java));
+            when(skillResolver.lookup("Java")).thenReturn(Optional.of(java));
             CandidateSkill held = new CandidateSkill();
             held.setSkill(java);
             profile.getSkills().add(held);
@@ -312,15 +314,21 @@ class ProfileProposalDiffTest {
         }
 
         @Test
-        @DisplayName("a skill that is not in the dictionary is not offered at all")
-        void unresolvableSkillIsNotOffered() {
+        @DisplayName("a skill the dictionary does not know is offered as the student's own, and never added to it")
+        void unknownSkillStaysPrivate() {
+            // Phase 2A, F4. This used to be dropped here and minted into the
+            // shared dictionary by the real resolver; it is now kept for the
+            // student alone, and only if they accept it.
             ExtractedResume extracted = new ExtractedResume(null, null, null, null, null, null, null,
                     null, null, null, null, null, List.of("Sprnig Boot"), List.of(), List.of());
 
-            assertThat(builder.build(profile, extracted))
-                    .extracting(ProposedItem::key)
-                    .describedAs("offering it would promise something approval could not keep")
-                    .noneMatch(key -> key.startsWith("skill:"));
+            ProposedItem item = item(extracted, "skill:private:sprnig-boot");
+            assertThat(item.state()).isEqualTo(ProposalItemState.NEW);
+            assertThat(item.data())
+                    .describedAs("no dictionary slug: approval must not look for one")
+                    .containsEntry("name", "Sprnig Boot")
+                    .doesNotContainKey("slug");
+            verify(skillResolver, never()).resolve(anyString());
         }
 
         @Test

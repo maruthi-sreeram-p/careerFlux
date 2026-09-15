@@ -20,10 +20,17 @@ import org.springframework.transaction.annotation.Transactional;
  * Resolves free-text skill strings to canonical {@link Skill} rows.
  *
  * <p>This is deliberately deterministic: alias lookup first, then slug lookup,
- * then a controlled create. AI is allowed to <em>propose</em> skill strings when
- * reading a resume or a job description, but it never decides what a skill is
- * called in the database, because a drifting skill vocabulary would silently
- * corrupt every match score computed against it.
+ * then — for ingestion only — a controlled create. AI is allowed to
+ * <em>propose</em> skill strings when reading a resume or a job description, but
+ * it never decides what a skill is called in the database, because a drifting
+ * skill vocabulary would silently corrupt every match score computed against it.
+ *
+ * <p><b>The dictionary is shared by every college</b>, so only text from public
+ * job postings may add to it ({@link #resolve}). Anything a person types or a
+ * student's resume says goes through {@link #lookup}, which never creates: a
+ * student's own words must never become platform-wide data. What lookup does
+ * not find is kept on that student's profile alone
+ * ({@code candidate_custom_skills}).
  */
 @Service
 public class SkillResolver {
@@ -43,6 +50,11 @@ public class SkillResolver {
      * Resolves a raw string, creating the canonical entry when it is new and
      * plausible. Returns empty for input that is not a skill (empty, too long,
      * or a fragment of prose).
+     *
+     * <p><b>For text from public job postings only.</b> Creating here adds to a
+     * dictionary every college shares, which is right for a board naming a real
+     * technology and wrong for anything a student or a member of staff typed —
+     * those go through {@link #lookup}.
      */
     @Transactional
     public Optional<Skill> resolve(String raw) {
@@ -50,7 +62,7 @@ public class SkillResolver {
         if (cleaned == null) {
             return Optional.empty();
         }
-        String slug = TextUtils.slugify(cleaned);
+        String slug = TextUtils.skillSlug(cleaned);
         if (slug.isEmpty()) {
             return Optional.empty();
         }
@@ -78,24 +90,33 @@ public class SkillResolver {
      * <p>{@link #resolve(String)} creates what it cannot find, which is right
      * for ingestion: a board that mentions a real technology the dictionary has
      * not met yet is evidence the dictionary is incomplete. It is wrong for
-     * anything a person types. A placement officer who writes "Sprint Boot"
-     * would otherwise mint a canonical skill from their typo, and every college
-     * on the platform would inherit it.
+     * anything a person types or a student's resume says. A placement officer
+     * who writes "Sprint Boot" would otherwise mint a canonical skill from their
+     * typo, and a student's own words would become every college's data.
      *
-     * <p>Callers that use this are expected to report what did not resolve
-     * rather than discard it silently.
+     * <p>Callers that use this are expected to report what did not resolve, or
+     * keep it privately, rather than discard it silently.
      */
     public Optional<Skill> lookup(String raw) {
         String cleaned = clean(raw);
         if (cleaned == null) {
             return Optional.empty();
         }
-        String slug = TextUtils.slugify(cleaned);
+        String slug = TextUtils.skillSlug(cleaned);
         if (slug.isEmpty()) {
             return Optional.empty();
         }
         Optional<Skill> byAlias = aliasRepository.findByAlias(slug).map(SkillAlias::getSkill);
         return byAlias.isPresent() ? byAlias : skillRepository.findBySlug(slug);
+    }
+
+    /**
+     * The clean-up {@link #lookup} applies, for a name that will be kept
+     * privately rather than resolved. Null when the text is not plausibly a
+     * skill: empty, one character, too long, or a fragment of prose.
+     */
+    public static String skillName(String raw) {
+        return clean(raw);
     }
 
     /** Resolves a batch, preserving order and dropping anything unresolvable. */
@@ -116,7 +137,7 @@ public class SkillResolver {
         return resolved;
     }
 
-    private String clean(String raw) {
+    private static String clean(String raw) {
         if (raw == null) {
             return null;
         }

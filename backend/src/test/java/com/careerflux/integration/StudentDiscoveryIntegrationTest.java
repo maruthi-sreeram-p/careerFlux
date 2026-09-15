@@ -181,8 +181,9 @@ class StudentDiscoveryIntegrationTest {
                 institutions.rival(), institutions.rivalCse(), null,
                 new BigDecimal("9.00"), new BigDecimal("10.00"), 95, 1, List.of(java));
 
-        // Two dated interactions for Anita and one for Bhavesh, so the timeline
-        // has something to order and something to keep separate.
+        // What the students did with a public posting: Anita viewed it and
+        // applied, Bhavesh saved it. Private to them, so every staff view below
+        // must leave all three out.
         Job job = job("Backend Engineer");
         interaction(anitaId, job, InteractionType.VIEWED, Instant.now().minusSeconds(7200));
         interaction(anitaId, job, InteractionType.APPLIED, Instant.now().minusSeconds(3600));
@@ -258,7 +259,7 @@ class StudentDiscoveryIntegrationTest {
         profile.setUser(user);
         profile.setInstitution(institution);
         profile.setCgpaScale(scale);
-        profile.recordCgpa(cgpa, com.careerflux.candidate.domain.CgpaSource.INSTITUTION, null);
+        profile.recordVerifiedCgpa(cgpa, null);
         profile.setProfileCompleteness(completeness);
         for (Skill skill : skills) {
             CandidateSkill candidateSkill = new CandidateSkill();
@@ -484,7 +485,7 @@ class StudentDiscoveryIntegrationTest {
         }
 
         @Test
-        @DisplayName("the directory row carries the CGPA on both scales")
+        @DisplayName("the directory row carries the verified CGPA on both scales")
         void rowsCarryCgpa() throws Exception {
             JsonNode page = readJson(get("/api/institution/students?q=bhavesh")
                     .header("Authorization", "Bearer " + officerToken));
@@ -492,14 +493,17 @@ class StudentDiscoveryIntegrationTest {
 
             // 4.00 out of 5 is shown as recorded and as the 8.00 the filters use,
             // so the officer can see why a "CGPA >= 7.5" search matched them.
-            assertThat(row.get("cgpa").asDouble()).isEqualTo(4.00);
+            assertThat(row.get("verifiedCgpa").asDouble()).isEqualTo(4.00);
             assertThat(row.get("cgpaScale").asDouble()).isEqualTo(5.00);
             assertThat(row.get("normalisedCgpa").asDouble()).isEqualTo(8.00);
+            assertThat(row.get("reportedCgpa").isNull())
+                    .describedAs("the student gave no figure of their own")
+                    .isTrue();
 
             JsonNode chandra = readJson(get("/api/institution/students?q=chandra")
                     .header("Authorization", "Bearer " + officerToken))
                     .get("content").get(0);
-            assertThat(chandra.get("cgpa").isNull())
+            assertThat(chandra.get("verifiedCgpa").isNull())
                     .describedAs("a missing CGPA stays missing in the list too")
                     .isTrue();
         }
@@ -728,7 +732,7 @@ class StudentDiscoveryIntegrationTest {
             assertThat(anita.get("summary").get("resumeUploaded").asBoolean()).isTrue();
             assertThat(anita.get("skills").findValuesAsText("name"))
                     .containsExactlyInAnyOrder("Java", "Spring Boot");
-            assertThat(anita.get("cgpa").asDouble()).isEqualTo(8.50);
+            assertThat(anita.get("verifiedCgpa").asDouble()).isEqualTo(8.50);
             assertThat(anita.get("normalisedCgpa").asDouble()).isEqualTo(8.50);
         }
 
@@ -737,20 +741,37 @@ class StudentDiscoveryIntegrationTest {
         void missingCgpaIsHonest() throws Exception {
             JsonNode chandra = detail(chandraId, officerToken);
 
-            assertThat(chandra.get("cgpa").isNull()).isTrue();
+            assertThat(chandra.get("verifiedCgpa").isNull()).isTrue();
             assertThat(chandra.get("normalisedCgpa").isNull()).isTrue();
         }
 
         @Test
         @DisplayName("activity is newest first")
         void activityIsChronological() throws Exception {
-            JsonNode activity = detail(anitaId, officerToken).get("activity");
+            // Bhavesh uploaded two resumes, which is enough to have an order.
+            JsonNode activity = detail(bhaveshId, officerToken).get("activity");
 
             List<String> stamps = activity.findValuesAsText("at");
-            assertThat(stamps).hasSizeGreaterThanOrEqualTo(3);
+            assertThat(stamps).hasSizeGreaterThanOrEqualTo(2);
             assertThat(stamps).isSortedAccordingTo(Comparator.reverseOrder());
-            assertThat(activity.findValuesAsText("type"))
-                    .contains("JOB_APPLIED", "JOB_VIEWED", "RESUME_UPLOADED");
+            assertThat(activity.findValuesAsText("type")).containsOnly("RESUME_UPLOADED");
+        }
+
+        @Test
+        @DisplayName("activity never shows which jobs a student viewed, saved or applied to")
+        void activityCarriesNoJobInteractions() throws Exception {
+            // Anita viewed the posting and applied; Bhavesh saved it. Views are
+            // private, saves are private by default, and an Apply click is not a
+            // confirmed application — so neither coordinator sees any of it,
+            // not even the posting's title.
+            for (String token : List.of(officerToken, coordinatorToken)) {
+                for (UUID student : List.of(anitaId, bhaveshId)) {
+                    JsonNode detail = detail(student, token);
+                    assertThat(detail.get("activity").findValuesAsText("type"))
+                            .noneMatch(type -> type.startsWith("JOB_"));
+                    assertThat(detail.toString()).doesNotContain("Backend Engineer");
+                }
+            }
         }
 
         @Test
@@ -761,10 +782,10 @@ class StudentDiscoveryIntegrationTest {
             List<String> bhavesh = detail(bhaveshId, officerToken).get("activity")
                     .findValuesAsText("type");
 
-            // Anita applied and viewed; Bhavesh only saved. Neither may carry the
-            // other's events, however similar the two students look.
-            assertThat(anita).contains("JOB_APPLIED").doesNotContain("JOB_SAVED");
-            assertThat(bhavesh).contains("JOB_SAVED").doesNotContain("JOB_APPLIED");
+            // Anita uploaded one resume and Bhavesh two. Neither may carry the
+            // other's, however similar the two students look.
+            assertThat(anita).containsExactly("RESUME_UPLOADED");
+            assertThat(bhavesh).containsExactly("RESUME_UPLOADED", "RESUME_UPLOADED");
         }
 
         @Test

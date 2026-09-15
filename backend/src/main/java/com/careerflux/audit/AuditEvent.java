@@ -29,6 +29,18 @@ public class AuditEvent {
     @Column(name = "actor_user_id")
     private UUID actorUserId;
 
+    /** The actor's role when a person acted, so a reader never needs their address. */
+    @Column(name = "actor_role", length = 40)
+    private String actorRole;
+
+    /**
+     * The college this event belongs to, or null for the platform's own events.
+     * Decides who may read the row: a college reads its own, the Portal Admin
+     * reads the rows with none.
+     */
+    @Column(name = "institution_id")
+    private UUID institutionId;
+
     @Column(name = "action", nullable = false, length = 80)
     private String action;
 
@@ -65,6 +77,22 @@ public class AuditEvent {
 
     public void setActorUserId(UUID actorUserId) {
         this.actorUserId = actorUserId;
+    }
+
+    public String getActorRole() {
+        return actorRole;
+    }
+
+    public void setActorRole(String actorRole) {
+        this.actorRole = actorRole;
+    }
+
+    public UUID getInstitutionId() {
+        return institutionId;
+    }
+
+    public void setInstitutionId(UUID institutionId) {
+        this.institutionId = institutionId;
     }
 
     public String getAction() {

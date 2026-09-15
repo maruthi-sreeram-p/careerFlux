@@ -23,7 +23,6 @@ import com.careerflux.candidate.repository.CandidatePreferenceValueRepository;
 import com.careerflux.candidate.repository.CandidateProfileRepository;
 import com.careerflux.candidate.repository.CandidateSkillRepository;
 import com.careerflux.common.error.BadRequestException;
-import com.careerflux.common.error.NotFoundException;
 import com.careerflux.common.taxonomy.EmploymentType;
 import com.careerflux.common.taxonomy.WorkMode;
 import com.careerflux.discovery.dto.DiscoveryDtos.CandidatePage;
@@ -42,7 +41,7 @@ import com.careerflux.matching.service.CandidateSnapshot;
 import com.careerflux.matching.service.MatchScorer;
 import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.requirement.domain.RequirementStatus;
-import com.careerflux.requirement.repository.CompanyRequirementRepository;
+import com.careerflux.requirement.service.RequirementAccess;
 import com.careerflux.security.access.AccessGuard;
 import com.careerflux.security.access.AccessScope;
 import com.careerflux.shortlist.domain.PlacementStage;
@@ -72,6 +71,12 @@ import org.springframework.transaction.annotation.Transactional;
  * technically strongest candidate in a department disappearing behind a crude
  * academic filter before anyone looked at their skills.
  *
+ * <p><b>The requirement itself is checked first.</b> Both reads go through
+ * {@link RequirementAccess}, so a coordinator outside the departments a
+ * requirement targets is told it does not exist — the same answer the
+ * requirement's own page gives — rather than getting its company, role and
+ * conditions with an empty list of students underneath.
+ *
  * <p>Read-only. Discovery writes nothing — no match rows, no shortlist, no
  * notifications. Running it twice changes nothing.
  */
@@ -82,7 +87,7 @@ public class CandidateDiscoveryService {
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    private final CompanyRequirementRepository requirements;
+    private final RequirementAccess requirementAccess;
     private final UserRepository users;
     private final CandidateProfileRepository profiles;
     private final CandidateSkillRepository candidateSkills;
@@ -92,7 +97,7 @@ public class CandidateDiscoveryService {
     private final DiscoveryScope discoveryScope;
     private final ShortlistRepository shortlists;
 
-    public CandidateDiscoveryService(CompanyRequirementRepository requirements,
+    public CandidateDiscoveryService(RequirementAccess requirementAccess,
                                      UserRepository users,
                                      CandidateProfileRepository profiles,
                                      CandidateSkillRepository candidateSkills,
@@ -101,7 +106,7 @@ public class CandidateDiscoveryService {
                                      AccessGuard accessGuard,
                                      DiscoveryScope discoveryScope,
                                      ShortlistRepository shortlists) {
-        this.requirements = requirements;
+        this.requirementAccess = requirementAccess;
         this.users = users;
         this.profiles = profiles;
         this.candidateSkills = candidateSkills;
@@ -124,11 +129,10 @@ public class CandidateDiscoveryService {
         UUID institutionId = accessGuard.requireInstitutionId();
         AccessScope scope = accessGuard.scope();
 
-        // Loaded by id AND institution, so a requirement belonging to another
-        // college is never in memory to be discovered against.
-        CompanyRequirement requirement = requirements
-                .findByIdAndInstitutionId(requirementId, institutionId)
-                .orElseThrow(() -> NotFoundException.of("Company requirement", requirementId));
+        // Loaded by id AND institution, and refused outright to a coordinator
+        // outside its departments, so neither another college's requirement nor
+        // one this caller may not see is ever described here.
+        CompanyRequirement requirement = requirementAccess.visible(requirementId);
 
         if (requirement.getStatus() != RequirementStatus.OPEN) {
             throw new BadRequestException("Candidates can only be discovered for an open "
@@ -148,7 +152,8 @@ public class CandidateDiscoveryService {
         List<CandidateProfile> cohort = criteria.empty() ? List.of()
                 : profiles.findForDiscoveryScoped(criteria.institutionId(),
                         criteria.allDepartments(), criteria.departmentIds(),
-                        criteria.anyBatch(), criteria.graduationYear());
+                        criteria.anyBatch(), criteria.graduationYear(),
+                        criteria.anyGrantedBatch(), criteria.grantedBatchIds());
         List<CandidateView> scored = score(cohort, requirement, role, onShortlist);
 
         List<CandidateView> filtered = scored.stream()
@@ -216,9 +221,7 @@ public class CandidateDiscoveryService {
         UUID institutionId = accessGuard.requireInstitutionId();
         AccessScope scope = accessGuard.scope();
 
-        CompanyRequirement requirement = requirements
-                .findByIdAndInstitutionId(requirementId, institutionId)
-                .orElseThrow(() -> NotFoundException.of("Company requirement", requirementId));
+        CompanyRequirement requirement = requirementAccess.visible(requirementId);
 
         // Who is on the list and how far each has got, in one read. The
         // keys are exactly the old id set, so everything that asked

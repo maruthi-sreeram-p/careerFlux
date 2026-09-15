@@ -4,7 +4,9 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
+import com.careerflux.candidate.domain.CandidateCustomSkill;
 import com.careerflux.candidate.domain.CandidateEducation;
 import com.careerflux.candidate.domain.CandidateExperience;
 import com.careerflux.candidate.domain.CandidatePreferenceValue;
@@ -26,8 +28,16 @@ import org.springframework.stereotype.Component;
 @Component
 public class CandidateMapper {
 
+    /**
+     * The profile as its owner sees it.
+     *
+     * <p>Only ever built for the student themselves. Their private skills — the
+     * ones the shared dictionary does not know — appear here and in no staff
+     * view, alongside the dictionary skills and without a slug.
+     */
     public CandidateProfileResponse toResponse(CandidateProfile profile,
                                                List<CandidateSkill> skills,
+                                               List<CandidateCustomSkill> customSkills,
                                                List<CandidatePreferenceValue> preferenceValues,
                                                Resume resume) {
         return new CandidateProfileResponse(
@@ -46,7 +56,9 @@ public class CandidateMapper {
                 profile.getYearsExperience(),
                 profile.getOnboardingStage().name(),
                 profile.getProfileCompleteness(),
-                skills.stream().map(this::toSkillItem).toList(),
+                Stream.concat(
+                        skills.stream().map(this::toSkillItem),
+                        customSkills.stream().map(this::toSkillItem)).toList(),
                 profile.getExperiences().stream()
                         .sorted(Comparator.comparingInt(CandidateExperience::getDisplayOrder))
                         .map(this::toExperienceItem).toList(),
@@ -55,11 +67,12 @@ public class CandidateMapper {
                         .map(this::toEducationItem).toList(),
                 toPreferences(profile.getPreferences(), preferenceValues),
                 resume == null ? null : toResumeSummary(resume),
-                // Null when nobody has recorded one. The screen says "not
-                // provided" rather than showing a zero that looks measured.
-                profile.getCgpa(),
+                // Two figures, never one standing in for the other. Null means
+                // nobody recorded that one; the screen says so rather than
+                // showing a zero that looks measured.
+                profile.getReportedCgpa(),
+                profile.getVerifiedCgpa(),
                 profile.getCgpaScale(),
-                profile.getCgpaSource() == null ? null : profile.getCgpaSource().name(),
                 profile.getVerifiedCgpa() != null);
     }
 
@@ -73,6 +86,19 @@ public class CandidateMapper {
                 skill.getYears(),
                 skill.getOrigin().name(),
                 skill.getEvidence());
+    }
+
+    /** A private skill: no slug and no category, because it is not in the shared dictionary. */
+    public SkillItem toSkillItem(CandidateCustomSkill skill) {
+        return new SkillItem(
+                skill.getId(),
+                skill.getName(),
+                null,
+                null,
+                skill.getProficiency(),
+                skill.getYears(),
+                skill.getOrigin().name(),
+                null);
     }
 
     public ExperienceItem toExperienceItem(CandidateExperience experience) {

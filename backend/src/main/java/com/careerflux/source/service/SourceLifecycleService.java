@@ -86,7 +86,9 @@ public class SourceLifecycleService {
         sourceRepository.save(source);
         recordEvent(source, current, target, actor, reason);
 
-        log.info("Source {} moved {} -> {} by {} ({})", source.getId(), current, target, actor, reason);
+        // Who moved it is on the lifecycle event and the audit row; the actor is
+        // an address when a person did it, and the log is not the place for one.
+        log.info("Source {} moved {} -> {} ({})", source.getId(), current, target, reason);
         auditService.recordSystem(actor, "SOURCE_STATE_CHANGED", "JobSource", source.getId(),
                 current + " -> " + target + (TextUtils.hasText(reason) ? ": " + reason : ""));
         return source;

@@ -207,16 +207,22 @@ public class ProfileProposalBuilder {
                 held.add(skill.getSkill().getSlug());
             }
         }
+        for (com.careerflux.candidate.domain.CandidateCustomSkill own : profile.getCustomSkills()) {
+            held.add(PRIVATE + own.getNameKey());
+        }
 
         Set<String> seen = new LinkedHashSet<>();
         for (String raw : proposedNames) {
             if (!TextUtils.hasText(raw)) {
                 continue;
             }
-            Optional<Skill> resolved = skillResolver.resolve(raw);
+            // Looked up, never created. The dictionary is shared by every
+            // college, and a resume is the student's own document: resolving
+            // here used to add every unknown skill on it to the dictionary the
+            // moment it was uploaded, before the student had approved anything.
+            Optional<Skill> resolved = skillResolver.lookup(raw);
             if (resolved.isEmpty()) {
-                // Not in the dictionary. Offering it would promise something
-                // approval could not keep, so it is not offered.
+                privateSkill(raw, held, seen, items);
                 continue;
             }
             Skill skill = resolved.get();
@@ -243,6 +249,46 @@ public class ProfileProposalBuilder {
 
     private static int countNew(List<ProposedItem> items) {
         return (int) items.stream().filter(i -> i.state() == ProposalItemState.NEW).count();
+    }
+
+    /** Keeps a private skill's key apart from any dictionary slug, which cannot contain a colon. */
+    private static final String PRIVATE = "private:";
+
+    /**
+     * A skill the resume names that the shared dictionary does not know.
+     *
+     * <p>Offered as the student's own. If they accept it, it is kept on their
+     * profile only — never added to the dictionary, never shown to staff and
+     * never matched — which the note says, so they are not left to assume
+     * otherwise.
+     */
+    private static void privateSkill(String raw, Set<String> held, Set<String> seen,
+                                     List<ProposedItem> items) {
+        String name = SkillResolver.skillName(raw);
+        if (name == null) {
+            return;
+        }
+        String key = TextUtils.skillSlug(name);
+        if (key.isEmpty() || !seen.add(PRIVATE + key)) {
+            return;
+        }
+        boolean alreadyHeld = held.contains(PRIVATE + key);
+        if (!alreadyHeld && held.size() + countNew(items) >= MAX_SKILLS) {
+            return;
+        }
+        items.add(ProposedItem.of(
+                "skill:" + PRIVATE + key,
+                ProposalSection.SKILLS,
+                name,
+                alreadyHeld ? ProposalItemState.UNCHANGED : ProposalItemState.NEW,
+                alreadyHeld ? name : null,
+                name,
+                false,
+                Map.of("name", name),
+                alreadyHeld
+                        ? "Already on your profile."
+                        : "Kept on your profile only. CareerFlux does not recognise this skill, "
+                                + "so it is not used for matching."));
     }
 
     // ------------------------------------------------------------ experience

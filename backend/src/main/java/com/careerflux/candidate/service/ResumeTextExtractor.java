@@ -42,7 +42,10 @@ public class ResumeTextExtractor {
             };
             return new Result(normalize(text), format.name());
         } catch (IOException | RuntimeException ex) {
-            log.warn("Could not read {} as {}: {}", filename, format, ex.getMessage());
+            // Neither the filename nor the parser's message: a resume's filename is
+            // usually the student's name, and a parser can quote the document.
+            log.warn("Could not read an uploaded resume as {} ({} bytes): {}",
+                    format, content.length, ex.getClass().getSimpleName());
             throw new BadRequestException("That file could not be read. Try a PDF, DOCX or plain text resume.");
         }
     }

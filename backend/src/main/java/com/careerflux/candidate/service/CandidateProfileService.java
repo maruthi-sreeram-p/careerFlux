@@ -16,6 +16,7 @@ import java.util.UUID;
 
 import com.careerflux.ai.proposal.dto.ProposalDtos.ProposedItem;
 import com.careerflux.candidate.CandidateProfileChangedEvent;
+import com.careerflux.candidate.domain.CandidateCustomSkill;
 import com.careerflux.candidate.domain.CandidateEducation;
 import com.careerflux.candidate.domain.CandidateExperience;
 import com.careerflux.candidate.domain.CandidatePreferenceValue;
@@ -128,7 +129,7 @@ public class CandidateProfileService {
         Resume resume = resumeRepository
                 .findFirstByCandidateIdAndActiveTrueOrderByUploadedAtDesc(profile.getId())
                 .orElse(null);
-        return mapper.toResponse(profile, skills, values, resume);
+        return mapper.toResponse(profile, skills, profile.getCustomSkills(), values, resume);
     }
 
     @Transactional
@@ -156,6 +157,7 @@ public class CandidateProfileService {
         if (replacingCollections) {
             if (request.skills() != null) {
                 profile.getSkills().clear();
+                profile.getCustomSkills().clear();
             }
             if (request.experiences() != null) {
                 profile.getExperiences().clear();
@@ -278,7 +280,7 @@ public class CandidateProfileService {
             }
             boolean changed = switch (sectionOf(key)) {
                 case "field" -> applyField(profile, key.substring(6), value);
-                case "skill" -> addSkill(profile, item.data().get("slug"), origin);
+                case "skill" -> addSkill(profile, item.data(), value, origin);
                 case "experience" -> addExperience(profile, item.data());
                 case "education" -> addEducation(profile, item.data());
                 // "academic" and anything unrecognised reach here. The service
@@ -343,11 +345,24 @@ public class CandidateProfileService {
         return true;
     }
 
-    private boolean addSkill(CandidateProfile profile, String slug, SkillOrigin origin) {
-        if (!TextUtils.hasText(slug) || profile.getSkills().size() >= MAX_SKILLS) {
+    /**
+     * Adds one skill a student accepted from a resume reading.
+     *
+     * <p>A skill the dictionary knows is linked to it; one it does not is kept
+     * on this profile alone. Nothing here creates a dictionary entry: the
+     * dictionary is shared by every college, and a resume is the student's own.
+     */
+    private boolean addSkill(CandidateProfile profile, Map<String, String> data, String value,
+                             SkillOrigin origin) {
+        if (skillCount(profile) >= MAX_SKILLS) {
             return false;
         }
-        Optional<Skill> resolved = skillResolver.resolve(slug);
+        String slug = data == null ? null : data.get("slug");
+        if (!TextUtils.hasText(slug)) {
+            String name = data == null ? value : data.getOrDefault("name", value);
+            return addCustomSkill(profile, name, null, null, origin);
+        }
+        Optional<Skill> resolved = skillResolver.lookup(slug);
         if (resolved.isEmpty()) {
             return false;
         }
@@ -367,6 +382,49 @@ public class CandidateProfileService {
                 : "Read from your resume");
         profile.getSkills().add(candidateSkill);
         return true;
+    }
+
+    /**
+     * Keeps a skill the dictionary does not know on this profile, and nowhere
+     * else.
+     *
+     * <p>Not added to the dictionary, not shown to staff and not matched: it is
+     * the student's own record of themselves. Cleaned the way the dictionary
+     * cleans a name, so a sentence pasted into the skills box is not kept as
+     * one.
+     *
+     * @return whether anything was added; false for text that is not plausibly a
+     *         skill, or one the student already has
+     */
+    private boolean addCustomSkill(CandidateProfile profile, String raw, String proficiency,
+                                   BigDecimal years, SkillOrigin origin) {
+        String name = SkillResolver.skillName(raw);
+        if (name == null) {
+            return false;
+        }
+        String key = TextUtils.skillSlug(name);
+        if (key.isEmpty()) {
+            return false;
+        }
+        boolean held = profile.getCustomSkills().stream()
+                .anyMatch(existing -> key.equals(existing.getNameKey()));
+        if (held) {
+            return false;
+        }
+        CandidateCustomSkill own = new CandidateCustomSkill();
+        own.setCandidate(profile);
+        own.setName(name);
+        own.setNameKey(key);
+        own.setProficiency(TextUtils.truncate(trimToNull(proficiency), 24));
+        own.setYears(years);
+        own.setOrigin(origin == null ? SkillOrigin.MANUAL : origin);
+        profile.getCustomSkills().add(own);
+        return true;
+    }
+
+    /** Dictionary skills and private ones together, which is what the student sees. */
+    private static int skillCount(CandidateProfile profile) {
+        return profile.getSkills().size() + profile.getCustomSkills().size();
     }
 
     private boolean addExperience(CandidateProfile profile, Map<String, String> data) {
@@ -432,14 +490,31 @@ public class CandidateProfileService {
         profileRepository.save(profile);
     }
 
+    /**
+     * Replaces the student's skills with the list they submitted.
+     *
+     * <p>Each name is looked up in the shared dictionary and never added to it.
+     * A name it knows becomes a matched skill; a name it does not is kept on
+     * this profile only, so nothing a student types becomes data another college
+     * can see. Both kinds come back in the profile, so a client that sends the
+     * list back unchanged keeps both.
+     */
     private void replaceSkills(CandidateProfile profile, List<SkillItem> items) {
         Set<String> seen = new LinkedHashSet<>();
         for (SkillItem item : items) {
             if (seen.size() >= MAX_SKILLS) {
                 break;
             }
-            Optional<Skill> resolved = skillResolver.resolve(item.name());
-            if (resolved.isEmpty() || !seen.add(resolved.get().getSlug())) {
+            Optional<Skill> resolved = skillResolver.lookup(item.name());
+            if (resolved.isEmpty()) {
+                String name = SkillResolver.skillName(item.name());
+                if (name != null && seen.add("private:" + TextUtils.skillSlug(name))) {
+                    addCustomSkill(profile, name, item.proficiency(), item.years(),
+                            parseEnum(SkillOrigin.class, item.origin(), SkillOrigin.MANUAL));
+                }
+                continue;
+            }
+            if (!seen.add(resolved.get().getSlug())) {
                 continue;
             }
             CandidateSkill skill = new CandidateSkill();
@@ -683,7 +758,9 @@ public class CandidateProfileService {
         if (profile.getYearsExperience() != null) {
             score += 10;
         }
-        int skillCount = profile.getSkills().size();
+        // Private skills count too: completeness describes the student's own
+        // profile, and only the number — never the names — is visible to staff.
+        int skillCount = skillCount(profile);
         if (skillCount >= 8) {
             score += 20;
         } else if (skillCount >= 3) {

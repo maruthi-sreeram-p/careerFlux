@@ -14,7 +14,7 @@ import com.careerflux.common.error.NotFoundException;
 import com.careerflux.discovery.service.DiscoveryScope;
 import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.requirement.domain.RequirementStatus;
-import com.careerflux.requirement.repository.CompanyRequirementRepository;
+import com.careerflux.requirement.service.RequirementAccess;
 import com.careerflux.security.access.AccessGuard;
 import com.careerflux.security.access.AccessScope;
 import com.careerflux.shortlist.domain.PlacementStage;
@@ -48,7 +48,8 @@ import org.springframework.transaction.annotation.Transactional;
  * particular student theirs to decide about". A coordinator holds the first for
  * their whole college and the second only for their department, which is why
  * both are checked and why the scope check is the one that produces not-found
- * rather than forbidden.
+ * rather than forbidden. The requirement itself must be visible to them first,
+ * by the same rule its own page applies.
  *
  * <p><b>The stage and its history move together.</b> One transaction writes
  * both, so a rolled-back decision leaves no trace of having happened and a
@@ -64,12 +65,11 @@ public class PlacementWorkflowService {
     private static final Logger log = LoggerFactory.getLogger(PlacementWorkflowService.class);
 
     private static final String CANDIDATE = "Candidate";
-    private static final String REQUIREMENT = "Company requirement";
     private static final String PLACEMENT_RECORD = "Placement record";
 
     private final ShortlistRepository shortlists;
     private final PlacementStageChangeRepository stageChanges;
-    private final CompanyRequirementRepository requirements;
+    private final RequirementAccess requirementAccess;
     private final CandidateProfileRepository candidates;
     private final UserRepository users;
     private final DiscoveryScope discoveryScope;
@@ -78,7 +78,7 @@ public class PlacementWorkflowService {
 
     public PlacementWorkflowService(ShortlistRepository shortlists,
                                     PlacementStageChangeRepository stageChanges,
-                                    CompanyRequirementRepository requirements,
+                                    RequirementAccess requirementAccess,
                                     CandidateProfileRepository candidates,
                                     UserRepository users,
                                     DiscoveryScope discoveryScope,
@@ -86,7 +86,7 @@ public class PlacementWorkflowService {
                                     AuditService audit) {
         this.shortlists = shortlists;
         this.stageChanges = stageChanges;
-        this.requirements = requirements;
+        this.requirementAccess = requirementAccess;
         this.candidates = candidates;
         this.users = users;
         this.discoveryScope = discoveryScope;
@@ -271,12 +271,11 @@ public class PlacementWorkflowService {
     //
     // Deliberately the same checks, in the same order, as ShortlistService uses
     // for adding and removing. A drive that is closed does not accept decisions,
-    // and a candidate outside the caller's scope is not found.
+    // a requirement the caller may not see is not found, and neither is a
+    // candidate outside the caller's scope.
 
     private CompanyRequirement readableRequirement(UUID requirementId) {
-        UUID institutionId = accessGuard.requireInstitutionId();
-        return requirements.findByIdAndInstitutionId(requirementId, institutionId)
-                .orElseThrow(() -> NotFoundException.of(REQUIREMENT, requirementId));
+        return requirementAccess.visible(requirementId);
     }
 
     private CompanyRequirement openRequirement(UUID requirementId) {
