@@ -19,7 +19,8 @@ import org.junit.jupiter.api.Test;
 class MatchNarratorTest {
 
     private final MatchNarrator narrator = new MatchNarrator(new UnavailableAiClient(),
-            org.mockito.Mockito.mock(com.careerflux.ai.quota.AiQuotaService.class));
+            org.mockito.Mockito.mock(com.careerflux.ai.quota.AiQuotaService.class),
+            org.mockito.Mockito.mock(com.careerflux.ai.policy.AiProcessingPolicy.class));
 
     private static Job job() {
         Job job = new Job();

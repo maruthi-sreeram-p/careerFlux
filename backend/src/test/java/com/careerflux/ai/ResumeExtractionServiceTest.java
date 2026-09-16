@@ -23,7 +23,9 @@ class ResumeExtractionServiceTest {
      * stand-in here. Quota behaviour has its own tests.
      */
     private final ResumeExtractionService service = new ResumeExtractionService(
-            new UnavailableAiClient(), org.mockito.Mockito.mock(AiQuotaService.class));
+            new UnavailableAiClient(), org.mockito.Mockito.mock(AiQuotaService.class),
+            org.mockito.Mockito.mock(com.careerflux.ai.policy.AiProcessingPolicy.class), new ResumeRedactor(),
+            org.mockito.Mockito.mock(com.careerflux.candidate.repository.CandidateProfileRepository.class));
 
     private static final java.util.UUID USER = java.util.UUID.randomUUID();
 

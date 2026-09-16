@@ -8,7 +8,11 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.careerflux.ai.dto.AiResumeReading;
 import com.careerflux.ai.dto.ExtractedResume;
+import com.careerflux.ai.policy.AiProcessingPolicy;
+import com.careerflux.ai.policy.AiPurpose;
+import com.careerflux.candidate.repository.CandidateProfileRepository;
 import com.careerflux.common.TextUtils;
 import com.careerflux.ai.quota.AiQuotaService;
 import com.careerflux.ai.quota.QuotaDecision;
@@ -27,14 +31,36 @@ import org.springframework.stereotype.Service;
  * regular expressions. The fallback is genuinely weaker, and the result says so,
  * so the onboarding screen can tell the candidate that more manual correction is
  * expected instead of quietly presenting a thin profile as a good one.
+ *
+ * <p><b>Nothing reaches the model without consent, and nothing identifying
+ * reaches it at all.</b> {@link AiProcessingPolicy} is asked first, before any AI
+ * allowance is spent; a student who has not agreed to AI processing is read by
+ * the local parser, and the upload succeeds exactly as it would with AI switched
+ * off. When the model is used, it receives the text only after
+ * {@link ResumeRedactor} has removed contact details, links, identity numbers
+ * and the student's name, and only then is it shortened to fit. Contact details
+ * the profile does use are read locally from the original text, never by the
+ * model.
  */
 @Service
 public class ResumeExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(ResumeExtractionService.class);
 
-    private static final String SYSTEM_PROMPT = """
-            You read resumes and return structured data about the candidate.
+    /** The most text a model is sent, applied to the redacted text. */
+    static final int MODEL_TEXT_LIMIT = 24_000;
+
+    static final String AI_NOT_PERMITTED_NOTICE = "AI processing is off for your account, so your resume was "
+            + "read on CareerFlux with a simpler parser and was not sent to an AI provider. Please check the "
+            + "suggestions carefully. You can turn AI processing on in your privacy settings.";
+
+    static final String SYSTEM_PROMPT = """
+            You read resumes and return structured data about a candidate's work, education and skills.
+
+            Personal details were removed from the text before you received it. Placeholders such as
+            [CANDIDATE], [EMAIL], [PHONE], [LINK], [ADDRESS], [ID], [DATE OF BIRTH] and [FILE] stand where
+            they were. Never try to work out what a placeholder replaced, and never copy a placeholder into
+            any field.
 
             Rules:
             - Only report what the resume actually says. Never invent an employer, a date, a school or a skill.
@@ -45,7 +71,8 @@ public class ResumeExtractionService {
               unless they are the only experience. Use null if it cannot be determined.
             - startDate and endDate: ISO format YYYY-MM-DD, or YYYY-MM when only month precision is stated,
               or null. Set current=true for the present role rather than inventing an end date.
-            - summary: 2-3 sentences in the candidate's own terms. Do not editorialise or flatter.
+            - summary: 2-3 sentences about the candidate's work, without naming anyone. Do not editorialise
+              or flatter.
             """;
 
     private static final Pattern EMAIL = Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.]{2,}");
@@ -68,10 +95,17 @@ public class ResumeExtractionService {
 
     private final AiClient aiClient;
     private final AiQuotaService quotaService;
+    private final AiProcessingPolicy policy;
+    private final ResumeRedactor redactor;
+    private final CandidateProfileRepository profiles;
 
-    public ResumeExtractionService(AiClient aiClient, AiQuotaService quotaService) {
+    public ResumeExtractionService(AiClient aiClient, AiQuotaService quotaService, AiProcessingPolicy policy,
+                                   ResumeRedactor redactor, CandidateProfileRepository profiles) {
         this.aiClient = aiClient;
         this.quotaService = quotaService;
+        this.policy = policy;
+        this.redactor = redactor;
+        this.profiles = profiles;
     }
 
     public boolean isAiAvailable() {
@@ -98,54 +132,91 @@ public class ResumeExtractionService {
             return new Extraction(emptyResume(), false, "heuristic",
                     "No readable text was found in that file.");
         }
-        String text = trimForModel(resumeText);
-
-        if (aiClient.isAvailable()) {
-            // Charged before the call and refunded if the call itself fails.
-            // The other order would let a student spend the model and only then
-            // discover they had nothing left to spend.
-            QuotaDecision decision = quotaService.tryConsume(userId);
-            if (!decision.allowed()) {
-                return new Extraction(heuristic(resumeText), false, "heuristic",
-                        decision.message() + " This profile was read with a simpler parser, "
-                                + "so please check it carefully.");
-            }
-            try {
-                ExtractedResume extracted = aiClient.structured(SYSTEM_PROMPT,
-                        "Resume text:\n\n" + text, ExtractedResume.class);
-                return new Extraction(merge(extracted, resumeText), true, aiClient.modelName(), null);
-            } catch (AiUnavailableException ex) {
-                quotaService.refund(userId);
-                log.warn("Resume extraction fell back to heuristics: {}", ex.getMessage());
-                return new Extraction(heuristic(resumeText), false, "heuristic",
-                        "AI extraction was unavailable, so this profile was read with a simpler parser. "
-                                + "Please check it carefully.");
-            }
+        if (!aiClient.isAvailable()) {
+            return new Extraction(heuristic(resumeText), false, "heuristic",
+                    "AI is not configured, so this profile was read with a simpler parser. "
+                            + "Please check it carefully.");
         }
-        return new Extraction(heuristic(resumeText), false, "heuristic",
-                "AI is not configured, so this profile was read with a simpler parser. "
-                        + "Please check it carefully.");
+        // Consent first: before any allowance is spent and before anything is
+        // prepared for the provider. Asked now, not when the upload started.
+        if (!policy.mayProcess(userId, AiPurpose.RESUME_EXTRACTION)) {
+            return new Extraction(heuristic(resumeText), false, "heuristic", AI_NOT_PERMITTED_NOTICE);
+        }
+        // Charged before the call and refunded if the call itself fails.
+        // The other order would let a student spend the model and only then
+        // discover they had nothing left to spend.
+        QuotaDecision decision = quotaService.tryConsume(userId);
+        if (!decision.allowed()) {
+            return new Extraction(heuristic(resumeText), false, "heuristic",
+                    decision.message() + " This profile was read with a simpler parser, "
+                            + "so please check it carefully.");
+        }
+        // Redacted first and shortened second. Shortening first could cut an
+        // address or a number in half and leave a fragment no pattern recognises.
+        String sanitized = trimForModel(redactor.redact(resumeText, knownIdentity(userId)));
+        try {
+            AiResumeReading reading = aiClient.structured(SYSTEM_PROMPT,
+                    "Resume text:\n\n" + sanitized, AiResumeReading.class);
+            return new Extraction(merge(reading, resumeText), true, aiClient.modelName(), null);
+        } catch (AiUnavailableException ex) {
+            quotaService.refund(userId);
+            log.warn("Resume extraction fell back to the local parser ({})", ex.getClass().getSimpleName());
+            return new Extraction(heuristic(resumeText), false, "heuristic",
+                    "AI extraction was unavailable, so this profile was read with a simpler parser. "
+                            + "Please check it carefully.");
+        }
     }
 
-    /** Fills anything the model left null using the deterministic extractor. */
-    private ExtractedResume merge(ExtractedResume model, String rawText) {
-        ExtractedResume fallback = heuristic(rawText);
+    /** What the account already knows, so the redactor can find it in the text. */
+    private ResumeRedactor.KnownIdentity knownIdentity(java.util.UUID userId) {
+        if (userId == null) {
+            return ResumeRedactor.KnownIdentity.none();
+        }
+        return profiles.findKnownIdentityByUserId(userId)
+                .map(known -> new ResumeRedactor.KnownIdentity(known.getFullName(), known.getEmail(),
+                        known.getPhone()))
+                .orElse(ResumeRedactor.KnownIdentity.none());
+    }
+
+    /**
+     * The model's reading of the work, with contact details from the local parser.
+     *
+     * <p>The model never saw the student's name, email, phone, location or links,
+     * so those come from the deterministic extractor reading the original text on
+     * this server. A value the model built around a placeholder is dropped rather
+     * than proposed to the student with "[CANDIDATE]" in it.
+     */
+    private ExtractedResume merge(AiResumeReading model, String rawText) {
+        ExtractedResume local = heuristic(rawText);
         return new ExtractedResume(
-                firstNonBlank(model.fullName(), fallback.fullName()),
-                firstNonBlank(model.email(), fallback.email()),
-                firstNonBlank(model.phone(), fallback.phone()),
-                firstNonBlank(model.location(), fallback.location()),
-                firstNonBlank(model.headline(), fallback.headline()),
-                firstNonBlank(model.summary(), fallback.summary()),
-                firstNonBlank(model.primaryRole(), fallback.primaryRole()),
-                firstNonBlank(model.seniority(), fallback.seniority()),
-                model.yearsExperience() != null ? model.yearsExperience() : fallback.yearsExperience(),
-                firstNonBlank(model.linkedinUrl(), fallback.linkedinUrl()),
-                firstNonBlank(model.githubUrl(), fallback.githubUrl()),
-                firstNonBlank(model.portfolioUrl(), fallback.portfolioUrl()),
-                isEmpty(model.skills()) ? fallback.skills() : model.skills(),
-                isEmpty(model.experiences()) ? fallback.experiences() : model.experiences(),
-                isEmpty(model.education()) ? fallback.education() : model.education());
+                local.fullName(),
+                local.email(),
+                local.phone(),
+                local.location(),
+                firstNonBlank(withoutPlaceholder(model.headline()), local.headline()),
+                firstNonBlank(withoutPlaceholder(model.summary()), local.summary()),
+                firstNonBlank(withoutPlaceholder(model.primaryRole()), local.primaryRole()),
+                firstNonBlank(withoutPlaceholder(model.seniority()), local.seniority()),
+                model.yearsExperience() != null ? model.yearsExperience() : local.yearsExperience(),
+                local.linkedinUrl(),
+                local.githubUrl(),
+                local.portfolioUrl(),
+                isEmpty(model.skills()) ? local.skills() : model.skills().stream()
+                        .filter(skill -> withoutPlaceholder(skill) != null).toList(),
+                isEmpty(model.experiences()) ? local.experiences() : model.experiences(),
+                isEmpty(model.education()) ? local.education() : model.education());
+    }
+
+    private static String withoutPlaceholder(String value) {
+        if (value == null) {
+            return null;
+        }
+        for (String placeholder : ResumeRedactor.PLACEHOLDERS) {
+            if (value.contains(placeholder)) {
+                return null;
+            }
+        }
+        return value;
     }
 
     /** Regex-based extraction. Finds contact details and known skill terms; nothing more. */
@@ -267,7 +338,7 @@ public class ResumeExtractionService {
 
     private String trimForModel(String text) {
         // Two-page resumes fit comfortably; anything beyond this is boilerplate.
-        return TextUtils.truncate(text, 24_000);
+        return TextUtils.truncate(text, MODEL_TEXT_LIMIT);
     }
 
     private static String firstNonBlank(String preferred, String fallback) {

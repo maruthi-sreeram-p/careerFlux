@@ -1063,3 +1063,56 @@ export interface CompanyDiscoveryResult {
   alreadyKnown: string[];
   withoutBoard: string[];
 }
+
+/* ------------------------------------------------ Consent, export, erasure */
+
+export type ConsentPurpose = 'PRIVACY_NOTICE' | 'RESUME_PROCESSING' | 'AI_PROCESSING';
+
+/** One published version of a notice, exactly as it is shown. */
+export interface NoticeView {
+  id: string;
+  purpose: ConsentPurpose;
+  version: string;
+  effectiveFrom: string;
+  checksum: string;
+  /** Engineering placeholder text, not approved wording. */
+  placeholder: boolean;
+  body: string;
+}
+
+export interface ConsentEvent {
+  id: string;
+  purpose: ConsentPurpose;
+  action: 'ACCEPTED' | 'WITHDRAWN';
+  noticeVersionId: string;
+  noticeVersion: string;
+  source: string;
+  at: string;
+}
+
+export interface PurposeState {
+  purpose: ConsentPurpose;
+  currentNotice: NoticeView;
+  active: boolean;
+  /** Agreed to an older notice; the current text has not been agreed to. */
+  reconsentRequired: boolean;
+  latest: ConsentEvent | null;
+}
+
+export interface ConsentOverview {
+  purposes: PurposeState[];
+  history: ConsentEvent[];
+}
+
+export type ErasureStatus = 'GRACE_PERIOD' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+
+export interface ErasureView {
+  id: string;
+  status: ErasureStatus;
+  requestedByRole: string;
+  requestedAt: string;
+  graceEndsAt: string;
+  cancellable: boolean;
+  cancelledAt: string | null;
+  completedAt: string | null;
+}

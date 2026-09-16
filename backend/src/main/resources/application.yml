@@ -57,6 +57,15 @@ spring:
       acks: all
       retries: 3
   ai:
+    # One attempt per provider call, no silent retries inside the client.
+    #
+    # Spring AI can retry a failed call for minutes on its own. A retry there
+    # happens after the consent gate has already said yes, so a student who
+    # withdrew AI consent during that window would still be sent. With retries
+    # left to the application, every attempt goes back through
+    # AiProcessingPolicy first.
+    retry:
+      max-attempts: 1
     model:
       # Pinned off by default so the application boots without an API key.
       # AiEnablementEnvironmentPostProcessor flips this to `google-genai`
@@ -200,6 +209,44 @@ careerflux:
   # Left at the default here so behaviour is unchanged from before the switch
   # existed. A pilot that must not move at all should set this to false.
   background-work-enabled: true
+  # Student data retention. Product and engineering policy values chosen for the
+  # pilot, not statements of what any law requires. Changing them is a
+  # configuration change. See RetentionProperties.
+  retention:
+    # TRUE UNTIL VERIFIED. The nightly run reports what it would remove and
+    # removes nothing: no extracted text, no resume versions, no orphan files and
+    # no due erasures. Set to false only after checking every value below against
+    # this deployment. A student deleting their own resume does not wait for it.
+    dry-run: ${CAREERFLUX_RETENTION_DRY_RUN:true}
+    # Extracted resume text is removed as soon as the proposal read from it is
+    # answered; this is the most it is kept when that never happens.
+    extracted-text-max-age: P30D
+    # The active resume is always kept, plus this many superseded versions.
+    superseded-resume-versions-kept: 2
+    # How long an erasure request can be cancelled before it is carried out.
+    erasure-grace-period: P30D
+    # An unreferenced file must be this old before it counts as orphaned, so an
+    # upload that is still being written is never swept.
+    orphan-file-min-age: PT24H
+    batch-size: 200
+    cron: "0 20 2 * * *"
+    # Backups are NOT covered here. A deletion or erasure removes data from the
+    # live database and resume store; copies inside a backup window remain until
+    # that backup expires, and restoring one brings them back. The Compose backup
+    # script keeps 14 days (CAREERFLUX_BACKUP_KEEP_DAYS). Render's database and
+    # disk backup retention is set on the Render plan and must be recorded by
+    # operations; it is not configured or assumed by this application.
+  consent:
+    # Which notice version is current per purpose, naming a file under
+    # resources/notices/<purpose>/<version>.md. The shipped versions are
+    # engineering placeholders, not approved wording.
+    notice-versions:
+      PRIVACY_NOTICE: engineering-placeholder-1
+      RESUME_PROCESSING: engineering-placeholder-1
+      AI_PROCESSING: engineering-placeholder-1
+    # When a newer notice becomes current, consent to an older one stops counting
+    # until the student agrees to the new text.
+    require-current-notice-version: true
   ingestion:
     # The in-process bus is the default transport. Run with the `kafka` profile
     # to route the exact same pipeline events through Spring Kafka instead.

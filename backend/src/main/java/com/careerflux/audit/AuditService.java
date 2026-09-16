@@ -79,6 +79,16 @@ public class AuditService {
     }
 
     /**
+     * Scheduled work carried out on one account, such as completing its erasure.
+     * Nobody is signed in and nobody is named; the event belongs to the account's
+     * college, so that college's trail shows it.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordSystemAbout(User account, String action, String entityType, Object entityId, String detail) {
+        save(SYSTEM, null, null, account.getInstitutionId(), action, entityType, entityId, detail);
+    }
+
+    /**
      * Work nobody is signed in for, such as a scheduled check. When a person is
      * signed in after all, they are the actor: a name passed in never outranks
      * the session.

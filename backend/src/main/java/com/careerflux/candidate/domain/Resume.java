@@ -71,6 +71,10 @@ public class Resume {
     @Column(name = "parsed_at")
     private Instant parsedAt;
 
+    /** When {@link #extractedText} was removed on purpose; null while it is still held (V23). */
+    @Column(name = "text_dropped_at")
+    private Instant textDroppedAt;
+
     public UUID getId() {
         return id;
     }
@@ -177,5 +181,28 @@ public class Resume {
 
     public void setParsedAt(Instant parsedAt) {
         this.parsedAt = parsedAt;
+    }
+
+    public Instant getTextDroppedAt() {
+        return textDroppedAt;
+    }
+
+    /**
+     * Removes the extracted text, once.
+     *
+     * <p>The text exists to build the proposal a student reviews. When that
+     * proposal is answered, or the configured maximum age passes, nothing needs it
+     * and it is the whole resume in plain text, so it goes. The file itself is a
+     * separate question, answered by version retention and by deletion.
+     *
+     * @return whether anything changed; false when it was already removed
+     */
+    public boolean dropExtractedText(Instant at) {
+        if (textDroppedAt != null) {
+            return false;
+        }
+        this.extractedText = null;
+        this.textDroppedAt = at;
+        return true;
     }
 }

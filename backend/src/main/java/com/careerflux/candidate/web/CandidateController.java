@@ -18,7 +18,10 @@ import com.careerflux.ai.proposal.dto.ProposalDtos.ApprovalRequest;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ProposalSummary;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ProposalView;
 import com.careerflux.ai.proposal.dto.ProposalDtos.ReviewResult;
+import com.careerflux.candidate.service.ResumeDeletionService;
 import com.careerflux.candidate.service.ResumeService;
+import com.careerflux.privacy.erasure.AccountErasureService;
+import com.careerflux.privacy.erasure.AccountErasureService.ErasureView;
 import com.careerflux.security.CurrentUser;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,6 +34,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -62,19 +66,25 @@ public class CandidateController {
     private final CurrentUser currentUser;
 
     private final AcademicRecordService academicRecords;
+    private final ResumeDeletionService resumeDeletion;
+    private final AccountErasureService erasures;
 
     public CandidateController(CandidateProfileService profileService,
                                AcademicRecordService academicRecords,
                                ResumeService resumeService,
                                ProfileProposalService proposalService,
                                CandidateMapper mapper,
-                               CurrentUser currentUser) {
+                               CurrentUser currentUser,
+                               ResumeDeletionService resumeDeletion,
+                               AccountErasureService erasures) {
         this.profileService = profileService;
         this.academicRecords = academicRecords;
         this.resumeService = resumeService;
         this.proposalService = proposalService;
         this.mapper = mapper;
         this.currentUser = currentUser;
+        this.resumeDeletion = resumeDeletion;
+        this.erasures = erasures;
     }
 
     @GetMapping("/profile")
@@ -182,6 +192,39 @@ public class CandidateController {
                 // turning somebody else's malformed header into a 500.
                 .contentType(safeMediaType(resume.contentType()))
                 .body(new ByteArrayResource(resume.content()));
+    }
+
+    /**
+     * Deletes one of the student's own resumes: the file, the record, its
+     * extracted text and any proposal read from it. The profile, including fields
+     * already approved from it, and placement history are untouched.
+     */
+    @DeleteMapping("/resumes/{resumeId}")
+    @Operation(summary = "Delete one of your own resumes")
+    public ResponseEntity<Void> deleteResume(@PathVariable UUID resumeId) {
+        resumeDeletion.deleteOwn(currentUser.requireId(), resumeId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ---------------------------------------------------------------- erasure
+
+    @GetMapping("/erasure")
+    @Operation(summary = "Your latest account erasure request, if any")
+    public ResponseEntity<ErasureView> erasureStatus() {
+        return erasures.statusForSelf(currentUser.requireId()).map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/erasure")
+    @Operation(summary = "Ask for your account to be erased after the grace period")
+    public ErasureView requestErasure() {
+        return erasures.requestBySelf(currentUser.requireId());
+    }
+
+    @PostMapping("/erasure/cancel")
+    @Operation(summary = "Cancel your erasure request during its grace period")
+    public ErasureView cancelErasure() {
+        return erasures.cancelBySelf(currentUser.requireId());
     }
 
     private static MediaType safeMediaType(String declared) {

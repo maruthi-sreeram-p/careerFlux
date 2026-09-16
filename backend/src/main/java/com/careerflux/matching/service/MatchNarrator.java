@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import com.careerflux.ai.AiClient;
+import com.careerflux.ai.policy.AiProcessingPolicy;
+import com.careerflux.ai.policy.AiPurpose;
 import com.careerflux.ai.quota.AiQuotaService;
 import com.careerflux.common.TextUtils;
 import com.careerflux.common.error.AiUnavailableException;
@@ -44,10 +46,12 @@ public class MatchNarrator {
 
     private final AiClient aiClient;
     private final AiQuotaService quotaService;
+    private final AiProcessingPolicy policy;
 
-    public MatchNarrator(AiClient aiClient, AiQuotaService quotaService) {
+    public MatchNarrator(AiClient aiClient, AiQuotaService quotaService, AiProcessingPolicy policy) {
         this.aiClient = aiClient;
         this.quotaService = quotaService;
+        this.policy = policy;
     }
 
     /**
@@ -66,6 +70,11 @@ public class MatchNarrator {
         if (!aiClient.isAvailable()) {
             return new Narrative(rulesText, RULES_ENGINE);
         }
+        // Asked when the narrative is written, which for a queued or retried
+        // rematch is when that work runs, and before any allowance is charged.
+        if (!policy.mayProcess(candidate.userId(), AiPurpose.MATCH_NARRATIVE)) {
+            return new Narrative(rulesText, RULES_ENGINE);
+        }
         if (!quotaService.tryConsume(candidate.userId()).allowed()) {
             return new Narrative(rulesText, RULES_ENGINE);
         }
@@ -75,7 +84,7 @@ public class MatchNarrator {
             return new Narrative(TextUtils.truncate(generated, 2000), aiClient.modelName());
         } catch (AiUnavailableException ex) {
             quotaService.refund(candidate.userId());
-            log.debug("Falling back to the rules narrative: {}", ex.getMessage());
+            log.debug("Falling back to the rules narrative ({})", ex.getClass().getSimpleName());
             return new Narrative(rulesText, RULES_ENGINE);
         }
     }

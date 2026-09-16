@@ -19,6 +19,7 @@ import com.careerflux.shortlist.domain.ShortlistEntry;
 import com.careerflux.shortlist.repository.ShortlistRepository;
 import com.careerflux.user.Permission;
 import com.careerflux.user.UserRepository;
+import com.careerflux.user.UserStatus;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,6 +96,11 @@ public class ShortlistService {
         accessGuard.requirePermission(Permission.PLACEMENT_SHORTLIST_MANAGE);
         CompanyRequirement requirement = openRequirement(requirementId);
         CandidateProfile candidate = candidateInScope(requirement, candidateId);
+        // An erased account keeps its placement history, but it is nobody who can
+        // be put forward for a drive. Not found, as for anyone else out of reach.
+        if (candidate.getUser() != null && candidate.getUser().getStatus() == UserStatus.ERASED) {
+            throw NotFoundException.of("Candidate", candidateId);
+        }
 
         if (shortlists.findByRequirementIdAndCandidateId(requirementId, candidateId).isPresent()) {
             throw new ConflictException("This candidate is already on the shortlist.");

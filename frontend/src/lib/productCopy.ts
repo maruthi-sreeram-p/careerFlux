@@ -11,22 +11,39 @@ import type { NotificationView } from './types';
 
 /**
  * Said wherever a student reads about what happens to their data. Account
- * deletion does not exist yet (Decision 14), so nothing may promise it, and
- * the deletion policy itself is not decided here.
+ * erasure exists (Phase 2B), so it is described, but only as far as it is true
+ * in every deployment: nothing is removed during a 30-day grace period and the
+ * request can be cancelled. When it is carried out depends on the retention
+ * worker, which may be running in dry-run mode, so no sentence promises a date,
+ * immediate removal, or removal from backups.
  */
-const DELETION_NOT_YET_AVAILABLE = 'Self-service account deletion is not available yet.';
+const ERASURE_AVAILABLE =
+  'You can ask for your account to be erased from your profile. Nothing is removed for 30 days, so you can change your mind.';
 
 /** The landing page footnote. It used to promise that deletion took the derived data with it. */
-export const LANDING_FOOTNOTE = `Free while in development. Your resume stays yours. ${DELETION_NOT_YET_AVAILABLE}`;
+export const LANDING_FOOTNOTE = `Free while in development. Your resume stays yours. ${ERASURE_AVAILABLE}`;
 
 /** Under the registration form. It used to promise that deletion removed the resume. */
-export const REGISTER_PRIVACY_NOTE = `Your resume and profile are treated as sensitive data. ${DELETION_NOT_YET_AVAILABLE}`;
+export const REGISTER_PRIVACY_NOTE = `Your resume and profile are treated as sensitive data. ${ERASURE_AVAILABLE}`;
 
-/** What the profile screen says happens to an uploaded resume. */
+/**
+ * What the profile screen says happens to an uploaded resume. The text is removed
+ * when its suggestions are answered, which happens immediately; the 30-day
+ * maximum is enforced by the retention worker and is not promised here.
+ */
 export const RESUME_HANDLING: readonly string[] = [
   'The file is stored on disk under a generated name. The name you uploaded is kept for display only.',
-  'The extracted text is used to build your profile, which you always get to correct.',
-  DELETION_NOT_YET_AVAILABLE,
+  'Its text is read only to suggest profile updates you review, and is removed once you answer them.',
+  'It is sent to an AI provider only if you turn AI processing on, with your name, contact details and links removed first.',
+  'Previous resumes stay on record, and you can delete any of them.',
+];
+
+/** What erasing an account does, shown before a student asks for it. */
+export const ERASURE_EXPLANATION: readonly string[] = [
+  'Nothing is removed during a 30-day grace period, and you can cancel the request until it is carried out.',
+  'When it is carried out, your name, contact details, resumes, skills, education, experience, preferences and job activity are removed, and you can no longer sign in.',
+  'Your college keeps its placement records about you, with your name removed.',
+  'Copies inside existing backups are removed only when those backups expire.',
 ];
 
 /**

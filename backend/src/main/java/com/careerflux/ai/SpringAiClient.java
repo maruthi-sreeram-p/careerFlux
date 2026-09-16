@@ -17,6 +17,11 @@ import org.springframework.ai.chat.model.ChatModel;
  * <p>Every failure is converted into {@link AiUnavailableException} so callers
  * have exactly one thing to catch, and the provider's exception types never leak
  * past this class.
+ *
+ * <p><b>Nor do their messages.</b> A provider's error can quote the request it
+ * failed on, and the request is a student's resume. Failures are logged by
+ * exception class alone, and the provider's exception is not attached as a
+ * cause, so no later stack trace can print its message either.
  */
 public class SpringAiClient implements AiClient {
 
@@ -39,7 +44,7 @@ public class SpringAiClient implements AiClient {
                 return options.getModel();
             }
         } catch (RuntimeException ex) {
-            log.debug("Could not read model name from options: {}", ex.getMessage());
+            log.debug("Could not read model name from options ({})", ex.getClass().getSimpleName());
         }
         return chatModel.getClass().getSimpleName();
     }
@@ -71,8 +76,8 @@ public class SpringAiClient implements AiClient {
         } catch (AiUnavailableException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            log.warn("Structured AI call for {} failed: {}", type.getSimpleName(), ex.getMessage());
-            throw new AiUnavailableException("The AI service could not complete that request.", ex);
+            log.warn("Structured AI call for {} failed ({})", type.getSimpleName(), ex.getClass().getName());
+            throw new AiUnavailableException("The AI service could not complete that request.");
         }
     }
 
@@ -93,8 +98,8 @@ public class SpringAiClient implements AiClient {
         } catch (AiUnavailableException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            log.warn("Text AI call failed: {}", ex.getMessage());
-            throw new AiUnavailableException("The AI service could not complete that request.", ex);
+            log.warn("Text AI call failed ({})", ex.getClass().getName());
+            throw new AiUnavailableException("The AI service could not complete that request.");
         }
     }
 

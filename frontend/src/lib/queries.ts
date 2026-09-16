@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { api, queryString } from './api';
+import { api, queryString, tokenStore } from './api';
+import { exportFileName } from './privacy';
 import type {
   AcademicRecord,
   AdapterInfo,
   CandidateProfile,
+  ConsentOverview,
+  ConsentPurpose,
+  ErasureView,
+  ResumeSummary,
   DashboardResponse,
   CandidatePage,
   CompanyDiscoveryResult,
@@ -60,6 +65,10 @@ export const keys = {
   unreadCount: ['notifications', 'unread'] as const,
   systemStats: ['admin', 'stats'] as const,
   pendingProposal: ['candidate', 'resume-proposal', 'pending'] as const,
+  resumes: ['candidate', 'resumes'] as const,
+  consents: ['candidate', 'consents'] as const,
+  erasure: ['candidate', 'erasure'] as const,
+  studentErasure: (userId: string) => ['institution', 'students', userId, 'erasure'] as const,
 };
 
 /* ------------------------------------------------------------- Dashboard */
@@ -793,4 +802,148 @@ export function useUpdateStudentAcademics() {
       queryClient.invalidateQueries({ queryKey: ['shortlist'] });
     },
   });
+}
+
+/* --------------------------------------------- Privacy: resumes, consent, erasure */
+
+/** Every resume the student has uploaded, newest first. */
+export function useResumes() {
+  return useQuery({
+    queryKey: keys.resumes,
+    queryFn: ({ signal }) => api.get<ResumeSummary[]>('/api/candidate/resumes', signal),
+  });
+}
+
+/** Deletes one of the student's own resumes: file, record, text and any reading from it. */
+export function useDeleteResume() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (resumeId: string) => api.delete<void>(`/api/candidate/resumes/${resumeId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.resumes });
+      queryClient.invalidateQueries({ queryKey: keys.profile });
+      queryClient.invalidateQueries({ queryKey: keys.pendingProposal });
+      queryClient.invalidateQueries({ queryKey: keys.dashboard });
+    },
+  });
+}
+
+const PURPOSE_PATH: Record<ConsentPurpose, string> = {
+  PRIVACY_NOTICE: 'privacy-notice',
+  RESUME_PROCESSING: 'resume-processing',
+  AI_PROCESSING: 'ai-processing',
+};
+
+/** Current notices, what the student has agreed to, and their consent history. */
+export function useConsents() {
+  return useQuery({
+    queryKey: keys.consents,
+    queryFn: ({ signal }) => api.get<ConsentOverview>('/api/consents', signal),
+  });
+}
+
+export function useAcceptConsent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ purpose, noticeVersionId }: { purpose: ConsentPurpose; noticeVersionId: string }) =>
+      api.post<ConsentOverview>(`/api/consents/${PURPOSE_PATH[purpose]}/accept`, {
+        noticeVersionId,
+        source: 'SETTINGS',
+      }),
+    onSuccess: (overview) => queryClient.setQueryData(keys.consents, overview),
+  });
+}
+
+/** Withdrawing AI consent also removes unanswered AI readings, so the pending review is refreshed too. */
+export function useWithdrawConsent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (purpose: ConsentPurpose) =>
+      api.post<ConsentOverview>(`/api/consents/${PURPOSE_PATH[purpose]}/withdraw`, { source: 'SETTINGS' }),
+    onSuccess: (overview) => {
+      queryClient.setQueryData(keys.consents, overview);
+      queryClient.invalidateQueries({ queryKey: keys.pendingProposal });
+    },
+  });
+}
+
+/** The student's latest erasure request, or undefined when there has never been one. */
+export function useErasure() {
+  return useQuery({
+    queryKey: keys.erasure,
+    queryFn: ({ signal }) => api.get<ErasureView | undefined>('/api/candidate/erasure', signal),
+  });
+}
+
+export function useRequestErasure() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ErasureView>('/api/candidate/erasure'),
+    onSuccess: (view) => queryClient.setQueryData(keys.erasure, view),
+  });
+}
+
+export function useCancelErasure() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ErasureView>('/api/candidate/erasure/cancel'),
+    onSuccess: (view) => queryClient.setQueryData(keys.erasure, view),
+  });
+}
+
+/** A student's latest erasure request, for their placement coordinator. */
+export function useStudentErasure(userId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.studentErasure(userId ?? ''),
+    enabled: enabled && Boolean(userId),
+    queryFn: ({ signal }) =>
+      api.get<ErasureView | undefined>(`/api/institution/students/${userId}/erasure`, signal),
+  });
+}
+
+export function useRequestStudentErasure(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ErasureView>(`/api/institution/students/${userId}/erasure`),
+    onSuccess: (view) => queryClient.setQueryData(keys.studentErasure(userId), view),
+  });
+}
+
+export function useCancelStudentErasure(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ErasureView>(`/api/institution/students/${userId}/erasure/cancel`),
+    onSuccess: (view) => queryClient.setQueryData(keys.studentErasure(userId), view),
+  });
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Downloads everything CareerFlux holds about the signed-in student, as JSON. */
+export async function downloadMyData(): Promise<void> {
+  const data = await api.get<unknown>('/api/candidate/export');
+  saveBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), exportFileName());
+}
+
+/**
+ * Downloads one of the student's own resume files. Fetched with the session's
+ * token rather than opened as a link, because the file route requires it.
+ */
+export async function downloadResumeFile(resume: ResumeSummary): Promise<void> {
+  const response = await fetch(`/api/candidate/resumes/${resume.id}/file`, {
+    headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error('That file could not be downloaded.');
+  }
+  saveBlob(await response.blob(), resume.originalFilename || 'resume');
 }

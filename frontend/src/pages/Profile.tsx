@@ -4,6 +4,8 @@ import { PageHeader } from '../components/layout/AppShell';
 import { AcademicPanel } from '../components/profile/AcademicPanel';
 import { ProposalReviewPanel } from '../components/profile/ProposalReviewPanel';
 import { PasswordPanel } from '../components/profile/PasswordPanel';
+import { PrivacyTab } from '../components/profile/PrivacyPanels';
+import { ResumeVersionsPanel } from '../components/profile/ResumeVersionsPanel';
 import { Icon } from '../components/ui/Icon';
 import { OptionGrid, TokenInput } from '../components/ui/TokenInput';
 import {
@@ -42,7 +44,7 @@ import {
 } from '../lib/format';
 import type { CandidateProfile, PreferencesPayload } from '../lib/types';
 
-const TABS = ['Profile', 'Preferences', 'Resume'] as const;
+const TABS = ['Profile', 'Preferences', 'Resume', 'Privacy'] as const;
 
 function Completeness({ value }: { value: number }) {
   return (
@@ -535,8 +537,8 @@ function ResumeTab({ profile }: { profile: CandidateProfile }) {
           {resume ? 'Replace your resume' : 'Upload your resume'}
         </p>
         <p className="dropzone__hint">
-          PDF, DOCX or plain text, up to 8 MB. Your previous resumes stay on record but stop being
-          the active one.
+          PDF, DOCX or plain text, up to 8 MB. Your previous resumes stay on record, and you can delete
+          any of them.
         </p>
         <input
           ref={inputRef}
@@ -546,6 +548,8 @@ function ResumeTab({ profile }: { profile: CandidateProfile }) {
           onChange={(event) => handleFile(event.target.files?.[0])}
         />
       </div>
+
+      <ResumeVersionsPanel activeId={resume?.id ?? null} />
 
       <Panel title="What happens to your resume">
         <ul className="grid" style={{ gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
@@ -662,6 +666,7 @@ export default function Profile() {
       {tab === 'Profile' && <ProfileTab key={`profile-${version}`} profile={data} />}
       {tab === 'Preferences' && <PreferencesTab key={`prefs-${version}`} profile={data} />}
       {tab === 'Resume' && <ResumeTab key={`resume-${version}`} profile={data} />}
+      {tab === 'Privacy' && <PrivacyTab />}
 
       {/*
         Below the tabs rather than inside one. Changing a password is an account

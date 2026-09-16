@@ -26,6 +26,8 @@ import com.careerflux.institution.service.InstitutionAdministrationService;
 import com.careerflux.institution.service.InstitutionOverviewService;
 import com.careerflux.institution.service.StudentDirectoryService;
 import com.careerflux.institution.service.StudentDirectoryService.StudentFilter;
+import com.careerflux.privacy.erasure.AccountErasureService;
+import com.careerflux.privacy.erasure.AccountErasureService.ErasureView;
 
 import io.swagger.v3.oas.annotations.Operation;
 
@@ -37,6 +39,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -69,16 +72,20 @@ public class InstitutionController {
     private final InstitutionAdministrationService administration;
     private final AuditQueryService auditQuery;
 
+    private final AccountErasureService erasures;
+
     public InstitutionController(StudentDirectoryService directoryService,
                                  InstitutionOverviewService overviewService,
                                  AcademicRecordService academicRecords,
                                  InstitutionAdministrationService administration,
-                                 AuditQueryService auditQuery) {
+                                 AuditQueryService auditQuery,
+                                 AccountErasureService erasures) {
         this.overviewService = overviewService;
         this.academicRecords = academicRecords;
         this.administration = administration;
         this.directoryService = directoryService;
         this.auditQuery = auditQuery;
+        this.erasures = erasures;
     }
 
     @GetMapping("/me/scope")
@@ -261,5 +268,33 @@ public class InstitutionController {
     public EnrolmentView setEnrolment(@PathVariable UUID userId,
                                       @Valid @RequestBody EnrolmentRequest request) {
         return administration.setEnrolment(userId, request);
+    }
+
+    // --------------------------------------------------------------- erasure
+    //
+    // STUDENT_MANAGE is held by the placement coordinator alone. The service
+    // checks it again and then checks the student is in the caller's own college,
+    // answering not-found for anyone who is not.
+
+    @GetMapping("/students/{userId}/erasure")
+    @Operation(summary = "The latest erasure request for a student, if any")
+    @PreAuthorize("hasAuthority('STUDENT_MANAGE')")
+    public ResponseEntity<ErasureView> erasureStatus(@PathVariable UUID userId) {
+        return erasures.statusForStaff(userId).map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PostMapping("/students/{userId}/erasure")
+    @Operation(summary = "Request erasure of a student's account, after the grace period")
+    @PreAuthorize("hasAuthority('STUDENT_MANAGE')")
+    public ErasureView requestErasure(@PathVariable UUID userId) {
+        return erasures.requestByStaff(userId);
+    }
+
+    @PostMapping("/students/{userId}/erasure/cancel")
+    @Operation(summary = "Cancel a student's erasure request during its grace period")
+    @PreAuthorize("hasAuthority('STUDENT_MANAGE')")
+    public ErasureView cancelErasure(@PathVariable UUID userId) {
+        return erasures.cancelByStaff(userId);
     }
 }

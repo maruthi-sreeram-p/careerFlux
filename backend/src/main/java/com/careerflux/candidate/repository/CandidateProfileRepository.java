@@ -18,6 +18,21 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
     @EntityGraph(attributePaths = {"user", "preferences"})
     Optional<CandidateProfile> findByUserId(UUID userId);
 
+    /** The identity an account already holds, as plain values, for redacting it out of text. */
+    interface KnownIdentityView {
+        String getFullName();
+
+        String getEmail();
+
+        String getPhone();
+    }
+
+    @Query("""
+            select u.fullName as fullName, u.email as email, p.phone as phone
+            from CandidateProfile p join p.user u where u.id = :userId
+            """)
+    Optional<KnownIdentityView> findKnownIdentityByUserId(@Param("userId") UUID userId);
+
     @Query("select p from CandidateProfile p left join fetch p.skills s left join fetch s.skill where p.id = :id")
     Optional<CandidateProfile> findWithSkillsById(UUID id);
 
@@ -97,6 +112,7 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
             left join fetch p.preferences
             where u.institution.id = :institutionId
               and u.role = com.careerflux.user.UserRole.STUDENT
+              and u.status <> com.careerflux.user.UserStatus.ERASED
               and (:allDepartments = true or d.id in :departmentIds)
               and (:anyBatch = true or b.graduationYear = :graduationYear)
               and (:anyGrantedBatch = true or b.id in :grantedBatchIds)

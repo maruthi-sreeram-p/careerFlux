@@ -132,6 +132,12 @@ public interface UserRepository extends JpaRepository<User, UUID>,
      * institution-wide caller: {@code DiscoveryScope} never sets it for a
      * department coordinator.
      *
+     * <p>Erased students are deliberately not excluded. This decides who a
+     * caller may see on a shortlist that already exists, and the college keeps
+     * those placement records after erasure. Finding new candidates goes through
+     * {@code CandidateProfileRepository.findForDiscoveryScoped}, which does
+     * exclude them.
+     *
      * <p><b>The joins are explicit and left.</b> Writing {@code u.batch.graduationYear}
      * in the where clause produces an implicit <em>inner</em> join, which drops
      * every student who has no batch — even when no batch was asked for, because

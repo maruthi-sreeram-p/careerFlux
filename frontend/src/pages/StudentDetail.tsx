@@ -1,9 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
 
 import { PageHeader } from '../components/layout/AppShell';
+import { StudentErasurePanel } from '../components/profile/StudentErasurePanel';
 import { Badge, Chip, EmptyState, Panel, Skeleton } from '../components/ui/primitives';
+import { useAuth } from '../lib/auth';
 import { useStudentDetail } from '../lib/queries';
-import type { StudentActivityEntry } from '../lib/types';
+import { can, type StudentActivityEntry } from '../lib/types';
 
 /** Stages a company has actually reached with this student. */
 const STAGE_TONE: Record<string, 'positive' | 'caution' | 'neutral' | 'negative'> = {
@@ -62,6 +64,7 @@ function ActivityRow({ entry }: { entry: StudentActivityEntry }) {
 export default function StudentDetail() {
   const { userId } = useParams<{ userId: string }>();
   const student = useStudentDetail(userId);
+  const { user } = useAuth();
 
   if (student.isLoading) {
     return (
@@ -214,6 +217,9 @@ export default function StudentDetail() {
           </ul>
         )}
       </Panel>
+
+      {/* Placement coordinators only; the server checks the permission and the college again. */}
+      {userId && can(user, 'STUDENT_MANAGE') && <StudentErasurePanel userId={userId} />}
     </>
   );
 }

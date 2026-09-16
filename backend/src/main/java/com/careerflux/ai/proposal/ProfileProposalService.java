@@ -26,11 +26,14 @@ import com.careerflux.common.error.BadRequestException;
 import com.careerflux.common.error.ConflictException;
 import com.careerflux.common.error.NotFoundException;
 import com.careerflux.common.logging.CorrelationId;
+import com.careerflux.consent.ConsentPurpose;
+import com.careerflux.consent.ConsentWithdrawnEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -157,6 +160,8 @@ public class ProfileProposalService {
         proposal.setAiAssisted(false);
         proposal.setCorrelationId(TextUtils.truncate(CorrelationId.current(), 64));
         proposal.markFailed(now);
+        // A failed reading is not retried, so its text has no further use.
+        resume.dropExtractedText(now);
         AiProfileProposal saved = proposals.save(proposal);
 
         // The engine name, never the provider's exception text: that can carry
@@ -175,8 +180,41 @@ public class ProfileProposalService {
         if (pending.isEmpty()) {
             return;
         }
-        pending.forEach(previous -> previous.supersede(now));
+        pending.forEach(previous -> {
+            previous.supersede(now);
+            // Superseded is resolved: the text behind it will never be reviewed.
+            previous.getResume().dropExtractedText(now);
+        });
         proposals.saveAll(pending);
+    }
+
+    /**
+     * Lets go of AI work a student has not answered, when they withdraw AI consent.
+     *
+     * <p>Only readings the model produced, and only those still pending. What the
+     * student already approved is on their profile and is theirs; a reading the
+     * local parser produced was never AI processing. Runs in the transaction that
+     * records the withdrawal, so both happen or neither does.
+     */
+    @EventListener
+    public void onConsentWithdrawn(ConsentWithdrawnEvent event) {
+        if (event.purpose() != ConsentPurpose.AI_PROCESSING) {
+            return;
+        }
+        profileService.findByUserId(event.userId()).ifPresent(profile -> {
+            List<AiProfileProposal> aiPending = proposals
+                    .findByCandidateIdAndStatus(profile.getId(), ProposalStatus.PENDING).stream()
+                    .filter(AiProfileProposal::isAiAssisted)
+                    .toList();
+            if (aiPending.isEmpty()) {
+                return;
+            }
+            proposals.deleteAll(aiPending);
+            auditService.record("AI_PROPOSALS_DISCARDED", "User", event.userId(),
+                    "reason=AI_CONSENT_WITHDRAWN count=" + aiPending.size());
+            log.info("Discarded {} unanswered AI readings for candidate {} after AI consent was withdrawn",
+                    aiPending.size(), profile.getId());
+        });
     }
 
     // ---------------------------------------------------------------- reading
@@ -226,7 +264,10 @@ public class ProfileProposalService {
         List<String> applied =
                 profileService.applyAcceptedProposal(profile, accepted, proposal.isAiAssisted());
 
-        proposal.reviewedAs(ProposalStatus.APPROVED, profile.getUser(), Instant.now());
+        Instant reviewedAt = Instant.now();
+        proposal.reviewedAs(ProposalStatus.APPROVED, profile.getUser(), reviewedAt);
+        // Answered, so the resume text it was read from is no longer needed.
+        proposal.getResume().dropExtractedText(reviewedAt);
         try {
             // Flushed here rather than at commit so a second approval arriving at
             // the same moment surfaces as a conflict the caller understands,
@@ -260,7 +301,9 @@ public class ProfileProposalService {
         requireOpen(proposal);
 
         CandidateProfile profile = proposal.getCandidate();
-        proposal.reviewedAs(ProposalStatus.REJECTED, profile.getUser(), Instant.now());
+        Instant reviewedAt = Instant.now();
+        proposal.reviewedAs(ProposalStatus.REJECTED, profile.getUser(), reviewedAt);
+        proposal.getResume().dropExtractedText(reviewedAt);
         try {
             proposals.saveAndFlush(proposal);
         } catch (ObjectOptimisticLockingFailureException raced) {

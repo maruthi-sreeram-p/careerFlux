@@ -186,6 +186,11 @@ public class ResumeService {
         UUID proposalId = proposalService.createFor(profile, resume, extraction)
                 .map(AiProfileProposal::getId)
                 .orElse(null);
+        if (proposalId == null) {
+            // Nothing to review means nothing will ever resolve, and the text was
+            // only kept to build a review.
+            resume.dropExtractedText(Instant.now());
+        }
 
         // The candidate has a resume on file, so they have finished the upload
         // step whether or not the reading produced anything to look at. Tying
