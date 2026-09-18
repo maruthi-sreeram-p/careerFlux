@@ -2,6 +2,7 @@ package com.careerflux.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,6 +40,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -47,7 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * What staff learn about a student's dealings with public job postings:
- * nothing (Phase 2A, F1 and F2).
+ * nothing (Phase 2A, F1 and F2). Also covers the resume-upload entry on the
+ * same feed, which must never name the file (Phase 2 closure audit, F20).
  *
  * <p>Which jobs a student viewed is private, full stop. Saves are private by
  * default until a product decision says otherwise. And CareerFlux cannot tell an
@@ -59,6 +63,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The records are not deleted. They are the student's, and the student keeps
  * their own saved and applied lists; they are simply never part of a staff
  * response.
+ *
+ * <p>The resume-upload entry follows the same rule for a different reason: a
+ * coordinator without {@code STUDENT_RESUME_READ} cannot open the file or see
+ * the student's phone number, and a resume's own filename routinely carries
+ * both — so the activity feed says only that a resume was uploaded.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -100,6 +109,9 @@ class StaffActivityPrivacyIntegrationTest {
 
     @Autowired
     private TestInstitutions institutions;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private String unique;
     private UUID studentId;
@@ -150,6 +162,35 @@ class StaffActivityPrivacyIntegrationTest {
                     .describedAs("not even the postings' titles")
                     .doesNotContain(viewed.getTitle(), saved.getTitle(), applied.getTitle());
         }
+    }
+
+    @Test
+    @DisplayName("the resume-upload activity entry names no file (F20)")
+    void resumeUploadActivityCarriesNoFilename() throws Exception {
+        String filename = "private-" + unique + "-9848011223-resume.txt";
+
+        JsonNode uploaded = json(multipart("/api/candidate/resume")
+                .file(new MockMultipartFile("file", filename, "text/plain",
+                        "Skills: Java, SQL".getBytes())), studentToken);
+        UUID resumeId = UUID.fromString(uploaded.get("resume").get("id").asText());
+        String storagePath = jdbc.queryForObject(
+                "select storage_path from resumes where id = ?", String.class, resumeId);
+
+        for (String token : List.of(placementToken, departmentToken)) {
+            JsonNode detail = json(get("/api/institution/students/" + studentId), token);
+            String body = detail.toString();
+
+            assertThat(detail.get("activity").findValuesAsText("type"))
+                    .describedAs("the event itself is still there")
+                    .contains("RESUME_UPLOADED");
+            assertThat(body).describedAs("not the original filename").doesNotContain(filename);
+            assertThat(body).describedAs("not the stored filename or path").doesNotContain(storagePath);
+        }
+
+        // Unchanged for the student themselves: their own resume list still
+        // names the file they uploaded.
+        assertThat(json(get("/api/candidate/resumes"), studentToken).findValuesAsText("originalFilename"))
+                .contains(filename);
     }
 
     @Test

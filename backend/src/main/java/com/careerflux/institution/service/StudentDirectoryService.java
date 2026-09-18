@@ -498,9 +498,10 @@ public class StudentDirectoryService {
         List<StudentActivityEntry> entries = new ArrayList<>();
 
         for (Resume resume : resumeRepository.findByCandidateIdOrderByUploadedAtDesc(profile.getId())) {
-            entries.add(new StudentActivityEntry(resume.getUploadedAt(), "RESUME_UPLOADED",
-                    "Resume uploaded" + (TextUtils.hasText(resume.getOriginalFilename())
-                            ? ": " + resume.getOriginalFilename() : "")));
+            // The filename is never shown here. Staff who cannot open the resume
+            // or see the student's phone number should not learn its filename
+            // either — resume filenames routinely carry a full name or a number.
+            entries.add(new StudentActivityEntry(resume.getUploadedAt(), "RESUME_UPLOADED", "Resume uploaded"));
         }
 
         for (ShortlistEntry shortlist : shortlists) {

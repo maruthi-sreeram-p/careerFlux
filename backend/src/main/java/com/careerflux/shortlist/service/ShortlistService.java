@@ -13,9 +13,12 @@ import com.careerflux.discovery.service.DiscoveryScope;
 import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.requirement.domain.RequirementStatus;
 import com.careerflux.requirement.service.RequirementAccess;
+import com.careerflux.audit.AuditService;
 import com.careerflux.security.access.AccessGuard;
 import com.careerflux.security.access.AccessScope;
+import com.careerflux.shortlist.domain.PlacementStage;
 import com.careerflux.shortlist.domain.ShortlistEntry;
+import com.careerflux.shortlist.repository.PlacementStageChangeRepository;
 import com.careerflux.shortlist.repository.ShortlistRepository;
 import com.careerflux.user.Permission;
 import com.careerflux.user.UserRepository;
@@ -24,6 +27,7 @@ import com.careerflux.user.UserStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +52,11 @@ import org.springframework.transaction.annotation.Transactional;
  * to this caller, its lifecycle state, the candidate's presence in the caller's
  * own discovery scope, and finally whether the row already exists.
  *
+ * <p>The other thing refused is losing a drive's record. Undoing a shortlisting
+ * is only undoing while nothing has happened; once a candidate has been moved,
+ * the college's account of the drive exists and this service will not delete
+ * it. See {@link #remove(UUID, UUID)}.
+ *
  * <p>The permission is {@code PLACEMENT_SHORTLIST_MANAGE} rather than
  * {@code PLACEMENT_DRIVE_MANAGE}, and the difference is what lets a coordinator
  * use this at all. Authoring a requirement is unscoped; shortlisting is scoped
@@ -64,24 +73,30 @@ public class ShortlistService {
     private static final String CANDIDATE = "Candidate";
 
     private final ShortlistRepository shortlists;
+    private final PlacementStageChangeRepository stageChanges;
     private final RequirementAccess requirementAccess;
     private final CandidateProfileRepository candidates;
     private final UserRepository users;
     private final DiscoveryScope discoveryScope;
     private final AccessGuard accessGuard;
+    private final AuditService audit;
 
     public ShortlistService(ShortlistRepository shortlists,
+                            PlacementStageChangeRepository stageChanges,
                             RequirementAccess requirementAccess,
                             CandidateProfileRepository candidates,
                             UserRepository users,
                             DiscoveryScope discoveryScope,
-                            AccessGuard accessGuard) {
+                            AccessGuard accessGuard,
+                            AuditService audit) {
         this.shortlists = shortlists;
+        this.stageChanges = stageChanges;
         this.requirementAccess = requirementAccess;
         this.candidates = candidates;
         this.users = users;
         this.discoveryScope = discoveryScope;
         this.accessGuard = accessGuard;
+        this.audit = audit;
     }
 
     /**
@@ -113,6 +128,8 @@ public class ShortlistService {
 
         try {
             ShortlistEntry saved = shortlists.saveAndFlush(entry);
+            audit.record("SHORTLIST_ADDED", "ShortlistEntry", saved.getId(),
+                    "requirement=" + requirementId + " candidate=" + candidateId);
             log.info("Candidate {} shortlisted for requirement {}", candidateId, requirementId);
             return saved;
         } catch (DataIntegrityViolationException duplicate) {
@@ -124,10 +141,23 @@ public class ShortlistService {
     }
 
     /**
-     * Takes a candidate off the shortlist.
+     * Takes a candidate off the shortlist, while nothing has happened to them
+     * yet.
      *
      * <p>Removes the relationship and nothing else. The student, their profile,
      * their resume, their skills and every match they have keep existing.
+     *
+     * <p><b>Only an untouched entry can be removed.</b> Shortlisting writes no
+     * stage change, so a candidate nobody has moved has no history to lose and
+     * taking them off the list undoes exactly the one decision that was made.
+     * The moment somebody is invited, answers, or is selected, the drive has a
+     * record, and {@code placement_stage_changes} cascades from this row — so
+     * deleting it would destroy that record with no trace. Past that point the
+     * outcome belongs to the workflow: {@code NOT_PROCEEDING} says the college
+     * decided against a candidate and keeps why and when.
+     *
+     * @throws BadRequestException when the candidate has already moved, or when
+     *                             a history row exists for any other reason
      */
     @Transactional
     public void remove(UUID requirementId, UUID candidateId) {
@@ -139,9 +169,50 @@ public class ShortlistService {
                 .findByRequirementIdAndCandidateId(requirementId, candidateId)
                 .orElseThrow(() -> NotFoundException.of("Shortlist entry", candidateId));
 
-        shortlists.delete(entry);
+        requireNothingRecorded(entry);
+
+        try {
+            shortlists.delete(entry);
+            // Flushed here so a stage change that landed a moment ago collides
+            // now, inside this transaction, rather than at commit. The version
+            // check is what stops the delete racing past a history row that was
+            // written after the check above.
+            shortlists.flush();
+        } catch (ObjectOptimisticLockingFailureException raced) {
+            throw new ConflictException(
+                    "Somebody else moved this candidate at the same moment. "
+                            + "Reload to see where they are now.");
+        }
+
+        audit.record("SHORTLIST_REMOVED", "ShortlistEntry", entry.getId(),
+                "requirement=" + requirementId + " candidate=" + candidateId);
         log.info("Candidate {} removed from the shortlist for requirement {}",
                 candidateId, requirementId);
+    }
+
+    /**
+     * Refuses to delete a row the drive has a record against.
+     *
+     * <p>Two conditions rather than one. The stage is the readable reason, and
+     * the history count is the one that actually guarantees the invariant: no
+     * transition returns a candidate to {@code SHORTLISTED} today, but a rule
+     * that holds only because of a separate enum is one change away from not
+     * holding, and what must never happen here is a silent cascade.
+     */
+    private void requireNothingRecorded(ShortlistEntry entry) {
+        if (entry.getStage() != PlacementStage.SHORTLISTED) {
+            throw new BadRequestException("This candidate is already "
+                    + entry.getStage().label().toLowerCase(Locale.ROOT)
+                    + ", so the drive has a record of them that removing would destroy. "
+                    + "Move them to \"" + PlacementStage.NOT_PROCEEDING.label().toLowerCase(Locale.ROOT)
+                    + "\" instead, which keeps what happened.");
+        }
+        if (stageChanges.countByShortlistId(entry.getId()) > 0) {
+            throw new BadRequestException("This candidate already has a recorded history on this "
+                    + "drive, so they can no longer be taken off the list. Move them to \""
+                    + PlacementStage.NOT_PROCEEDING.label().toLowerCase(Locale.ROOT)
+                    + "\" instead, which keeps what happened.");
+        }
     }
 
     /**

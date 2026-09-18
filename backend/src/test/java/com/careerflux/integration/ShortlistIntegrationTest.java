@@ -11,6 +11,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+import com.careerflux.audit.AuditEvent;
+import com.careerflux.audit.AuditEventRepository;
 import com.careerflux.candidate.domain.CandidateProfile;
 import com.careerflux.candidate.domain.CandidateSkill;
 import com.careerflux.candidate.domain.OnboardingStage;
@@ -23,6 +25,8 @@ import com.careerflux.institution.domain.Department;
 import com.careerflux.institution.domain.Institution;
 import com.careerflux.institution.domain.StaffScope;
 import com.careerflux.institution.repository.StaffScopeRepository;
+import com.careerflux.shortlist.domain.PlacementStage;
+import com.careerflux.shortlist.repository.PlacementStageChangeRepository;
 import com.careerflux.shortlist.repository.ShortlistRepository;
 import com.careerflux.skill.SkillResolver;
 import com.careerflux.support.TestInstitutions;
@@ -39,6 +43,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -89,6 +94,12 @@ class ShortlistIntegrationTest {
 
     @Autowired
     private ShortlistRepository shortlistRepository;
+
+    @Autowired
+    private PlacementStageChangeRepository stageChangeRepository;
+
+    @Autowired
+    private AuditEventRepository auditRepository;
 
     @Autowired
     private SkillResolver skillResolver;
@@ -193,6 +204,84 @@ class ShortlistIntegrationTest {
             assertThat(after.getSkills()).hasSize(skillsBefore);
             assertThat(after.getUser()).isNotNull();
             assertThat(readJson(get(url(id)), officer, 200).get("content")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a candidate who has been moved can no longer be removed: the drive's record stays (D-1)")
+        void removalIsRefusedOnceSomethingHasHappened() throws Exception {
+            String officer = officer("sl-keep-officer@example.com");
+            UUID candidate = candidateId("kept@example.com");
+            String id = openRequirement(officer);
+            shortlist(officer, id, candidate);
+            move(officer, id, candidate, "INVITED");
+
+            UUID entryId = shortlistRepository.findByRequirementIdAndCandidateId(
+                    UUID.fromString(id), candidate).orElseThrow().getId();
+            assertThat(stageChangeRepository.countByShortlistId(entryId)).isEqualTo(1);
+
+            readJson(delete(url(id) + "/" + candidate), officer, 400);
+
+            // The row, its stage and the history it carries are all still there.
+            assertThat(shortlistRepository.findByRequirementIdAndCandidateId(
+                    UUID.fromString(id), candidate)).isPresent();
+            assertThat(stageChangeRepository.countByShortlistId(entryId)).isEqualTo(1);
+            assertThat(readJson(get(url(id) + "/" + candidate + "/history"), officer, 200)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a selected placement cannot be deleted, and its whole history survives the attempt (D-1)")
+        void aSelectedPlacementSurvivesARemovalAttempt() throws Exception {
+            String officer = officer("sl-selected-officer@example.com");
+            String email = "selected@example.com";
+            UUID candidate = candidateId(email);
+            String student = login(userRepository.findByEmailIgnoreCase(email).orElseThrow());
+            String id = openRequirement(officer);
+            shortlist(officer, id, candidate);
+            move(officer, id, candidate, "INVITED");
+            readJson(patch("/api/candidate/placements/" + id + "/response")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"response\":\"interested\"}"), student, 200);
+            move(officer, id, candidate, "SELECTED");
+
+            UUID entryId = shortlistRepository.findByRequirementIdAndCandidateId(
+                    UUID.fromString(id), candidate).orElseThrow().getId();
+            assertThat(stageChangeRepository.countByShortlistId(entryId)).isEqualTo(3);
+
+            readJson(delete(url(id) + "/" + candidate), officer, 400);
+
+            assertThat(shortlistRepository.findByRequirementIdAndCandidateId(
+                    UUID.fromString(id), candidate).orElseThrow().getStage())
+                    .isEqualTo(PlacementStage.SELECTED);
+            assertThat(stageChangeRepository.countByShortlistId(entryId))
+                    .describedAs("invited, the student's answer, and selected")
+                    .isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("shortlisting and removing are both recorded in the college's audit trail, without a name")
+        void shortlistWritesAreAudited() throws Exception {
+            String officer = officer("sl-audit-officer@example.com");
+            UUID candidate = candidateId("audited@example.com");
+            String id = openRequirement(officer);
+            shortlist(officer, id, candidate);
+            readJson(delete(url(id) + "/" + candidate), officer, 200);
+
+            List<AuditEvent> rows = auditRepository
+                    .findByInstitutionIdOrderByOccurredAtDesc(institutions.example().getId(),
+                            PageRequest.of(0, 500))
+                    .stream()
+                    .filter(event -> event.getAction().startsWith("SHORTLIST_"))
+                    .filter(event -> event.getDetail() != null
+                            && event.getDetail().contains("candidate=" + candidate))
+                    .toList();
+
+            assertThat(rows).extracting(AuditEvent::getAction)
+                    .containsExactlyInAnyOrder("SHORTLIST_ADDED", "SHORTLIST_REMOVED");
+            assertThat(rows).allSatisfy(event -> {
+                assertThat(event.getActorRole()).isEqualTo("PLACEMENT_COORDINATOR");
+                assertThat(event.getDetail()).contains("requirement=" + id)
+                        .doesNotContain("@").doesNotContain("audited");
+            });
         }
     }
 
@@ -520,6 +609,13 @@ class ShortlistIntegrationTest {
     private void shortlist(String token, String requirementId, UUID candidateId) throws Exception {
         readJson(post(url(requirementId)).contentType(MediaType.APPLICATION_JSON)
                 .content(body(candidateId)), token, 201);
+    }
+
+    /** A staff stage move, which is what writes a row into the drive's history. */
+    private void move(String token, String requirementId, UUID candidateId, String stage) throws Exception {
+        readJson(patch(url(requirementId) + "/" + candidateId + "/stage")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"stage\":\"%s\"}".formatted(stage)), token, 200);
     }
 
     private String openRequirement(String officerToken) throws Exception {

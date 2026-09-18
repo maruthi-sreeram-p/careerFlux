@@ -124,6 +124,18 @@ export function awaitsStudent(stage: PlacementStage): boolean {
 }
 
 /**
+ * Whether taking this candidate off the list is still an undo.
+ *
+ * <p>Only while nobody has moved them. The moment a candidate is invited,
+ * answers, or is selected, the drive has a record of it, and the server refuses
+ * to delete that record — so offering the button would be offering a refusal.
+ * The workflow above it is where an outcome is recorded instead.
+ */
+export function canRemoveFromShortlist(stage: PlacementStage): boolean {
+  return stage === 'SHORTLISTED';
+}
+
+/**
  * The moves to offer the college for a candidate at this stage.
  *
  * <p>Empty once the drive is closed. A closed requirement is frozen on the

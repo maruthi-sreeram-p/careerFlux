@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/AppShell';
 import { Badge, Button, Panel, useToast } from '../components/ui/primitives';
 import { useAuth } from '../lib/auth';
+import { canRemoveFromShortlist } from '../lib/placement';
 import { useRemoveFromShortlist, useShortlist } from '../lib/queries';
 import { can } from '../lib/types';
 import type { DiscoveredCandidate } from '../lib/types';
@@ -151,10 +152,11 @@ function ShortlistedRow({
         editable={editable}
       />
 
-      {editable && (
+      {editable && canRemoveFromShortlist(candidate.placementStage ?? 'SHORTLISTED') && (
         <div className="candidate__foot">
           <span className="text-faint">
-            Removing takes them off the list entirely; the workflow above records what happened.
+            Nobody has moved them yet, so removing is still an undo. Once the workflow above starts,
+            the drive keeps its record of what happened.
           </span>
           <Button variant="ghost" onClick={withdraw} disabled={remove.isPending}>
             {remove.isPending ? 'Removing…' : 'Remove from shortlist'}

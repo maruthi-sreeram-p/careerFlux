@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PLACEMENT_STAGES,
   awaitsStudent,
+  canRemoveFromShortlist,
   historyLine,
   isTerminal,
   placementSummary,
@@ -77,6 +78,16 @@ describe('the offered moves match the server', () => {
       expect(isTerminal(stage)).toBe(true);
       expect(staffActions(stage, 'OPEN')).toEqual([]);
       expect(studentActions(stage, 'OPEN')).toEqual([]);
+    }
+  });
+
+  // The server deletes a shortlist row only while it carries no history, since
+  // placement_stage_changes cascades from it. Offering the button anywhere else
+  // would offer a refusal.
+  it('offers removal only while nobody has moved the candidate', () => {
+    expect(canRemoveFromShortlist('SHORTLISTED')).toBe(true);
+    for (const stage of PLACEMENT_STAGES.filter((s) => s !== 'SHORTLISTED')) {
+      expect(canRemoveFromShortlist(stage)).toBe(false);
     }
   });
 
