@@ -864,7 +864,11 @@ export interface DiscoveredCandidate {
   compatibility: number | null;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
   confidenceCoverage: number;
-  eligibility: 'ELIGIBLE' | 'ELIGIBLE_WITH_GAPS' | 'NOT_ELIGIBLE' | 'UNKNOWN';
+  /**
+   * Three answers only. A skill gap is a matching signal and never a formal
+   * verdict, so there is no "eligible with gaps" here.
+   */
+  eligibility: 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'UNKNOWN';
   eligibilityReasons: string[];
   matchedRequiredSkills: string[];
   missingRequiredSkills: string[];

@@ -296,10 +296,15 @@ class ShortlistIntegrationTest {
         // here would turn information into an automatic rejection.
         String officer = officer("sl-ineligible-officer@example.com");
         UUID candidate = candidateId("ineligible@example.com");
+        // A formal condition, failed on the college's own figure: the student's
+        // own numbers never decide this.
+        CandidateProfile profile = profileRepository.findById(candidate).orElseThrow();
+        profile.recordVerifiedCgpa(new BigDecimal("6.10"), null);
+        profileRepository.saveAndFlush(profile);
 
         String id = requirement(officer, """
                 {"companyName":"XYZ Technologies","roleTitle":"Java Backend Developer",
-                 "minExperienceYears":8.0,
+                 "minCgpa":7.0,
                  "skills":[{"skill":"Java","tier":"REQUIRED"}]}
                 """);
         publish(officer, id);

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/layout/AppShell';
 import { Badge, Button, Panel, useToast } from '../components/ui/primitives';
 import { useAuth } from '../lib/auth';
+import { eligibilityLabel, eligibilityTone } from '../lib/eligibility';
 import { canRemoveFromShortlist } from '../lib/placement';
 import { useRemoveFromShortlist, useShortlist } from '../lib/queries';
 import { can } from '../lib/types';
@@ -22,32 +23,6 @@ import { StageControls } from '../components/placement/StageControls';
  * eligibility has changed shows that too — <em>without</em> being removed. A
  * person put them on this list and only a person takes them off.
  */
-function eligibilityTone(status: DiscoveredCandidate['eligibility']) {
-  switch (status) {
-    case 'ELIGIBLE':
-      return 'positive' as const;
-    case 'ELIGIBLE_WITH_GAPS':
-      return 'info' as const;
-    case 'NOT_ELIGIBLE':
-      return 'negative' as const;
-    default:
-      return 'neutral' as const;
-  }
-}
-
-function eligibilityLabel(status: DiscoveredCandidate['eligibility']) {
-  switch (status) {
-    case 'ELIGIBLE':
-      return 'Meets stated requirements';
-    case 'ELIGIBLE_WITH_GAPS':
-      return 'Meets requirements, with gaps';
-    case 'NOT_ELIGIBLE':
-      return 'Does not meet a stated requirement';
-    default:
-      return 'Cannot be determined';
-  }
-}
-
 function ShortlistedRow({
   candidate,
   requirementId,

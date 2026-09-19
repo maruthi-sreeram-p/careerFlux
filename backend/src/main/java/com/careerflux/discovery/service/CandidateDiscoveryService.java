@@ -309,18 +309,23 @@ public class CandidateDiscoveryService {
                 preferences.findByCandidateIdIn(profileIds).stream()
                         .collect(Collectors.groupingBy(value -> value.getCandidate().getId()));
 
+        // The stated conditions, read once: they are the same for every
+        // candidate on this drive.
+        RequirementCriteria criteria = RequirementCriteria.of(requirement);
+
         List<CandidateView> results = new ArrayList<>(found.size());
         for (CandidateProfile profile : found) {
             CandidateSnapshot snapshot = snapshotOf(profile,
                     skillsByCandidate.getOrDefault(profile.getId(), Set.of()),
                     preferencesByCandidate.getOrDefault(profile.getId(), List.of()));
 
+            // Two answers, computed apart and from different inputs. The
+            // scorecard says how well this student fits the work; the outcome
+            // says whether they meet what the company stated. Neither is
+            // allowed to decide the other.
             MatchScorer.Scorecard card = scorer.score(snapshot, role);
-            // No verified CGPA exists, so this is null for everyone today. It is
-            // passed rather than assumed so the day a real one lands, the rule
-            // starts working without touching this class.
             FormalEligibility.Outcome outcome =
-                    FormalEligibility.evaluate(card, requirement, verifiedCgpa(profile));
+                    FormalEligibility.evaluate(criteria, CandidateEvidence.of(profile));
 
             results.add(toView(profile, card, outcome, role,
                     onShortlist.containsKey(profile.getId()),

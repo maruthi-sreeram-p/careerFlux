@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { PageHeader } from '../components/layout/AppShell';
 import { Badge, Chip, Panel } from '../components/ui/primitives';
+import { ELIGIBILITY_FILTERS, eligibilityLabel, eligibilityTone } from '../lib/eligibility';
 import {
   useAddToShortlist,
   useCandidateDiscovery,
@@ -29,14 +30,6 @@ import { StageBadge } from '../components/placement/StageControls';
  * <p>Every number and every phrase comes from the server's scorer. Nothing here
  * composes an explanation of its own.
  */
-const ELIGIBILITY_FILTERS = [
-  { id: '', label: 'All' },
-  { id: 'ELIGIBLE', label: 'Eligible' },
-  { id: 'ELIGIBLE_WITH_GAPS', label: 'Eligible with gaps' },
-  { id: 'NOT_ELIGIBLE', label: 'Not eligible' },
-  { id: 'UNKNOWN', label: 'Unknown' },
-];
-
 const SORTS = [
   { id: 'match', label: 'Best match' },
   { id: 'eligibility', label: 'Eligibility' },
@@ -55,33 +48,6 @@ const SCORE_FLOORS = [
   { id: 70, label: '70+' },
   { id: 80, label: '80+' },
 ];
-
-function eligibilityTone(status: DiscoveredCandidate['eligibility']) {
-  switch (status) {
-    case 'ELIGIBLE':
-      return 'positive' as const;
-    case 'ELIGIBLE_WITH_GAPS':
-      return 'info' as const;
-    case 'NOT_ELIGIBLE':
-      return 'negative' as const;
-    default:
-      return 'neutral' as const;
-  }
-}
-
-function eligibilityLabel(status: DiscoveredCandidate['eligibility']) {
-  switch (status) {
-    case 'ELIGIBLE':
-      return 'Meets stated requirements';
-    case 'ELIGIBLE_WITH_GAPS':
-      return 'Meets requirements, with gaps';
-    case 'NOT_ELIGIBLE':
-      // Never "rejected". CareerFlux does not decide who gets hired.
-      return 'Does not meet a stated requirement';
-    default:
-      return 'Cannot be determined';
-  }
-}
 
 function SkillList({
   label,

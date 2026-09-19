@@ -187,8 +187,8 @@ class CandidateDiscoveryIntegrationTest {
         }
 
         @Test
-        @DisplayName("a profile with nothing in it yields no score and no claim of eligibility")
-        void emptyProfileIsUnknown() throws Exception {
+        @DisplayName("a profile with nothing in it yields no score, and no formal condition to fail")
+        void emptyProfileHasNoScore() throws Exception {
             String officer = officer("empty-officer@example.com");
             student("blank@example.com", institutions.exampleCse(), institutions.exampleBatch2027(),
                     null, null, List.of());
@@ -197,10 +197,15 @@ class CandidateDiscoveryIntegrationTest {
                     .get("content").get(0);
 
             // Preserves the rule established when the contradiction was fixed:
-            // no score, and UNKNOWN rather than a flattering ELIGIBLE.
+            // an empty profile earns no score, and none is invented.
             assertThat(candidate.get("compatibility").isNull()).isTrue();
             assertThat(candidate.get("confidence").asText()).isEqualTo("INSUFFICIENT");
-            assertThat(candidate.get("eligibility").asText()).isEqualTo("UNKNOWN");
+            // The formal answer is a separate question with a separate input.
+            // This drive states no academic minimum, so there is no stated
+            // condition for the student to fail, however thin their profile is.
+            // Having nothing to score is a matching answer, not a formal one.
+            assertThat(candidate.get("eligibility").asText()).isEqualTo("ELIGIBLE");
+            assertThat(candidate.get("eligibilityReasons")).isEmpty();
 
             // And no skill is credited to somebody who has recorded none. The
             // scorer reports nothing missing when it could not compare at all,
@@ -251,13 +256,14 @@ class CandidateDiscoveryIntegrationTest {
         @DisplayName("a student blocked by a stated condition still appears, ranked on merit")
         void blockedCandidateIsNotHidden() throws Exception {
             String officer = officer("blocked-officer@example.com");
-            student("experienced@example.com", institutions.exampleCse(),
+            CandidateProfile profile = student("experienced@example.com", institutions.exampleCse(),
                     institutions.exampleBatch2027(), "Backend Developer", 1,
                     List.of("Java", "Spring Boot", "SQL", "REST APIs"));
+            verifiedCgpa(profile, "6.10");
 
             String id = requirement(officer, """
                     {"companyName":"XYZ Technologies","roleTitle":"Java Backend Developer",
-                     "minExperienceYears":8.0,
+                     "minCgpa":7.0,
                      "skills":[{"skill":"Java","tier":"REQUIRED"},{"skill":"Spring Boot","tier":"REQUIRED"},
                                {"skill":"SQL","tier":"REQUIRED"},{"skill":"REST APIs","tier":"REQUIRED"}]}
                     """);
@@ -272,15 +278,71 @@ class CandidateDiscoveryIntegrationTest {
         }
 
         @Test
+        @DisplayName("experience the student reported themselves never fails them formally")
+        void selfReportedExperienceIsNotAFormalCondition() throws Exception {
+            String officer = officer("exp-officer@example.com");
+            student("junior@example.com", institutions.exampleCse(),
+                    institutions.exampleBatch2027(), "Backend Developer", 1,
+                    List.of("Java", "Spring Boot", "SQL", "REST APIs"));
+
+            // Eight years asked for, one year on the profile, and the profile
+            // figure is the student's own. It shapes the score, never the verdict.
+            String id = requirement(officer, """
+                    {"companyName":"XYZ Technologies","roleTitle":"Java Backend Developer",
+                     "minExperienceYears":8.0,"maxExperienceYears":12.0,
+                     "skills":[{"skill":"Java","tier":"REQUIRED"},{"skill":"Spring Boot","tier":"REQUIRED"},
+                               {"skill":"SQL","tier":"REQUIRED"},{"skill":"REST APIs","tier":"REQUIRED"}]}
+                    """);
+            publish(officer, id);
+            JsonNode candidate = discover(id, officer).get("content").get(0);
+
+            assertThat(candidate.get("eligibility").asText()).isNotEqualTo("NOT_ELIGIBLE");
+            assertThat(candidate.get("eligibility").asText()).isEqualTo("ELIGIBLE");
+            assertThat(candidate.get("eligibilityReasons")).isEmpty();
+            // The gap is still reported, as matching information.
+            assertThat(candidate.get("compatibility").isNull()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a passing verified CGPA is eligible even when there is nothing to score (D-2)")
+        void statedCgpaIsMetWhateverTheMatcherKnows() throws Exception {
+            String officer = officer("cgpa-only-officer@example.com");
+            // Nothing to match on: no primary role, no skills, no experience.
+            CandidateProfile profile = student("cgpaonly@example.com", institutions.exampleCse(),
+                    institutions.exampleBatch2027(), null, null, List.of());
+            verifiedCgpa(profile, "9.50");
+
+            // The only condition this company stated is the academic one.
+            String id = requirement(officer, """
+                    {"companyName":"XYZ Technologies","roleTitle":"Graduate Engineer",
+                     "minCgpa":7.0}
+                    """);
+            publish(officer, id);
+            JsonNode candidate = discover(id, officer).get("content").get(0);
+
+            // The stated condition was checked against the college's own figure
+            // and passed. That is a fact, and no amount of missing match data
+            // turns it into "we cannot tell".
+            assertThat(candidate.get("eligibility").asText()).isEqualTo("ELIGIBLE");
+            assertThat(candidate.get("eligibilityReasons")).isEmpty();
+            assertThat(candidate.get("cgpa").decimalValue()).isEqualByComparingTo("9.50");
+
+            // And the matching answer is independently unavailable, as it should be.
+            assertThat(candidate.get("compatibility").isNull()).isTrue();
+            assertThat(candidate.get("confidence").asText()).isEqualTo("INSUFFICIENT");
+        }
+
+        @Test
         @DisplayName("filtering by eligibility narrows the view without deleting anyone")
         void eligibilityFilterIsAView() throws Exception {
             String officer = officer("filter-officer@example.com");
-            student("blocked@example.com", institutions.exampleCse(),
+            CandidateProfile profile = student("blocked@example.com", institutions.exampleCse(),
                     institutions.exampleBatch2027(), "Backend Developer", 1, List.of("Java"));
+            verifiedCgpa(profile, "6.10");
 
             String id = requirement(officer, """
                     {"companyName":"XYZ","roleTitle":"Java Backend Developer",
-                     "minExperienceYears":8.0,
+                     "minCgpa":7.0,
                      "skills":[{"skill":"Java","tier":"REQUIRED"}]}
                     """);
             publish(officer, id);
@@ -589,6 +651,15 @@ class CandidateDiscoveryIntegrationTest {
         List<String> found = new java.util.ArrayList<>();
         array.forEach(entry -> found.add(entry.asText()));
         return found;
+    }
+
+    /**
+     * The college's own figure, written through the domain's verified accessor
+     * exactly as the staff screen writes it. Never the student's own field.
+     */
+    private void verifiedCgpa(CandidateProfile profile, String cgpa) {
+        profile.recordVerifiedCgpa(new BigDecimal(cgpa), null);
+        profileRepository.saveAndFlush(profile);
     }
 
     private CandidateProfile student(String email, Department department, Batch batch,
