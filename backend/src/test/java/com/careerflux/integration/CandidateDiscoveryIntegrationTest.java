@@ -581,6 +581,207 @@ class CandidateDiscoveryIntegrationTest {
         }
     }
 
+    // -------------------------------------------------------------- ordering
+
+    /**
+     * The order of a page (Phase 3, D-5). Seven students are identical on every
+     * ranking key and carry all three formal verdicts between them, one more is
+     * genuinely weaker, and two more sit outside the requirement's scope. The
+     * unit test {@code DiscoveryOrderingTest} proves the comparator against
+     * every arrival order; this proves the whole request keeps to it.
+     */
+    @Nested
+    @DisplayName("the order of a page")
+    class Ordering {
+
+        private static final List<String> SKILLS = List.of("Java", "Spring Boot", "SQL", "REST APIs");
+
+        private record Drive(String officer, String requirementId) {
+        }
+
+        private Drive drive(String tag) throws Exception {
+            String officer = officer(tag + "-officer@example.com");
+            for (int i = 0; i < 3; i++) {
+                verifiedCgpa(strong(tag + "-el" + i), "8.00");
+            }
+            for (int i = 0; i < 2; i++) {
+                verifiedCgpa(strong(tag + "-no" + i), "6.10");
+            }
+            for (int i = 0; i < 2; i++) {
+                strong(tag + "-un" + i); // no verified figure recorded
+            }
+            // Genuinely weaker: one of the four required skills.
+            verifiedCgpa(student(tag + "-weak@example.com", institutions.exampleCse(),
+                    institutions.exampleBatch2027(), "Backend Developer", 2, List.of("Java")), "8.00");
+
+            // Identical to the strong ones and better qualified, but in another
+            // department and another college. If scope leaked, these would lead.
+            verifiedCgpa(student(tag + "-mech@example.com", institutions.exampleMech(),
+                    institutions.exampleBatch2027(), "Backend Developer", 2, SKILLS), "9.50");
+            rivalStudent(tag + "-rival@rival.edu");
+
+            String id = requirement(officer, """
+                    {"companyName":"XYZ Technologies","roleTitle":"Java Backend Developer",
+                     "minCgpa":7.0,"departmentIds":["%s"],
+                     "skills":[{"skill":"Java","tier":"REQUIRED"},{"skill":"Spring Boot","tier":"REQUIRED"},
+                               {"skill":"SQL","tier":"REQUIRED"},{"skill":"REST APIs","tier":"REQUIRED"}]}
+                    """.formatted(institutions.exampleCse().getId()));
+            publish(officer, id);
+            return new Drive(officer, id);
+        }
+
+        private CandidateProfile strong(String tag) throws Exception {
+            return student(tag + "@example.com", institutions.exampleCse(),
+                    institutions.exampleBatch2027(), "Backend Developer", 2, SKILLS);
+        }
+
+        private JsonNode list(Drive drive, String query) throws Exception {
+            return readJson(get(url(drive.requirementId()) + "?size=100" + query), drive.officer(), 200);
+        }
+
+        private List<UUID> ids(JsonNode page) {
+            List<UUID> ids = new java.util.ArrayList<>();
+            page.get("content").forEach(row -> ids.add(UUID.fromString(row.get("candidateId").asText())));
+            return ids;
+        }
+
+        /**
+         * Consecutive rows that tie on the keys this sort ranks by must run in id order.
+         * What counts as a tie follows the sort: by score alone under the default,
+         * by years and then score under experience, by verdict and then score under
+         * eligibility. Two students the sort cannot tell apart are exactly the ones
+         * whose order used to depend on the database.
+         */
+        private void assertTiesRunInIdOrder(JsonNode page, String sort) {
+            JsonNode rows = page.get("content");
+            int ties = 0;
+            for (int i = 1; i < rows.size(); i++) {
+                JsonNode before = rows.get(i - 1);
+                JsonNode after = rows.get(i);
+                boolean sameScore = before.get("compatibility").equals(after.get("compatibility"));
+                boolean tied = sort.contains("experience")
+                        ? sameScore && before.get("yearsExperience").equals(after.get("yearsExperience"))
+                        : sort.contains("eligibility")
+                        ? sameScore && before.get("eligibility").equals(after.get("eligibility"))
+                        : sameScore;
+                if (tied) {
+                    ties++;
+                    assertThat(UUID.fromString(before.get("candidateId").asText()))
+                            .describedAs("sort=%s, row %d", sort, i)
+                            .isLessThan(UUID.fromString(after.get("candidateId").asText()));
+                }
+            }
+            assertThat(ties).describedAs("the drive must actually contain ties for this to prove anything")
+                    .isGreaterThanOrEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("the same request returns the same order every time, under every sort")
+        void repeatedRequestsAgree() throws Exception {
+            Drive drive = drive("rep");
+
+            for (String sort : List.of("", "&sort=match", "&sort=experience", "&sort=eligibility")) {
+                List<UUID> first = ids(list(drive, sort));
+                assertThat(first).hasSize(8);
+                for (int run = 0; run < 4; run++) {
+                    assertThat(ids(list(drive, sort))).describedAs("sort '%s', run %d", sort, run)
+                            .isEqualTo(first);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("students who tie are ordered by their own id, under every sort")
+        void tiesRunInIdOrder() throws Exception {
+            Drive drive = drive("tie");
+
+            for (String sort : List.of("", "&sort=experience", "&sort=eligibility")) {
+                assertTiesRunInIdOrder(list(drive, sort), sort);
+            }
+        }
+
+        @Test
+        @DisplayName("pages neither repeat nor skip anybody, and stitch back into the whole list")
+        void pagesPartitionTheList() throws Exception {
+            Drive drive = drive("pag");
+
+            for (String sort : List.of("", "&sort=experience", "&sort=eligibility")) {
+                List<UUID> whole = ids(list(drive, sort));
+
+                List<UUID> stitched = new java.util.ArrayList<>();
+                for (int page = 0; page < 3; page++) {
+                    JsonNode slice = readJson(get(url(drive.requirementId()) + "?size=3&page=" + page + sort),
+                            drive.officer(), 200);
+                    assertThat(slice.get("totalElements").asInt()).isEqualTo(8);
+                    stitched.addAll(ids(slice));
+                }
+                assertThat(stitched).describedAs("sort '%s'", sort)
+                        .containsExactlyElementsOf(whole).doesNotHaveDuplicates().hasSize(8);
+                assertThat(readJson(get(url(drive.requirementId()) + "?size=3&page=3" + sort),
+                        drive.officer(), 200).get("content")).isEmpty();
+            }
+        }
+
+        @Test
+        @DisplayName("students who rank differently keep the order their score gives them")
+        void differentScoresKeepTheirOrder() throws Exception {
+            Drive drive = drive("rank");
+            JsonNode rows = list(drive, "").get("content");
+
+            int previous = Integer.MAX_VALUE;
+            for (JsonNode row : rows) {
+                assertThat(row.get("compatibility").isNull()).isFalse();
+                assertThat(row.get("compatibility").asInt()).isLessThanOrEqualTo(previous);
+                previous = row.get("compatibility").asInt();
+            }
+            // The one with a single required skill is genuinely lower, so it is last.
+            assertThat(rows.get(rows.size() - 1).get("fullName").asText()).isEqualTo("rank-weak");
+            assertThat(rows.get(rows.size() - 1).get("compatibility").asInt())
+                    .isLessThan(rows.get(0).get("compatibility").asInt());
+        }
+
+        @Test
+        @DisplayName("ordering leaves every formal verdict exactly as D-2 decided it")
+        void verdictsAreUnchanged() throws Exception {
+            Drive drive = drive("ver");
+
+            for (String sort : List.of("", "&sort=eligibility")) {
+                for (JsonNode row : list(drive, sort).get("content")) {
+                    String name = row.get("fullName").asText();
+                    String expected = name.startsWith("ver-no") ? "NOT_ELIGIBLE"
+                            : name.startsWith("ver-un") ? "UNKNOWN" : "ELIGIBLE";
+                    assertThat(row.get("eligibility").asText()).describedAs("%s, sort '%s'", name, sort)
+                            .isEqualTo(expected);
+                }
+            }
+            // And a not-eligible student is still there to be found.
+            assertThat(list(drive, "&eligibility=NOT_ELIGIBLE").get("content")).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("nobody outside the requirement's department or college can appear on any page")
+        void orderingNeverWidensScope() throws Exception {
+            Drive drive = drive("scp");
+
+            for (String sort : List.of("", "&sort=experience", "&sort=eligibility")) {
+                JsonNode all = list(drive, sort);
+                assertThat(all.get("totalElements").asInt()).isEqualTo(8);
+                for (JsonNode row : all.get("content")) {
+                    assertThat(row.get("fullName").asText()).doesNotContain("mech").doesNotContain("Rival");
+                    assertThat(row.get("department").asText()).isEqualTo(institutions.exampleCse().getName());
+                }
+            }
+
+            // A coordinator confined to the department sees the same students in
+            // the same order: the tie-break neither adds nor removes anybody.
+            String coordinator = coordinatorScopedToCse("scp-coord@example.com");
+            List<UUID> officerView = ids(list(drive, ""));
+            List<UUID> coordinatorView = ids(readJson(get(url(drive.requirementId()) + "?size=100"),
+                    coordinator, 200));
+            assertThat(coordinatorView).isEqualTo(officerView);
+        }
+    }
+
     // ---------------------------------------------------------------- privacy
 
     @Test

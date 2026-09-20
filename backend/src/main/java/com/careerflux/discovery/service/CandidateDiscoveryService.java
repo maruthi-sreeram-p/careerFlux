@@ -471,23 +471,39 @@ public class CandidateDiscoveryService {
 
     // --------------------------------------------------------------- helpers
 
-    private static Comparator<CandidateView> comparator(String sort) {
+    /**
+     * The order a discovery page is in: the ranking the caller asked for, and
+     * then the candidate's own id.
+     *
+     * <p>The id is the last word, and it has to be. Every ranking key here can
+     * tie — two students with the same skills, the same years and the same
+     * verdict score identically — and a tie left to the sort is settled by the
+     * order the cohort query happened to return the rows in, which nothing
+     * specifies. The list is sorted whole and then cut into pages, so a tie that
+     * fell one way for page one could fall the other way for page two: a student
+     * shown twice, and another never. The profile id never changes and never
+     * repeats, so it settles every tie the same way on every request.
+     *
+     * <p>Only ties are affected. Nobody moves relative to somebody who ranks
+     * differently, and no key above it changes.
+     *
+     * <p>Package-visible so the tie-break can be tested against an adversarial
+     * input order rather than whichever order a database returns.
+     */
+    static Comparator<CandidateView> comparator(String sort) {
         Comparator<CandidateView> byMatch = Comparator.comparing(
                 CandidateView::compatibility, Comparator.nullsLast(Comparator.reverseOrder()));
-        if (sort == null || sort.isBlank() || sort.equalsIgnoreCase("match")) {
-            return byMatch;
-        }
-        if (sort.equalsIgnoreCase("experience")) {
-            return Comparator.comparing(CandidateView::yearsExperience,
+        Comparator<CandidateView> ranking = byMatch;
+        if (sort != null && sort.equalsIgnoreCase("experience")) {
+            ranking = Comparator.comparing(CandidateView::yearsExperience,
                     Comparator.nullsLast(Comparator.reverseOrder())).thenComparing(byMatch);
-        }
-        if (sort.equalsIgnoreCase("eligibility")) {
+        } else if (sort != null && sort.equalsIgnoreCase("eligibility")) {
             // Eligible first, but only as an ordering. Nobody is removed, which
             // is the difference between surfacing a constraint and enforcing it.
-            return Comparator.comparingInt(
+            ranking = Comparator.comparingInt(
                     (CandidateView view) -> eligibilityRank(view.eligibility())).thenComparing(byMatch);
         }
-        return byMatch;
+        return ranking.thenComparing(CandidateView::candidateId);
     }
 
     private static int eligibilityRank(String status) {
