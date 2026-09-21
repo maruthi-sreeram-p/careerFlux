@@ -11,6 +11,10 @@ public enum AtsProvider {
     WORKABLE,
     BREEZY,
     ORACLE_HCM,
+    /** Hosted boards on applytojob.com. Recognised in discovery; its API needs the employer's own key. */
+    JAZZHR,
+    /** Hosted career portals on icims.com. Recognised in discovery; its API needs partner credentials. */
+    ICIMS,
     OTHER,
     NONE,
     UNKNOWN

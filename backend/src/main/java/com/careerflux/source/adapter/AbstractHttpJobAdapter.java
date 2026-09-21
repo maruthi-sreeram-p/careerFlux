@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 
+import com.careerflux.source.net.BoundedResponse;
 import com.careerflux.source.net.SafeRedirects;
 import com.careerflux.source.net.SafeUrlValidator;
 import com.careerflux.source.service.SourceRateLimiter;
@@ -12,7 +13,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -74,7 +74,7 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
         long startedAt = System.nanoTime();
         try {
             String target = url;
-            org.springframework.http.ResponseEntity<byte[]> response = null;
+            BoundedResponse.Response response = null;
             int status = 0;
 
             // The transport no longer follows redirects on its own, because a
@@ -82,28 +82,17 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
             // validated. Hops are taken here instead, each one checked, and a
             // chain that will not settle is refused rather than followed further.
             for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-                response = restClient.get()
-                        .uri(target)
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, (request, res) -> {
-                            // Inspected below so the status reaches the health record.
-                        })
-                        .toEntity(byte[].class);
-                status = response.getStatusCode().value();
+                // The ceiling is enforced while the body is read, for a declared
+                // length and a chunked one alike, rather than checked once the
+                // whole body is already in memory. A failing status is returned,
+                // not thrown, and inspected below so it reaches the health record.
+                response = BoundedResponse.get(restClient, target, MAX_BODY_BYTES);
+                status = response.status();
 
-                // Refused before the bytes are turned into a String, so an
-                // oversized body costs one array rather than two.
-                long declared = response.getHeaders().getContentLength();
-                if (declared > MAX_BODY_BYTES) {
-                    throw AdapterException.of("Source declared a body of " + declared
-                            + " bytes, above the " + MAX_BODY_BYTES + " byte ceiling.", status,
-                            FailureClassification.MALFORMED_RESPONSE);
-                }
-
-                if (!response.getStatusCode().is3xxRedirection()) {
+                if (!response.isRedirect()) {
                     break;
                 }
-                String location = response.getHeaders().getFirst("Location");
+                String location = response.headers().getFirst("Location");
                 if (location == null || location.isBlank()) {
                     throw AdapterException.of("Source redirected without saying where.", status,
                             FailureClassification.UPSTREAM_PERMANENT);
@@ -117,19 +106,12 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
 
             int latencyMs = (int) ((System.nanoTime() - startedAt) / 1_000_000);
             if (status >= 400) {
-                throw classify(status, response.getHeaders().getFirst("Retry-After"));
+                throw classify(status, response.headers().getFirst("Retry-After"));
             }
-            byte[] raw = response.getBody();
-            if (raw == null || raw.length == 0) {
+            byte[] raw = response.body();
+            if (raw.length == 0) {
                 throw AdapterException.of("Source returned an empty body.", status,
                         FailureClassification.EMPTY_RESPONSE);
-            }
-            // A source that sent no Content-Length is checked on what actually
-            // arrived, so the ceiling holds for chunked responses too.
-            if (raw.length > MAX_BODY_BYTES) {
-                throw AdapterException.of("Source returned " + raw.length
-                        + " bytes, above the " + MAX_BODY_BYTES + " byte ceiling.", status,
-                        FailureClassification.MALFORMED_RESPONSE);
             }
             String body = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
             if (body.isBlank()) {
@@ -137,6 +119,11 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
                         FailureClassification.EMPTY_RESPONSE);
             }
             return new FetchedJson(objectMapper.readTree(body), status, latencyMs, body);
+        } catch (BoundedResponse.BodyTooLargeException tooLarge) {
+            // Classified as before: a board this large is not a response this
+            // adapter can use, and retrying unchanged will not shrink it.
+            throw AdapterException.of("Source response is too large: " + tooLarge.getMessage(), null,
+                    FailureClassification.MALFORMED_RESPONSE);
         } catch (com.careerflux.common.error.UnsafeUrlException unsafe) {
             // A source that redirects somewhere we will not go is a source
             // problem, reported like any other unreachable source rather than

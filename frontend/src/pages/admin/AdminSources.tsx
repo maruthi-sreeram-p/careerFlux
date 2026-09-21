@@ -109,7 +109,10 @@ function RegisterDialog({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         </Field>
 
-        <Field label="Base URL" hint="The public URL of the board or endpoint.">
+        <Field
+          label="Base URL"
+          hint="The public URL of the board or endpoint. With Adapter left on Detect, a Greenhouse, Lever, Ashby, JazzHR, Workday or iCIMS board URL fills in the rest; boards CareerFlux cannot read yet are recorded, not activated."
+        >
           {({ id }) => (
             <TextInput
               id={id}
@@ -138,7 +141,7 @@ function RegisterDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
         <Field
           label="External identifier"
-          hint="The board token or company slug the adapter needs, e.g. the Greenhouse board name."
+          hint="The board token or company slug the adapter needs, e.g. the Greenhouse board name. Filled in from a recognised board URL when left blank."
         >
           {({ id }) => (
             <TextInput

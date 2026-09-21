@@ -14,6 +14,7 @@ import com.careerflux.common.error.NotFoundException;
 import com.careerflux.source.adapter.AdapterRegistry;
 import com.careerflux.source.adapter.SourceConfiguration;
 import com.careerflux.source.adapter.SourceMetadata;
+import com.careerflux.source.discovery.BoardHosts;
 import com.careerflux.source.domain.AccessPolicyType;
 import com.careerflux.source.domain.AtsProvider;
 import com.careerflux.source.domain.Company;
@@ -72,6 +73,7 @@ public class SourceRegistryService {
 
     @Transactional
     public JobSource register(RegistrationRequest request, String actor) {
+        request = recognizeBoard(request);
         String baseUrl = normalizeUrl(request.baseUrl());
         // Checked here as well as in the transport, so an operator submitting a
         // bad URL is told immediately rather than having it accepted and then
@@ -111,6 +113,48 @@ public class SourceRegistryService {
         auditService.recordSystem(actor, "SOURCE_REGISTERED", "JobSource", source.getId(), baseUrl);
         log.info("Registered source {} ({})", source.getName(), baseUrl);
         return source;
+    }
+
+    /**
+     * Fills in what a pasted board URL already says, when the operator left the
+     * adapter and the ATS for CareerFlux to work out.
+     *
+     * <p>Recognition goes through {@link BoardHosts}, the same registry discovery
+     * uses, so a board is identified the same way whichever door it came in by.
+     * A recognised board with an adapter is registered at the API that adapter
+     * reads, with the board token filled in. One without is registered at its
+     * public board with no adapter: it stays at DISCOVERED, since classification
+     * refuses a source nothing reads. An unrecognised URL, or a request that
+     * already names an adapter or an ATS, is left exactly as submitted. Nothing
+     * here fetches anything, and the resulting URL is validated like any other.
+     */
+    private RegistrationRequest recognizeBoard(RegistrationRequest request) {
+        boolean operatorChose = TextUtils.hasText(request.adapterKey())
+                || (request.atsProvider() != null && request.atsProvider() != AtsProvider.UNKNOWN);
+        if (operatorChose) {
+            return request;
+        }
+        Optional<BoardHosts.Recognized> recognized = BoardHosts.recognize(request.baseUrl());
+        if (recognized.isEmpty()) {
+            return request;
+        }
+        BoardHosts.Recognized board = recognized.get();
+        String detail = (TextUtils.hasText(request.discoveryDetail()) ? request.discoveryDetail() + " " : "")
+                + "Recognised as a " + board.provider() + " board ('" + board.token() + "'). "
+                + board.family().note();
+        return new RegistrationRequest(
+                request.name(),
+                board.sourceUrl(),
+                board.ingestible() ? SourceType.ATS_PUBLIC_API : request.sourceType(),
+                board.provider(),
+                board.adapterKey(),
+                TextUtils.hasText(request.externalIdentifier()) ? request.externalIdentifier() : board.token(),
+                request.discoveryMethod(),
+                detail,
+                request.rateLimitPerMinute(),
+                request.companyName(),
+                request.companyWebsite(),
+                request.tosUrl());
     }
 
     /**

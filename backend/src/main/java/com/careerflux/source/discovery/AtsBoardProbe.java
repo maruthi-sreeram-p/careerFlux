@@ -7,14 +7,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.Function;
 
-import com.careerflux.source.adapter.AshbyAdapter;
-import com.careerflux.source.adapter.GreenhouseAdapter;
-import com.careerflux.source.adapter.LeverAdapter;
+import com.careerflux.source.discovery.BoardHosts.Family;
+import com.careerflux.source.discovery.BoardHosts.Recognized;
 import com.careerflux.source.domain.AtsProvider;
 import com.careerflux.source.domain.DiscoveryMethod;
+import com.careerflux.source.net.BoundedResponse;
 import com.careerflux.source.net.SafeRedirects;
 import com.careerflux.source.net.SafeUrlValidator;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,28 +21,39 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Works out whether a company publishes jobs through an applicant tracking
- * system CareerFlux can read, given only the company's domain.
+ * Works out where a company publishes its jobs, given only the company's domain.
  *
  * <p>This is the piece that lets the platform find sources instead of being told
  * them. Two strategies, tried in that order because they fail differently:
  *
  * <ol>
  *   <li><b>Domain inspection.</b> Fetch the company's careers page and look for
- *       links to a known board. This is the reliable one: if the company links
- *       to {@code boards.greenhouse.io/acme}, that is their board, stated by
- *       them. It costs one page fetch.
+ *       links to a board {@link BoardHosts} recognises. This is the reliable one:
+ *       if the company links to {@code boards.greenhouse.io/acme}, that is their
+ *       board, stated by them. It costs one page fetch per careers path.
  *   <li><b>Direct probe.</b> Guess the board token from the domain and ask each
- *       ATS whether it exists. This catches companies whose careers page renders
- *       its board through JavaScript, where inspection finds nothing. It costs
- *       up to three API calls and can be wrong when two companies share a name,
- *       so a probe result records how it was found.
+ *       ATS with a public API whether it exists. This catches companies whose
+ *       careers page renders its board through JavaScript, where inspection finds
+ *       nothing. It can be wrong when two companies share a name, so a probe
+ *       result records how it was found.
  * </ol>
+ *
+ * <p><b>A board is recorded even when nothing can read it.</b> A careers page
+ * linking to a JazzHR or Workday board has said where the company's jobs are, and
+ * throwing that away left the operator with "no readable board" and nothing to
+ * act on. Such a board comes back with no adapter; discovery makes no request to
+ * it, and it cannot be classified or activated until an adapter exists.
+ *
+ * <p><b>This is not a crawler.</b> Only the company's own host is fetched, at a
+ * fixed list of careers paths. Links on those pages are matched against the
+ * registry and never followed; a link to a host the registry does not know is
+ * ignored. The only other requests are to the documented public APIs of the
+ * ingestible families, to confirm a board exists.
  *
  * <p>Nothing here decides whether a discovered board may be <em>used</em>. That
  * is the policy engine's job, and a discovered source starts at DISCOVERED with
@@ -53,16 +63,6 @@ import org.springframework.web.client.RestClient;
 public class AtsBoardProbe {
 
     private static final Logger log = LoggerFactory.getLogger(AtsBoardProbe.class);
-
-    /** Board links as they appear in careers-page markup. */
-    private static final List<BoardPattern> BOARD_PATTERNS = List.of(
-            new BoardPattern(AtsProvider.GREENHOUSE, GreenhouseAdapter.KEY, Pattern.compile(
-                    "(?:boards|job-boards)\\.greenhouse\\.io/(?:embed/job_board\\?for=)?([a-z0-9_-]{2,60})",
-                    Pattern.CASE_INSENSITIVE)),
-            new BoardPattern(AtsProvider.LEVER, LeverAdapter.KEY, Pattern.compile(
-                    "jobs\\.(?:eu\\.)?lever\\.co/([a-z0-9_-]{2,60})", Pattern.CASE_INSENSITIVE)),
-            new BoardPattern(AtsProvider.ASHBY, AshbyAdapter.KEY, Pattern.compile(
-                    "jobs\\.ashbyhq\\.com/([a-z0-9_.-]{2,60})", Pattern.CASE_INSENSITIVE)));
 
     /** Paths a company careers page is usually reachable at. */
     private static final List<String> CAREERS_PATHS = List.of(
@@ -76,26 +76,33 @@ public class AtsBoardProbe {
      * How much of a careers page is read before giving up on it.
      *
      * <p>Discovery looks for a board link in the markup, which appears within
-     * the first few hundred kilobytes of any real page. Without a ceiling, one
-     * host streaming an endless response would hold a discovery run open until
-     * the read timeout and consume heap the whole time.
+     * the first few hundred kilobytes of any real page. The ceiling is enforced
+     * while the body is read (see {@link BoundedResponse}), so one host streaming
+     * an endless response cannot hold heap until the read timeout.
      */
-    private static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
+    static final int MAX_BODY_BYTES = 2 * 1024 * 1024;
 
     /** A canonical-host or trailing-slash hop is normal; a chain is not. */
     private static final int MAX_REDIRECTS = 3;
 
-    private final RestClient restClient;
-    private final SafeUrlValidator urlValidator;
+    /** Returns a page's text, or null for any failure. */
+    private final Function<String, String> fetcher;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public AtsBoardProbe(RestClient.Builder restClientBuilder, SafeUrlValidator urlValidator,
                          ObjectMapper objectMapper) {
-        this.urlValidator = urlValidator;
-        this.restClient = restClientBuilder
+        RestClient restClient = restClientBuilder
                 .requestFactory(timeoutFactory(urlValidator))
                 .defaultHeader("User-Agent", "CareerFlux/0.1 (+source discovery; contact placement office)")
                 .build();
+        this.fetcher = url -> fetchText(restClient, urlValidator, url);
+        this.objectMapper = objectMapper;
+    }
+
+    /** For tests: pages come from {@code fetcher} instead of the network. */
+    AtsBoardProbe(Function<String, String> fetcher, ObjectMapper objectMapper) {
+        this.fetcher = fetcher;
         this.objectMapper = objectMapper;
     }
 
@@ -103,7 +110,7 @@ public class AtsBoardProbe {
      * Finds the job board for one company domain.
      *
      * @param domain a bare domain such as {@code razorpay.com}
-     * @return the board, or empty when the company has no board CareerFlux can read
+     * @return the board, which may have no adapter; empty when none was found
      */
     public Optional<DiscoveredBoard> probe(String domain) {
         String host = normalizeDomain(domain);
@@ -122,29 +129,39 @@ public class AtsBoardProbe {
     // Strategy 1: read what the company links to
     // ------------------------------------------------------------------
 
+    /**
+     * A board the company links to and CareerFlux can read wins; failing that,
+     * the first board it links to that CareerFlux recognises but cannot read.
+     * The company's own link beats a guessed token either way.
+     */
     private Optional<DiscoveredBoard> inspectCareersPages(String host) {
+        DiscoveredBoard recognizedOnly = null;
         for (String path : CAREERS_PATHS) {
             String url = "https://" + host + path;
-            String html = fetchText(url);
+            String html = fetcher.apply(url);
             if (html == null) {
                 continue;
             }
-            for (BoardPattern pattern : BOARD_PATTERNS) {
-                Matcher matcher = pattern.regex().matcher(html);
-                while (matcher.find()) {
-                    String token = matcher.group(1).toLowerCase(Locale.ROOT);
-                    if (isPlausibleToken(token) && boardExists(pattern, token)) {
+            for (Recognized board : BoardHosts.findIn(html)) {
+                if (board.ingestible()) {
+                    if (isPlausibleToken(board.token()) && boardExists(board.family(), board.token())) {
                         log.info("Discovered {} board '{}' for {} by inspecting {}",
-                                pattern.provider(), token, host, url);
-                        return Optional.of(new DiscoveredBoard(
-                                host, pattern.provider(), pattern.adapterKey(), token,
-                                DiscoveryMethod.DOMAIN_INSPECTION,
+                                board.provider(), board.token(), host, url);
+                        return Optional.of(DiscoveredBoard.of(host, board, DiscoveryMethod.DOMAIN_INSPECTION,
                                 "Linked from " + url));
                     }
+                } else if (recognizedOnly == null) {
+                    // Recorded, not requested: this family has no adapter.
+                    recognizedOnly = DiscoveredBoard.of(host, board, DiscoveryMethod.DOMAIN_INSPECTION,
+                            "Linked from " + url + ". " + board.family().note());
                 }
             }
         }
-        return Optional.empty();
+        if (recognizedOnly != null) {
+            log.info("Discovered {} board '{}' for {}; recorded without an adapter",
+                    recognizedOnly.provider(), recognizedOnly.boardToken(), host);
+        }
+        return Optional.ofNullable(recognizedOnly);
     }
 
     // ------------------------------------------------------------------
@@ -153,14 +170,15 @@ public class AtsBoardProbe {
 
     private Optional<DiscoveredBoard> probeTokensDirectly(String host) {
         for (String token : candidateTokens(host)) {
-            for (BoardPattern pattern : BOARD_PATTERNS) {
-                if (boardExists(pattern, token)) {
+            // Only the families with a public API: the others are never asked.
+            for (Family family : BoardHosts.ingestibleFamilies()) {
+                if (boardExists(family, token)) {
                     log.info("Discovered {} board '{}' for {} by direct probe",
-                            pattern.provider(), token, host);
-                    return Optional.of(new DiscoveredBoard(
-                            host, pattern.provider(), pattern.adapterKey(), token,
-                            DiscoveryMethod.ATS_PROBE,
-                            "Probed " + pattern.provider() + " for token '" + token + "'"));
+                            family.provider(), token, host);
+                    Recognized board = new Recognized(family, token,
+                            family.boardUrl().apply(token), family.sourceUrl().apply(token));
+                    return Optional.of(DiscoveredBoard.of(host, board, DiscoveryMethod.ATS_PROBE,
+                            "Probed " + family.provider() + " for token '" + token + "'"));
                 }
             }
         }
@@ -175,8 +193,8 @@ public class AtsBoardProbe {
      * listing. Requiring at least one posting also rules out tokens that happen
      * to resolve for an unrelated company with an empty board.
      */
-    private boolean boardExists(BoardPattern pattern, String token) {
-        String url = switch (pattern.provider()) {
+    private boolean boardExists(Family family, String token) {
+        String url = switch (family.provider()) {
             case GREENHOUSE -> "https://boards-api.greenhouse.io/v1/boards/" + token + "/jobs";
             case LEVER -> "https://api.lever.co/v0/postings/" + token + "?mode=json&limit=1";
             case ASHBY -> "https://api.ashbyhq.com/posting-api/job-board/" + token;
@@ -185,13 +203,13 @@ public class AtsBoardProbe {
         if (url == null) {
             return false;
         }
-        String body = fetchText(url);
+        String body = fetcher.apply(url);
         if (body == null) {
             return false;
         }
         try {
             JsonNode root = objectMapper.readTree(body);
-            return countPostings(pattern.provider(), root) > 0;
+            return countPostings(family.provider(), root) > 0;
         } catch (Exception notJson) {
             return false;
         }
@@ -220,7 +238,6 @@ public class AtsBoardProbe {
         Set<String> tokens = new LinkedHashSet<>();
         String withoutPort = host.split(":")[0];
         String[] labels = withoutPort.split("\\.");
-
         List<String> meaningful = new ArrayList<>();
         for (String label : labels) {
             String lower = label.toLowerCase(Locale.ROOT);
@@ -248,7 +265,6 @@ public class AtsBoardProbe {
                 && !TOKEN_NOISE.contains(token);
     }
 
-    /** Returns the body, or null for any failure. Discovery treats every failure as "not here". */
     /**
      * Fetches a page, following only redirects that pass validation, and reads
      * at most {@link #MAX_BODY_BYTES}.
@@ -258,20 +274,13 @@ public class AtsBoardProbe {
      * status, a refused redirect and an oversized body are all just "no board
      * here" — the next path or the next domain is tried instead.
      */
-    private String fetchText(String url) {
+    static String fetchText(RestClient restClient, SafeUrlValidator urlValidator, String url) {
         String target = url;
         try {
             for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-                var response = restClient.get()
-                        .uri(target)
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, (request, res) -> {
-                            // Handled by inspecting the status below.
-                        })
-                        .toEntity(byte[].class);
-
-                if (response.getStatusCode().is3xxRedirection()) {
-                    String location = response.getHeaders().getFirst("Location");
+                BoundedResponse.Response response = BoundedResponse.get(restClient, target, MAX_BODY_BYTES);
+                if (response.isRedirect()) {
+                    String location = response.headers().getFirst("Location");
                     if (location == null || location.isBlank() || hop == MAX_REDIRECTS) {
                         return null;
                     }
@@ -280,20 +289,14 @@ public class AtsBoardProbe {
                     target = SafeRedirects.resolve(target, location, urlValidator).toString();
                     continue;
                 }
-                if (response.getStatusCode().isError()) {
+                if (response.isError()) {
                     return null;
                 }
-                byte[] body = response.getBody();
-                if (body == null) {
-                    return null;
-                }
-                if (body.length > MAX_BODY_BYTES) {
-                    log.debug("Discovery ignored {}: body of {} bytes exceeds the {} byte ceiling",
-                            target, body.length, MAX_BODY_BYTES);
-                    return null;
-                }
-                return new String(body, java.nio.charset.StandardCharsets.UTF_8);
+                return new String(response.body(), java.nio.charset.StandardCharsets.UTF_8);
             }
+            return null;
+        } catch (BoundedResponse.BodyTooLargeException tooLarge) {
+            log.debug("Discovery ignored {}: {}", target, tooLarge.getMessage());
             return null;
         } catch (RuntimeException unreachable) {
             log.debug("Discovery could not fetch {}: {}", target, unreachable.getMessage());
@@ -325,14 +328,14 @@ public class AtsBoardProbe {
         return factory;
     }
 
-    private record BoardPattern(AtsProvider provider, String adapterKey, Pattern regex) {
-    }
-
     /**
      * A board CareerFlux found for itself.
      *
-     * @param howFound recorded so an operator reviewing the registry can tell a
-     *                 board the company linked to from one CareerFlux guessed
+     * @param adapterKey null when no adapter reads this board: it is recorded, not ingested
+     * @param sourceUrl  what the source is registered at — the API an adapter reads,
+     *                   or the public board when there is none
+     * @param howFound   recorded so an operator reviewing the registry can tell a
+     *                   board the company linked to from one CareerFlux guessed
      */
     public record DiscoveredBoard(
             String domain,
@@ -340,15 +343,16 @@ public class AtsBoardProbe {
             String adapterKey,
             String boardToken,
             DiscoveryMethod howFound,
-            String detail) {
+            String detail,
+            String sourceUrl) {
 
-        public String apiUrl() {
-            return switch (provider) {
-                case GREENHOUSE -> "https://boards-api.greenhouse.io/v1/boards/" + boardToken + "/jobs";
-                case LEVER -> "https://api.lever.co/v0/postings/" + boardToken;
-                case ASHBY -> "https://api.ashbyhq.com/posting-api/job-board/" + boardToken;
-                default -> "https://" + domain;
-            };
+        static DiscoveredBoard of(String domain, Recognized board, DiscoveryMethod howFound, String detail) {
+            return new DiscoveredBoard(domain, board.provider(), board.adapterKey(), board.token(),
+                    howFound, detail, board.sourceUrl());
+        }
+
+        public boolean ingestible() {
+            return adapterKey != null;
         }
     }
 }

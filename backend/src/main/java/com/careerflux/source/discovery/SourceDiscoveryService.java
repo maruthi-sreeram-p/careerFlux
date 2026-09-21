@@ -77,7 +77,7 @@ public class SourceDiscoveryService {
                 registered.add(new DiscoveredSource(
                         source.getId().toString(), displayName, domain,
                         board.provider().name(), board.boardToken(),
-                        board.howFound().name(), board.detail()));
+                        board.howFound().name(), board.detail(), board.ingestible()));
             } catch (ConflictException duplicate) {
                 // Already in the registry, which is a normal outcome for a
                 // rediscovery run rather than something to report as a failure.
@@ -90,11 +90,17 @@ public class SourceDiscoveryService {
         return new DiscoveryRun(unique.size(), registered, alreadyKnown, noBoard);
     }
 
+    /**
+     * A board with an adapter is registered at the API that adapter reads. One
+     * without is registered at its public board, with no adapter and no source
+     * type claimed: it is a record of where the company's jobs are, and it stays
+     * at DISCOVERED because classification refuses a source no adapter reads.
+     */
     private RegistrationRequest toRegistration(DiscoveredBoard board, String displayName) {
         return new RegistrationRequest(
                 displayName,
-                board.apiUrl(),
-                SourceType.ATS_PUBLIC_API,
+                board.sourceUrl(),
+                board.ingestible() ? SourceType.ATS_PUBLIC_API : SourceType.UNKNOWN,
                 board.provider(),
                 board.adapterKey(),
                 board.boardToken(),
@@ -126,7 +132,9 @@ public class SourceDiscoveryService {
             String provider,
             String boardToken,
             String howFound,
-            String detail) {
+            String detail,
+            // False for a board recorded without an adapter: nothing will be read from it.
+            boolean ingestible) {
     }
 
     /**
