@@ -363,13 +363,21 @@ export function Dialog({
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+  // Callers usually pass a fresh onClose on every render. Kept in a ref so the
+  // effect below runs when the dialog opens, not on every keystroke inside it:
+  // re-running it moved focus back to the dialog after each character typed.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener('keydown', onKeyDown);
@@ -381,7 +389,7 @@ export function Dialog({
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) {
     return null;

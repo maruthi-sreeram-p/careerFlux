@@ -8,6 +8,7 @@ import java.util.UUID;
 import com.careerflux.common.error.BadRequestException;
 import com.careerflux.requirement.domain.CompanyRequirement;
 import com.careerflux.shortlist.domain.PlacementStage;
+import com.careerflux.shortlist.domain.PlacementStageChange;
 import com.careerflux.shortlist.domain.ShortlistEntry;
 import com.careerflux.shortlist.service.PlacementWorkflowService;
 
@@ -71,12 +72,17 @@ public class MyPlacementController {
         return placement.myPlacements().stream().map(MyPlacementView::of).toList();
     }
 
-    /** How this student's own record on one drive got to where it is. */
+    /**
+     * How this student's own record on one drive got to where it is.
+     *
+     * <p>Not the staff view of the same history: see {@link MyStageChangeView}
+     * for what is left out, and why.
+     */
     @GetMapping("/{requirementId}/history")
     @Operation(summary = "What has happened on one of your placements")
-    public List<ShortlistController.StageChangeView> history(@PathVariable UUID requirementId) {
+    public List<MyStageChangeView> history(@PathVariable UUID requirementId) {
         return placement.myHistory(requirementId).stream()
-                .map(ShortlistController.StageChangeView::of)
+                .map(MyStageChangeView::of)
                 .toList();
     }
 
@@ -115,6 +121,34 @@ public class MyPlacementController {
     public record ResponseRequest(
             @NotBlank String response,
             @Size(max = 1000) String note) {
+    }
+
+    /**
+     * One move in a student's own placement history, as that student sees it.
+     *
+     * <p>The same shape as the staff view, with the college's side withheld: on
+     * a move staff made, neither the name of the person who made it nor the
+     * note they wrote is sent. Both stay in the record and in the staff view;
+     * they are the college's working notes, and the student export leaves them
+     * out for the same reason. What the student wrote on their own answers is
+     * theirs, and is returned as it was.
+     */
+    public record MyStageChangeView(UUID id, String fromStage, String toStage, String toStageLabel,
+                                    String actorLabel, String actorKind, String note,
+                                    Instant occurredAt) {
+
+        static MyStageChangeView of(PlacementStageChange change) {
+            boolean byStudent = change.getActorKind() == PlacementStage.ActorKind.STUDENT;
+            return new MyStageChangeView(
+                    change.getId(),
+                    change.getFromStage() == null ? null : change.getFromStage().name(),
+                    change.getToStage().name(),
+                    change.getToStage().label(),
+                    byStudent ? change.getActorLabel() : null,
+                    change.getActorKind().name(),
+                    byStudent ? change.getNote() : null,
+                    change.getOccurredAt());
+        }
     }
 
     /**

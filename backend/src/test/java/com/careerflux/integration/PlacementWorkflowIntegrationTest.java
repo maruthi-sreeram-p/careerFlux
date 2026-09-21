@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.Map;
 import java.util.UUID;
 
 import com.careerflux.candidate.domain.CandidateProfile;
@@ -24,6 +25,8 @@ import com.careerflux.user.UserRole;
 import com.careerflux.user.UserStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.persistence.EntityManager;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -31,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -83,6 +87,12 @@ class PlacementWorkflowIntegrationTest {
 
     @Autowired
     private TestInstitutions institutions;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     // ---------------------------------------------------------- the happy path
 
@@ -575,6 +585,175 @@ class PlacementWorkflowIntegrationTest {
             mockMvc.perform(get(historyUrl(requirement, mech.candidateId()))
                             .header("Authorization", "Bearer " + coordinator))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    // ------------------------------------------------- what the student is shown
+
+    @Nested
+    @DisplayName("what a student is shown of the college's side (D-10)")
+    class StudentView {
+
+        // Distinctive enough that finding any of them anywhere in a response
+        // can only mean it was sent.
+        private static final String STAFF_NAME = "Zephyrine Quillfeather-Okonkwo";
+        private static final String INVITE_NOTE = "D10-STAFF-NOTE weak communication, keep as backup";
+        private static final String SELECT_NOTE = "D10-STAFF-NOTE panel approved the offer";
+        private static final String STUDENT_NOTE = "D10-STUDENT-NOTE happy to relocate to Pune";
+
+        private record Drive(String officer, String requirement, Fixture candidate) {
+        }
+
+        /** Invited with a note, the student says yes with a note of their own, then selected with a note. */
+        private Drive decidedDrive(String suffix) throws Exception {
+            User named = staff("pw-d10-officer-" + suffix + "@example.com", UserRole.PLACEMENT_COORDINATOR, null);
+            named.setFullName(STAFF_NAME);
+            String officer = signIn(userRepository.saveAndFlush(named));
+            String requirement = openRequirement(officer);
+            Fixture candidate = student("pw-d10-student-" + suffix + "@example.com", institutions.exampleCse());
+            shortlist(officer, requirement, candidate.candidateId());
+
+            staffMoveWithNote(officer, requirement, candidate.candidateId(), "INVITED", INVITE_NOTE);
+            mockMvc.perform(patch("/api/candidate/placements/" + requirement + "/response")
+                            .header("Authorization", "Bearer " + candidate.token())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(
+                                    Map.of("response", "interested", "note", STUDENT_NOTE))))
+                    .andExpect(status().isOk());
+            staffMoveWithNote(officer, requirement, candidate.candidateId(), "SELECTED", SELECT_NOTE);
+            return new Drive(officer, requirement, candidate);
+        }
+
+        private void staffMoveWithNote(String token, String requirementId, UUID candidateId,
+                                       String stage, String note) throws Exception {
+            mockMvc.perform(patch(stageUrl(requirementId, candidateId))
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of("stage", stage, "note", note))))
+                    .andExpect(status().isOk());
+        }
+
+        private String studentHistory(Drive drive) throws Exception {
+            return mockMvc.perform(get("/api/candidate/placements/" + drive.requirement() + "/history")
+                            .header("Authorization", "Bearer " + drive.candidate().token()))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+        }
+
+        @Test
+        @DisplayName("the student's history names no staff member and carries no staff note")
+        void staffNameAndNotesAreWithheld() throws Exception {
+            Drive drive = decidedDrive("a");
+
+            String body = studentHistory(drive);
+
+            assertThat(body)
+                    .doesNotContain(STAFF_NAME)
+                    .doesNotContain("Quillfeather")
+                    .doesNotContain(INVITE_NOTE)
+                    .doesNotContain(SELECT_NOTE)
+                    .doesNotContain("D10-STAFF-NOTE")
+                    .doesNotContain("pw-d10-officer-a@example.com");
+
+            var history = objectMapper.readTree(body);
+            assertThat(history).hasSize(3);
+            for (int staffMove : new int[] {0, 2}) {
+                assertThat(history.get(staffMove).get("actorKind").asText()).isEqualTo("STAFF");
+                assertThat(history.get(staffMove).get("actorLabel").isNull())
+                        .describedAs("actorLabel on move %d", staffMove).isTrue();
+                assertThat(history.get(staffMove).get("note").isNull())
+                        .describedAs("note on move %d", staffMove).isTrue();
+            }
+        }
+
+        @Test
+        @DisplayName("the student still sees every move, when it happened, and their own answer")
+        void theMovesAreStillThere() throws Exception {
+            Drive drive = decidedDrive("b");
+
+            mockMvc.perform(get("/api/candidate/placements/" + drive.requirement() + "/history")
+                            .header("Authorization", "Bearer " + drive.candidate().token()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(3))
+                    .andExpect(jsonPath("$[0].fromStage").value("SHORTLISTED"))
+                    .andExpect(jsonPath("$[0].toStage").value("INVITED"))
+                    .andExpect(jsonPath("$[0].toStageLabel").value("Invited"))
+                    .andExpect(jsonPath("$[0].actorKind").value("STAFF"))
+                    .andExpect(jsonPath("$[0].occurredAt").isNotEmpty())
+                    .andExpect(jsonPath("$[0].id").isNotEmpty())
+                    .andExpect(jsonPath("$[1].fromStage").value("INVITED"))
+                    .andExpect(jsonPath("$[1].toStage").value("INTERESTED"))
+                    .andExpect(jsonPath("$[1].actorKind").value("STUDENT"))
+                    .andExpect(jsonPath("$[1].actorLabel").value("Placement Student"))
+                    .andExpect(jsonPath("$[1].note").value(STUDENT_NOTE))
+                    .andExpect(jsonPath("$[1].occurredAt").isNotEmpty())
+                    .andExpect(jsonPath("$[2].fromStage").value("INTERESTED"))
+                    .andExpect(jsonPath("$[2].toStage").value("SELECTED"))
+                    .andExpect(jsonPath("$[2].actorKind").value("STAFF"))
+                    .andExpect(jsonPath("$[2].occurredAt").isNotEmpty());
+        }
+
+        @Test
+        @DisplayName("staff reading the same history still see who moved the student, and why")
+        void staffViewIsUnchanged() throws Exception {
+            Drive drive = decidedDrive("c");
+
+            mockMvc.perform(get(historyUrl(drive.requirement(), drive.candidate().candidateId()))
+                            .header("Authorization", "Bearer " + drive.officer()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(3))
+                    .andExpect(jsonPath("$[0].actorLabel").value(STAFF_NAME))
+                    .andExpect(jsonPath("$[0].note").value(INVITE_NOTE))
+                    .andExpect(jsonPath("$[1].note").value(STUDENT_NOTE))
+                    .andExpect(jsonPath("$[2].actorLabel").value(STAFF_NAME))
+                    .andExpect(jsonPath("$[2].note").value(SELECT_NOTE));
+        }
+
+        @Test
+        @DisplayName("no other response a student can get carries them either")
+        void noOtherStudentResponseCarriesThem() throws Exception {
+            Drive drive = decidedDrive("d");
+            String token = drive.candidate().token();
+
+            String placements = mockMvc.perform(get("/api/candidate/placements")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            String export = mockMvc.perform(get("/api/candidate/export")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+
+            for (String body : new String[] {placements, export}) {
+                assertThat(body)
+                        .doesNotContain(STAFF_NAME)
+                        .doesNotContain("Quillfeather")
+                        .doesNotContain("D10-STAFF-NOTE");
+            }
+            // The export was already right; this pins it, and shows the check can see a note at all.
+            assertThat(export).contains(STUDENT_NOTE);
+        }
+
+        @Test
+        @DisplayName("reading the student's history changes nothing that is stored")
+        void readingChangesNothing() throws Exception {
+            Drive drive = decidedDrive("e");
+            String rows = "select c.id, c.from_stage, c.to_stage, c.actor_user_id, c.actor_label, c.actor_kind, "
+                    + "c.note, c.occurred_at from placement_stage_changes c "
+                    + "join company_requirement_shortlists s on s.id = c.shortlist_id "
+                    + "where s.requirement_id = ? order by c.occurred_at, c.id";
+            UUID requirement = UUID.fromString(drive.requirement());
+
+            entityManager.flush();
+            var before = jdbc.queryForList(rows, requirement);
+            studentHistory(drive);
+            entityManager.flush();
+            var after = jdbc.queryForList(rows, requirement);
+
+            assertThat(before).hasSize(3);
+            assertThat(after).isEqualTo(before);
+            assertThat(before.get(0).get("actor_label")).isEqualTo(STAFF_NAME);
+            assertThat(before.get(0).get("note")).isEqualTo(INVITE_NOTE);
         }
     }
 
