@@ -65,6 +65,38 @@ class ResumeExtractionServiceTest {
         assertThat(resume.linkedinUrl()).contains("linkedin.com/in/maruthi-sreeram");
         assertThat(resume.githubUrl()).contains("github.com/maruthisreeram");
         assertThat(resume.location()).isEqualTo("Hyderabad, India");
+        assertThat(resume.phone()).isEqualTo("+91 98765 43210");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "+91 98765 43210", "98765 43210", "+91-98765-43210", "+91 98765-43210", "(+91) 98765 43210",
+            "+91 9876543210", "+919876543210", "9876543210", "09876543210", "040 2345 6789",
+            "040-23456789", "+1 415 555 0132"})
+    @DisplayName("finds a phone number however it is grouped")
+    void findsPhoneNumbersInTheFormatsPeopleWrite(String phone) {
+        ExtractedResume resume = service.heuristic("Ananya Krishnan\nHyderabad, Telangana | " + phone
+                + " | ananya@example.com\n");
+        assertThat(resume.phone()).isEqualTo(phone);
+    }
+
+    @Test
+    @DisplayName("finds the phone even when other numbers follow it on the same line")
+    void findsPhoneBeforeTrailingNumbers() {
+        assertThat(service.heuristic("Contact: 9876543210 2019-2023").phone()).isEqualTo("9876543210");
+    }
+
+    @Test
+    @DisplayName("does not mistake years, marks or identity numbers for a phone")
+    void ignoresNumbersThatAreNotPhones() {
+        ExtractedResume resume = service.heuristic("""
+                Ananya Krishnan
+                B.Tech CSE, 2022-2026, CGPA 8.4
+                Class XII 2020 - 2022, 94%
+                Roll number 2022040123
+                ID 1234 5678 9012
+                """);
+        assertThat(resume.phone()).isNull();
     }
 
     @Test

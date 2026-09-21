@@ -76,7 +76,14 @@ public class ResumeExtractionService {
             """;
 
     private static final Pattern EMAIL = Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.]{2,}");
-    private static final Pattern PHONE = Pattern.compile("(\\+?\\d{1,3}[\\s-]?)?\\(?\\d{3,5}\\)?[\\s-]?\\d{3}[\\s-]?\\d{3,4}");
+    /**
+     * A run that could be a phone number: digits with the spaces, hyphens and
+     * brackets people write between them, on one line. Whether it is one is
+     * decided by {@link #isPhoneNumber}, on the digits alone, because the
+     * grouping varies too much to pattern-match — "98765 43210", the usual way
+     * an Indian mobile is written, defeated the fixed 3-3-4 shape used before.
+     */
+    private static final Pattern PHONE = Pattern.compile("(?<![\\w+])\\(?\\+?\\d[\\d \\t()-]{8,20}\\d(?!\\w)");
     private static final Pattern LINKEDIN = Pattern.compile("(?i)(https?://)?(www\\.)?linkedin\\.com/in/[\\w-]+");
     private static final Pattern GITHUB = Pattern.compile("(?i)(https?://)?(www\\.)?github\\.com/[\\w-]+");
     private static final Pattern YEARS = Pattern.compile("(?i)(\\d{1,2}(?:\\.\\d)?)\\s*\\+?\\s*(?:years?|yrs?)\\s+(?:of\\s+)?experience");
@@ -244,7 +251,7 @@ public class ResumeExtractionService {
         return new ExtractedResume(
                 guessName(normalized),
                 findFirst(EMAIL, normalized),
-                findFirst(PHONE, normalized),
+                findPhone(normalized),
                 guessLocation(normalized),
                 null,
                 null,
@@ -334,6 +341,44 @@ public class ResumeExtractionService {
     private String findFirst(Pattern pattern, String text) {
         Matcher matcher = pattern.matcher(text);
         return matcher.find() ? matcher.group().strip() : null;
+    }
+
+    /** The first run of digits that reads as a phone number rather than a year range, score or id. */
+    private String findPhone(String text) {
+        Matcher matcher = PHONE.matcher(text);
+        while (matcher.find()) {
+            // The run can carry on into unrelated digits on the same line
+            // ("9876543210 2019-2023"), so shorter prefixes, cut at a separator,
+            // are tried as well.
+            String candidate = matcher.group().strip();
+            while (!candidate.isEmpty()) {
+                if (isPhoneNumber(candidate)) {
+                    return candidate;
+                }
+                int cut = Math.max(candidate.lastIndexOf(' '), Math.max(candidate.lastIndexOf('\t'),
+                        candidate.lastIndexOf('-')));
+                candidate = cut < 0 ? "" : candidate.substring(0, cut).strip();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Indian numbers first, since those are the students this reads: a 10-digit
+     * mobile (starting 6-9), a landline with its leading 0, or either with the
+     * 91 country code. Anything else needs an explicit "+" to count, which keeps
+     * "2022-2026", marks and 12-digit identity numbers out.
+     */
+    static boolean isPhoneNumber(String candidate) {
+        String digits = candidate.replaceAll("\\D", "");
+        boolean international = candidate.contains("+");
+        return switch (digits.length()) {
+            case 10 -> digits.charAt(0) >= '6' && digits.charAt(0) <= '9';
+            case 11 -> digits.startsWith("0") || international;
+            case 12 -> digits.startsWith("91") || international;
+            case 13 -> international;
+            default -> false;
+        };
     }
 
     private String trimForModel(String text) {
