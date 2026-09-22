@@ -197,4 +197,119 @@ class BoundedResponseTest {
             assertThat(response.headers().getFirst("Location")).isEqualTo("https://example.com/elsewhere");
         }
     }
+
+    /**
+     * Keeping the start of a large body instead of refusing it (Phase 1 follow-up),
+     * for robots.txt and the home-page check. The ceiling holds just the same: one
+     * byte past it shows the body goes on, and the rest is never read.
+     */
+    @Nested
+    @DisplayName("keeping only the start")
+    class KeepingTheStart {
+
+        /** Far past the ceiling, and still small enough that no failure could fill a disk. */
+        private static final long LARGE = 32L * 1024 * 1024;
+
+        /** How far socket buffers let a server write ahead of a reader that has stopped. */
+        private static final long BUFFER_SLACK = 4L * 1024 * 1024;
+
+        private StreamingHttpServer server;
+        private RestClient client;
+
+        @BeforeEach
+        void start() throws IOException {
+            server = new StreamingHttpServer();
+            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+                @Override
+                protected void prepareConnection(java.net.HttpURLConnection connection, String method)
+                        throws IOException {
+                    super.prepareConnection(connection, method);
+                    connection.setInstanceFollowRedirects(false);
+                }
+            };
+            factory.setConnectTimeout(Duration.ofSeconds(5));
+            factory.setReadTimeout(Duration.ofSeconds(5));
+            client = RestClient.builder().requestFactory(factory).build();
+        }
+
+        @AfterEach
+        void stop() {
+            server.close();
+        }
+
+        private BoundedResponse.Prefix get(String path) {
+            return assertTimeoutPreemptively(Duration.ofSeconds(15),
+                    () -> BoundedResponse.getPrefix(client, server.url(path), LIMIT));
+        }
+
+        @Test
+        @DisplayName("a stream is never asked for more than the limit it was given")
+        void readPrefixStopsAtItsLimit() throws IOException {
+            EndlessStream endless = new EndlessStream();
+            byte[] read = BoundedResponse.readPrefix(endless, LIMIT + 1);
+            assertThat(read.length).isEqualTo(LIMIT + 1);
+            assertThat(endless.served).isEqualTo(LIMIT + 1L);
+        }
+
+        @Test
+        @DisplayName("a body under the ceiling comes back whole and is not marked truncated")
+        void underTheCeiling() {
+            server.chunked("/under", LIMIT - 1L);
+            BoundedResponse.Prefix prefix = get("/under");
+            assertThat(prefix.body().length).isEqualTo(LIMIT - 1);
+            assertThat(prefix.truncated()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a body exactly at the ceiling comes back whole and is not marked truncated")
+        void exactlyAtTheCeiling() {
+            server.chunked("/exact", LIMIT);
+            BoundedResponse.Prefix prefix = get("/exact");
+            assertThat(prefix.body().length).isEqualTo(LIMIT);
+            assertThat(prefix.truncated()).isFalse();
+        }
+
+        @Test
+        @DisplayName("one byte over: exactly the ceiling is kept, and the body is marked truncated")
+        void oneByteOver() {
+            server.chunked("/over", LIMIT + 1L);
+            BoundedResponse.Prefix prefix = get("/over");
+            assertThat(prefix.body().length).isEqualTo(LIMIT);
+            assertThat(prefix.truncated()).isTrue();
+        }
+
+        @Test
+        @DisplayName("an endless chunked body is cut at the ceiling and the connection closed at once")
+        void endlessBody() throws InterruptedException {
+            server.page("/endless", 200, new byte[0], LARGE);
+            BoundedResponse.Prefix prefix = get("/endless");
+            assertThat(prefix.body().length).isEqualTo(LIMIT);
+            assertThat(prefix.truncated()).isTrue();
+            assertThat(server.awaitFinished("/endless", Duration.ofSeconds(10))).describedAs("handler finished").isTrue();
+            assertThat(server.sentEverything("/endless")).describedAs("server sent all 32 MiB").isFalse();
+            assertThat(server.bytesSent("/endless")).describedAs("bytes sent").isLessThan(LIMIT + BUFFER_SLACK);
+        }
+
+        @Test
+        @DisplayName("an error status is returned without reading its body, however long it runs")
+        void errorBodyIsNotRead() throws InterruptedException {
+            server.page("/error", 500, new byte[0], LARGE);
+            BoundedResponse.Prefix prefix = get("/error");
+            assertThat(prefix.status()).isEqualTo(500);
+            assertThat(prefix.body()).isEmpty();
+            assertThat(prefix.truncated()).isFalse();
+            assertThat(server.awaitFinished("/error", Duration.ofSeconds(10))).describedAs("handler finished").isTrue();
+            assertThat(server.sentEverything("/error")).describedAs("server sent the whole error body").isFalse();
+        }
+
+        @Test
+        @DisplayName("a redirect is handed back with its body, and not followed")
+        void redirectBodyIsKept() {
+            server.fixed("/moved", 301, "Moved".getBytes(), "Location", "https://example.com/elsewhere");
+            BoundedResponse.Prefix prefix = get("/moved");
+            assertThat(prefix.status()).isEqualTo(301);
+            assertThat(prefix.headers().getFirst("Location")).isEqualTo("https://example.com/elsewhere");
+            assertThat(new String(prefix.body())).isEqualTo("Moved");
+        }
+    }
 }

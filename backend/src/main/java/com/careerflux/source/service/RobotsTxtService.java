@@ -1,6 +1,8 @@
 package com.careerflux.source.service;
 
 import java.net.URI;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -9,11 +11,13 @@ import com.careerflux.common.TextUtils;
 import com.careerflux.config.CacheConfig;
 import com.careerflux.config.CareerFluxProperties;
 import com.careerflux.source.domain.RobotsStatus;
+import com.careerflux.source.net.BoundedResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -34,7 +38,10 @@ import org.springframework.web.client.RestClient;
 public class RobotsTxtService {
 
     private static final Logger log = LoggerFactory.getLogger(RobotsTxtService.class);
-    private static final int MAX_ROBOTS_BYTES = 512 * 1024;
+    static final int MAX_ROBOTS_BYTES = 512 * 1024;
+
+    /** As {@code StringHttpMessageConverter} spells it, for the same charset decision. */
+    private static final MediaType APPLICATION_PLUS_JSON = new MediaType("application", "*+json");
 
     private final RestClient restClient;
     private final String userAgentToken;
@@ -111,28 +118,43 @@ public class RobotsTxtService {
     @Cacheable(cacheNames = CacheConfig.ROBOTS_TXT, key = "#robotsUrl", unless = "#result == null")
     public Fetch fetchRobots(String robotsUrl) {
         try {
-            var response = restClient.get()
-                    .uri(robotsUrl)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, res) -> {
-                        // Handled below by inspecting the status rather than throwing.
-                    })
-                    .toEntity(String.class);
+            // RFC 9309 has a crawler parse at least the first 500 KiB and ignore
+            // the rest. So a larger file is cut at the ceiling while it is read,
+            // and what arrived is parsed; its remainder is never read. The status
+            // alone decides an error, so an error body is not read at all.
+            BoundedResponse.Prefix response = BoundedResponse.getPrefix(restClient, robotsUrl, MAX_ROBOTS_BYTES);
 
-            int status = response.getStatusCode().value();
-            Fetch decided = fromStatus(status);
+            Fetch decided = fromStatus(response.status());
             if (decided != null) {
                 return decided;
             }
-            String body = response.getBody();
-            if (body != null && body.length() > MAX_ROBOTS_BYTES) {
-                body = body.substring(0, MAX_ROBOTS_BYTES);
+            if (response.truncated()) {
+                log.info("robots.txt at {} is larger than {} bytes; only the first {} were read and parsed",
+                        robotsUrl, MAX_ROBOTS_BYTES, MAX_ROBOTS_BYTES);
             }
-            return new Fetch(body == null ? "" : body, false, null);
+            return new Fetch(new String(response.body(), charsetOf(response.headers())), false, null);
         } catch (RuntimeException ex) {
             log.debug("Could not fetch {}: {}", robotsUrl, ex.getMessage());
             return new Fetch(null, false, "robots.txt could not be reached: " + ex.getMessage());
         }
+    }
+
+    /**
+     * The charset the body is decoded with: the one the Content-Type declares,
+     * else UTF-8 for a JSON type, else ISO-8859-1. That is exactly how
+     * {@code toEntity(String.class)} decoded robots.txt before the read was
+     * bounded, so a file that parsed one way still parses the same way.
+     */
+    static Charset charsetOf(HttpHeaders headers) {
+        MediaType type = headers.getContentType();
+        if (type != null && type.getCharset() != null) {
+            return type.getCharset();
+        }
+        if (type != null && (type.isCompatibleWith(MediaType.APPLICATION_JSON)
+                || type.isCompatibleWith(APPLICATION_PLUS_JSON))) {
+            return StandardCharsets.UTF_8;
+        }
+        return StandardCharsets.ISO_8859_1;
     }
 
     /**
