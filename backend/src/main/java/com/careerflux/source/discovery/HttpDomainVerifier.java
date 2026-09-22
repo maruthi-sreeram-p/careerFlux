@@ -7,12 +7,13 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.careerflux.source.net.BoundedResponse;
 import com.careerflux.source.net.SafeRedirects;
 import com.careerflux.source.net.SafeUrlValidator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -34,8 +35,8 @@ import org.springframework.web.client.RestClient;
  *
  * <p>Every request goes through {@link SafeUrlValidator}: validated before
  * dispatch, redirects taken one checked hop at a time, and the body read only up
- * to a ceiling so a hostile or broken host cannot stream indefinitely into a
- * discovery run.
+ * to a ceiling, enforced while reading (see {@link BoundedResponse}), so a
+ * hostile or broken host cannot stream indefinitely into a discovery run.
  */
 @Component
 public class HttpDomainVerifier implements CompanyResolver.DomainVerifier {
@@ -43,7 +44,7 @@ public class HttpDomainVerifier implements CompanyResolver.DomainVerifier {
     private static final Logger log = LoggerFactory.getLogger(HttpDomainVerifier.class);
 
     /** A company name appears in the first few kilobytes of a real home page. */
-    private static final int MAX_BODY_BYTES = 512 * 1024;
+    static final int MAX_BODY_BYTES = 512 * 1024;
 
     /** A www/apex or trailing-slash hop is normal; a chain is not. */
     private static final int MAX_REDIRECTS = 3;
@@ -58,7 +59,11 @@ public class HttpDomainVerifier implements CompanyResolver.DomainVerifier {
     private final SafeUrlValidator urlValidator;
 
     public HttpDomainVerifier(RestClient sourceRestClient, SafeUrlValidator urlValidator) {
-        this.restClient = sourceRestClient;
+        // Asks for a web page, as each request always has; the transport, its
+        // validation and its timeouts are the source client's own.
+        this.restClient = sourceRestClient.mutate()
+                .defaultHeaders(headers -> headers.setAccept(List.of(MediaType.TEXT_HTML, MediaType.ALL)))
+                .build();
         this.urlValidator = urlValidator;
     }
 
@@ -136,23 +141,20 @@ public class HttpDomainVerifier implements CompanyResolver.DomainVerifier {
      * Fetches a home page, following only validated redirects, reading a bounded
      * body. Returns null for anything that does not work out — a candidate that
      * does not answer is simply not a candidate.
+     *
+     * <p>Only the first {@link #MAX_BODY_BYTES} are read, and a larger page is
+     * judged on those, since its name is near the top. The rest is never read,
+     * whatever length the page declares; an error page is not read at all.
      */
     private String fetch(String url) {
         String target = url;
         try {
             for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-                var response = restClient.get()
-                        .uri(target)
-                        .accept(org.springframework.http.MediaType.TEXT_HTML,
-                                org.springframework.http.MediaType.ALL)
-                        .retrieve()
-                        .onStatus(HttpStatusCode::isError, (request, res) -> {
-                            // Inspected below; a bad status is just "not this domain".
-                        })
-                        .toEntity(byte[].class);
+                BoundedResponse.Prefix response = BoundedResponse.getPrefix(restClient, target, MAX_BODY_BYTES);
+                int status = response.status();
 
-                if (response.getStatusCode().is3xxRedirection()) {
-                    String location = response.getHeaders().getFirst("Location");
+                if (status >= 300 && status < 400) {
+                    String location = response.headers().getFirst("Location");
                     if (location == null || location.isBlank() || hop == MAX_REDIRECTS) {
                         return null;
                     }
@@ -161,15 +163,18 @@ public class HttpDomainVerifier implements CompanyResolver.DomainVerifier {
                     target = SafeRedirects.resolve(target, location, urlValidator).toString();
                     continue;
                 }
-                if (response.getStatusCode().isError()) {
+                if (status >= 400) {
+                    // A bad status is just "not this domain".
                     return null;
                 }
-                byte[] body = response.getBody();
-                if (body == null || body.length == 0) {
+                byte[] body = response.body();
+                if (body.length == 0) {
                     return null;
                 }
-                int length = Math.min(body.length, MAX_BODY_BYTES);
-                return new String(body, 0, length, StandardCharsets.UTF_8);
+                if (response.truncated()) {
+                    log.debug("Judging {} on its first {} bytes; the rest was not read", target, MAX_BODY_BYTES);
+                }
+                return new String(body, StandardCharsets.UTF_8);
             }
             return null;
         } catch (RuntimeException unreachable) {

@@ -3,6 +3,7 @@ package com.careerflux.source.net;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClient;
@@ -45,6 +46,15 @@ public final class BoundedResponse {
         public boolean isError() {
             return status >= 400;
         }
+    }
+
+    /**
+     * What came back when only the start of the body is wanted.
+     *
+     * @param body      at most the ceiling's worth of bytes; empty, not null, for an error status
+     * @param truncated true when the body went on past the ceiling and the rest was never read
+     */
+    public record Prefix(int status, HttpHeaders headers, byte[] body, boolean truncated) {
     }
 
     /** The body was larger than the caller allows. Nothing of it is kept. */
@@ -98,6 +108,40 @@ public final class BoundedResponse {
     }
 
     /**
+     * Performs the GET and keeps at most {@code maxBytes} of the body, for a caller
+     * that uses the start of a large body rather than refusing it.
+     *
+     * <p>robots.txt is the case in point: RFC 9309 has a crawler parse at least
+     * the first 500 KiB and ignore the rest, so an oversized file is cut at the
+     * ceiling, not refused. The rest is never read. One byte past the ceiling is
+     * enough to show the body goes on, and the stream is closed there.
+     *
+     * <p>An error status's body is not read. A redirect's body is, within the
+     * same ceiling, because a caller may treat it as content; nothing is
+     * followed here.
+     */
+    public static Prefix getPrefix(RestClient client, String url, int maxBytes) {
+        return client.get()
+                .uri(url)
+                .exchange((request, response) -> {
+                    int status = response.getStatusCode().value();
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.putAll(response.getHeaders());
+                    InputStream body = response.getBody();
+                    if (status >= 400) {
+                        abandon(body);
+                        return new Prefix(status, headers, new byte[0], false);
+                    }
+                    byte[] read = readPrefix(body, maxBytes + 1);
+                    if (read.length <= maxBytes) {
+                        return new Prefix(status, headers, read, false);
+                    }
+                    abandon(body);
+                    return new Prefix(status, headers, Arrays.copyOf(read, maxBytes), true);
+                });
+    }
+
+    /**
      * Closes a body that will not be read to its end.
      *
      * <p>Necessary, not tidy: when the exchange finishes, Spring's
@@ -143,5 +187,27 @@ public final class BoundedResponse {
             }
             out.write(buffer, 0, read);
         }
+    }
+
+    /**
+     * Reads until the stream ends or {@code limit} bytes have arrived, whichever
+     * is first. Never asks the stream for more than {@code limit} bytes in total.
+     */
+    static byte[] readPrefix(InputStream in, int limit) throws IOException {
+        if (in == null) {
+            return new byte[0];
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(limit, BUFFER));
+        byte[] buffer = new byte[BUFFER];
+        long total = 0;
+        while (total < limit) {
+            int read = in.read(buffer, 0, (int) Math.min(buffer.length, limit - total));
+            if (read < 0) {
+                break;
+            }
+            out.write(buffer, 0, read);
+            total += read;
+        }
+        return out.toByteArray();
     }
 }
