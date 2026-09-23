@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.sun.net.httpserver.Headers;
@@ -38,6 +39,7 @@ public final class StreamingHttpServer implements AutoCloseable {
     private final Map<String, CountDownLatch> finished = new ConcurrentHashMap<>();
     private final Map<String, Boolean> sentEverything = new ConcurrentHashMap<>();
     private final Map<String, Headers> requests = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> counts = new ConcurrentHashMap<>();
 
     public StreamingHttpServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -72,6 +74,18 @@ public final class StreamingHttpServer implements AutoCloseable {
     public String requestHeader(String path, String name) {
         Headers headers = requests.get(path);
         return headers == null ? null : headers.getFirst(name);
+    }
+
+    /** How many requests {@code path} has had, for a caller that should only ask once. */
+    public int requestCount(String path) {
+        return counts.getOrDefault(path, new AtomicInteger()).get();
+    }
+
+    /** Answers {@code path} differently from now on, as a host that edited the file would. */
+    public StreamingHttpServer replaceFixed(String path, int status, byte[] body, String... headers) {
+        server.removeContext(path);
+        finished.remove(path);
+        return fixed(path, status, body, headers);
     }
 
     /** A body of known length, sent with a Content-Length. */
@@ -143,6 +157,7 @@ public final class StreamingHttpServer implements AutoCloseable {
             Headers copy = new Headers();
             copy.putAll(exchange.getRequestHeaders());
             requests.put(path, copy);
+            counts.computeIfAbsent(path, key -> new AtomicInteger()).incrementAndGet();
             try {
                 body.write(exchange);
                 sentEverything.put(path, true);
