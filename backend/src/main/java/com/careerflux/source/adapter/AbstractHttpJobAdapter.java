@@ -3,6 +3,7 @@ package com.careerflux.source.adapter;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 
 import com.careerflux.source.net.BoundedResponse;
 import com.careerflux.source.net.SafeRedirects;
@@ -13,6 +14,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -43,7 +46,19 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
      */
     private static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
 
+    /**
+     * The largest web page this reads, the same ceiling discovery applies to a
+     * careers page. A page is markup around a posting, not a data feed, so it is
+     * held to the smaller of the two limits — and, like the other, the ceiling is
+     * enforced while the body arrives rather than checked once it is all in memory.
+     */
+    private static final int MAX_PAGE_BYTES = 2 * 1024 * 1024;
+
     private final RestClient restClient;
+
+    /** The same transport, asking for a web page rather than a feed. */
+    private final RestClient pageClient;
+
     private final SourceRateLimiter rateLimiter;
     private final SafeUrlValidator urlValidator;
     protected final ObjectMapper objectMapper;
@@ -51,6 +66,12 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
     protected AbstractHttpJobAdapter(RestClient restClient, SourceRateLimiter rateLimiter,
                                      SafeUrlValidator urlValidator, ObjectMapper objectMapper) {
         this.restClient = restClient;
+        // Only the Accept header differs: the validation, redirect handling and
+        // timeouts are the source client's own, so a page cannot be fetched any
+        // more freely than a feed.
+        this.pageClient = restClient.mutate()
+                .defaultHeaders(headers -> headers.setAccept(List.of(MediaType.TEXT_HTML, MediaType.ALL)))
+                .build();
         this.rateLimiter = rateLimiter;
         this.urlValidator = urlValidator;
         this.objectMapper = objectMapper;
@@ -63,6 +84,42 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
      *         unparseable body.
      */
     protected FetchedJson getJson(SourceConfiguration configuration, String url) {
+        Fetched fetched = fetch(configuration, restClient, url, MAX_BODY_BYTES);
+        String body = bodyText(fetched, java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            return new FetchedJson(objectMapper.readTree(body), fetched.status(), fetched.latencyMs(), body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new AdapterException("Source returned a body that is not valid JSON.", null,
+                    FailureClassification.MALFORMED_RESPONSE, null, ex);
+        }
+    }
+
+    /**
+     * Performs a rate-limited GET of a web page and returns its text.
+     *
+     * <p>The same transport, pacing, redirect checks and bounded read as
+     * {@link #getJson}, against the smaller {@link #MAX_PAGE_BYTES} ceiling and
+     * asking for HTML. A page that runs past the ceiling is abandoned while it is
+     * arriving, and a failing status is classified before any body is read.
+     *
+     * <p>What comes back is text and nothing more: no markup is parsed here, no
+     * link on the page is followed, no script is run, and no form is submitted.
+     * What the caller does with the text is the caller's business.
+     *
+     * @throws AdapterException on any non-success status or transport failure
+     */
+    protected FetchedPage getPage(SourceConfiguration configuration, String url) {
+        Fetched fetched = fetch(configuration, pageClient, url, MAX_PAGE_BYTES);
+        return new FetchedPage(bodyText(fetched, pageCharset(fetched.headers())), fetched.status(),
+                fetched.latencyMs());
+    }
+
+    /**
+     * One rate-limited, validated, bounded GET, following only redirects that pass
+     * validation. Shared so a page and a feed are fetched under exactly the same
+     * rules, and neither can drift from the other.
+     */
+    private Fetched fetch(SourceConfiguration configuration, RestClient client, String url, int maxBytes) {
         if (!rateLimiter.acquire(configuration.sourceId(), configuration.rateLimitPerMinute(),
                 configuration.crawlDelaySeconds())) {
             // Our own pacing declined to send anything. Nothing happened to the
@@ -86,7 +143,7 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
                 // length and a chunked one alike, rather than checked once the
                 // whole body is already in memory. A failing status is returned,
                 // not thrown, and inspected below so it reaches the health record.
-                response = BoundedResponse.get(restClient, target, MAX_BODY_BYTES);
+                response = BoundedResponse.get(client, target, maxBytes);
                 status = response.status();
 
                 if (!response.isRedirect()) {
@@ -105,20 +162,7 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
             }
 
             int latencyMs = (int) ((System.nanoTime() - startedAt) / 1_000_000);
-            if (status >= 400) {
-                throw classify(status, response.headers().getFirst("Retry-After"));
-            }
-            byte[] raw = response.body();
-            if (raw.length == 0) {
-                throw AdapterException.of("Source returned an empty body.", status,
-                        FailureClassification.EMPTY_RESPONSE);
-            }
-            String body = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
-            if (body.isBlank()) {
-                throw AdapterException.of("Source returned an empty body.", status,
-                        FailureClassification.EMPTY_RESPONSE);
-            }
-            return new FetchedJson(objectMapper.readTree(body), status, latencyMs, body);
+            return new Fetched(status, response.headers(), response.body(), latencyMs);
         } catch (BoundedResponse.BodyTooLargeException tooLarge) {
             // Classified as before: a board this large is not a response this
             // adapter can use, and retrying unchanged will not shrink it.
@@ -132,14 +176,45 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
                     + unsafe.getMessage(), null, FailureClassification.POLICY_BLOCK, null, unsafe);
         } catch (AdapterException ex) {
             throw ex;
-        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
-            throw new AdapterException("Source returned a body that is not valid JSON.", null,
-                    FailureClassification.MALFORMED_RESPONSE, null, ex);
         } catch (RuntimeException ex) {
             // A dropped connection or a read that timed out. The source may
             // answer perfectly well on the next scheduled attempt.
             throw new AdapterException("Could not reach the source: " + ex.getMessage(), null,
                     FailureClassification.UPSTREAM_TRANSIENT, null, ex);
+        }
+    }
+
+    /**
+     * The body as text, once the status says there is one worth reading. A failing
+     * status is classified here, before the body is looked at, so an error page is
+     * never mistaken for content.
+     */
+    private String bodyText(Fetched fetched, java.nio.charset.Charset charset) {
+        if (fetched.status() >= 400) {
+            throw classify(fetched.status(), fetched.headers().getFirst("Retry-After"));
+        }
+        byte[] raw = fetched.body();
+        if (raw.length == 0) {
+            throw AdapterException.of("Source returned an empty body.", fetched.status(),
+                    FailureClassification.EMPTY_RESPONSE);
+        }
+        String body = new String(raw, charset);
+        if (body.isBlank()) {
+            throw AdapterException.of("Source returned an empty body.", fetched.status(),
+                    FailureClassification.EMPTY_RESPONSE);
+        }
+        return body;
+    }
+
+    /** What the page says it is written in, and UTF-8 when it does not say. */
+    private static java.nio.charset.Charset pageCharset(HttpHeaders headers) {
+        try {
+            MediaType contentType = headers.getContentType();
+            return contentType != null && contentType.getCharset() != null
+                    ? contentType.getCharset()
+                    : java.nio.charset.StandardCharsets.UTF_8;
+        } catch (RuntimeException unreadableContentType) {
+            return java.nio.charset.StandardCharsets.UTF_8;
         }
     }
 
@@ -249,5 +324,13 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
     }
 
     protected record FetchedJson(JsonNode body, int httpStatus, int latencyMs, String rawBody) {
+    }
+
+    /** A page's text, as fetched: markup, not parsed and not followed. */
+    protected record FetchedPage(String html, int httpStatus, int latencyMs) {
+    }
+
+    /** One bounded response, before anything decides what its body means. */
+    private record Fetched(int status, HttpHeaders headers, byte[] body, int latencyMs) {
     }
 }
