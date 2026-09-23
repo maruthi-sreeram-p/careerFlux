@@ -51,32 +51,117 @@ public class RobotsTxtService {
         this.userAgentToken = extractToken(properties.sources().userAgent());
     }
 
-    /** Evaluates whether the given absolute URL may be fetched. */
+    /**
+     * Evaluates whether the given absolute URL may be fetched, reading the host's
+     * robots.txt to answer. A caller with several URLs on one host should take a
+     * {@link #policyFor(String) policy} instead and ask it, rather than calling this
+     * once per URL and fetching the same file each time.
+     */
     public Evaluation evaluate(String absoluteUrl) {
+        return policyFor(absoluteUrl).evaluate(absoluteUrl);
+    }
+
+    /**
+     * Reads a host's robots.txt once and hands back the rules, to be asked about as
+     * many URLs as a run needs without going back to the host.
+     *
+     * <p>Why hold them rather than fetch per URL: an ingestion run may look at
+     * dozens of pages on one host, and asking the host for its rules dozens of times
+     * is both rude and slower than the work it guards. Holding them also makes a run
+     * <em>consistent</em> — every page in it is judged by the same rules, so a file
+     * edited halfway through cannot allow one page and refuse the next.
+     *
+     * <p>The answer is captured here, at the fetch, and the policy is immutable
+     * afterwards. Nothing about it relies on a cache: a second run takes its own
+     * reading, which is what makes a change to the file take effect.
+     */
+    public RobotsPolicy policyFor(String absoluteUrl) {
         URI uri;
         try {
             uri = URI.create(absoluteUrl);
         } catch (IllegalArgumentException ex) {
-            return new Evaluation(RobotsStatus.UNAVAILABLE, null, "The URL could not be parsed.", null);
+            return new RobotsPolicy(this, null, null, null, "The URL could not be parsed.");
         }
         if (uri.getScheme() == null || uri.getHost() == null) {
-            return new Evaluation(RobotsStatus.UNAVAILABLE, null, "The URL is not absolute.", null);
+            return new RobotsPolicy(this, null, null, null, "The URL is not absolute.");
+        }
+        String origin = uri.getScheme() + "://" + uri.getAuthority();
+        String robotsUrl = origin + "/robots.txt";
+        return new RobotsPolicy(this, origin, robotsUrl, fetchRobots(robotsUrl), null);
+    }
+
+    /**
+     * One host's robots.txt, read once and then applied without further requests.
+     *
+     * <p>Immutable, and deliberately tied to the host it was read from: rules
+     * belong to the host that published them, so a URL somewhere else is refused
+     * rather than judged by rules that were never about it.
+     */
+    public static final class RobotsPolicy {
+
+        private final RobotsTxtService rules;
+        private final String origin;
+        private final String robotsUrl;
+        private final Fetch fetch;
+        private final String unusable;
+
+        private RobotsPolicy(RobotsTxtService rules, String origin, String robotsUrl, Fetch fetch, String unusable) {
+            this.rules = rules;
+            this.origin = origin;
+            this.robotsUrl = robotsUrl;
+            this.fetch = fetch;
+            this.unusable = unusable;
         }
 
-        String robotsUrl = uri.getScheme() + "://" + uri.getAuthority() + "/robots.txt";
-        Fetch fetch = fetchRobots(robotsUrl);
-
-        if (fetch.notFound()) {
-            return new Evaluation(RobotsStatus.NOT_PUBLISHED, robotsUrl,
-                    "No robots.txt is published at this host.", null);
-        }
-        if (fetch.body() == null) {
-            return new Evaluation(RobotsStatus.UNAVAILABLE, robotsUrl,
-                    fetch.error() == null ? "robots.txt could not be fetched." : fetch.error(), null);
+        /** The file these rules were read from, or null when there was no host to read one from. */
+        public String robotsUrl() {
+            return robotsUrl;
         }
 
-        String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
-        return parseAndEvaluate(fetch.body(), robotsUrl, path);
+        /** What the rules say about one URL. No request is made here, whatever the answer. */
+        public Evaluation evaluate(String absoluteUrl) {
+            if (unusable != null) {
+                return new Evaluation(RobotsStatus.UNAVAILABLE, null, unusable, null);
+            }
+            URI uri;
+            try {
+                uri = URI.create(absoluteUrl);
+            } catch (IllegalArgumentException ex) {
+                return new Evaluation(RobotsStatus.UNAVAILABLE, robotsUrl, "The URL could not be parsed.", null);
+            }
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return new Evaluation(RobotsStatus.UNAVAILABLE, robotsUrl, "The URL is not absolute.", null);
+            }
+            if (!origin.equalsIgnoreCase(uri.getScheme() + "://" + uri.getAuthority())) {
+                return new Evaluation(RobotsStatus.UNAVAILABLE, robotsUrl,
+                        "These rules were published by " + origin + " and say nothing about this URL.", null);
+            }
+            if (fetch.notFound()) {
+                return new Evaluation(RobotsStatus.NOT_PUBLISHED, robotsUrl,
+                        "No robots.txt is published at this host.", null);
+            }
+            if (fetch.body() == null) {
+                return new Evaluation(RobotsStatus.UNAVAILABLE, robotsUrl,
+                        fetch.error() == null ? "robots.txt could not be fetched." : fetch.error(), null);
+            }
+            String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            return rules.parseAndEvaluate(fetch.body(), robotsUrl, path);
+        }
+
+        /**
+         * Whether this URL may be fetched: only when the rules allow it, or when the
+         * host published none. Rules that exist but could not be read refuse, as they
+         * do everywhere else.
+         */
+        public boolean isAllowed(String absoluteUrl) {
+            RobotsStatus status = evaluate(absoluteUrl).status();
+            return status == RobotsStatus.ALLOWED || status == RobotsStatus.NOT_PUBLISHED;
+        }
+
+        /** The crawl-delay the host asks for, if it asks for one. */
+        public Integer crawlDelaySeconds() {
+            return origin == null ? null : evaluate(origin + "/").crawlDelaySeconds();
+        }
     }
 
     /**
