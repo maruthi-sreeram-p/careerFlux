@@ -142,4 +142,233 @@ class ResumeExtractionServiceTest {
         assertThat(service.isAiAvailable()).isFalse();
         assertThat(service.engineName()).isEqualTo("heuristic");
     }
+
+    /**
+     * A resume with the sections people actually write, used by the tests below.
+     * It is fictional, and it is the layout this parser is expected to read: a
+     * contact block, then headings, with the entries under them.
+     */
+    private static final String STRUCTURED = """
+            Ananya Sharma
+            Hyderabad, Telangana, India
+            ananya.sharma@example.com | +91 98765 43210
+            linkedin.com/in/ananya-sharma-dev | github.com/ananyasharma
+
+            SUMMARY
+            Final-year Computer Science undergraduate with 2 years of experience
+            building backend services through internships.
+
+            EDUCATION
+            Northgate Institute of Technology, Hyderabad
+            Bachelor of Technology, Computer Science and Engineering
+            2022 - 2026 | CGPA: 8.7 / 10
+
+            Sri Chaitanya Junior College, Hyderabad
+            Intermediate (MPC), 2020 - 2022 | 95.4%
+
+            EXPERIENCE
+            Backend Engineering Intern, Zyntara Technologies, Bengaluru
+            June 2025 - December 2025
+            - Built REST APIs in Java and Spring Boot serving 40,000 daily requests.
+            - Raised coverage from 38% to 81%.
+
+            Software Engineering Intern, Vellore Analytics, Remote
+            May 2024 - July 2024
+            - Developed Python ETL scripts.
+
+            PROJECTS
+            CampusConnect, a placement portal built with Spring Boot and React.
+
+            SKILLS
+            Java, Spring Boot, Python, Docker
+            """;
+
+    @Test
+    @DisplayName("reads the summary section as a paragraph")
+    void readsTheSummary() {
+        ExtractedResume resume = service.heuristic(STRUCTURED);
+
+        assertThat(resume.summary())
+                .startsWith("Final-year Computer Science undergraduate")
+                .endsWith("through internships.")
+                // The section is one paragraph, not the lines it was wrapped over.
+                .doesNotContain("\n");
+    }
+
+    @Test
+    @DisplayName("reads each education entry, including the degree, the years and the grade")
+    void readsEducation() {
+        ExtractedResume resume = service.heuristic(STRUCTURED);
+
+        assertThat(resume.education()).hasSize(2);
+
+        ExtractedResume.ExtractedEducation degree = resume.education().get(0);
+        assertThat(degree.institution()).isEqualTo("Northgate Institute of Technology");
+        assertThat(degree.degree()).isEqualTo("Bachelor of Technology");
+        assertThat(degree.fieldOfStudy()).isEqualTo("Computer Science and Engineering");
+        assertThat(degree.startYear()).isEqualTo(2022);
+        assertThat(degree.endYear()).isEqualTo(2026);
+        assertThat(degree.grade()).isEqualTo("CGPA: 8.7 / 10");
+
+        ExtractedResume.ExtractedEducation school = resume.education().get(1);
+        assertThat(school.institution()).isEqualTo("Sri Chaitanya Junior College");
+        assertThat(school.degree()).isEqualTo("Intermediate (MPC)");
+        assertThat(school.grade()).isEqualTo("95.4%");
+    }
+
+    @Test
+    @DisplayName("reads each employment entry with its employer, dates and bullets")
+    void readsExperience() {
+        ExtractedResume resume = service.heuristic(STRUCTURED);
+
+        assertThat(resume.experiences()).hasSize(2);
+
+        ExtractedResume.ExtractedExperience recent = resume.experiences().get(0);
+        assertThat(recent.title()).isEqualTo("Backend Engineering Intern");
+        assertThat(recent.companyName()).isEqualTo("Zyntara Technologies");
+        assertThat(recent.location()).isEqualTo("Bengaluru");
+        assertThat(recent.startDate()).isEqualTo("2025-06");
+        assertThat(recent.endDate()).isEqualTo("2025-12");
+        assertThat(recent.current()).isFalse();
+        assertThat(recent.description()).contains("Built REST APIs").contains("Raised coverage");
+
+        ExtractedResume.ExtractedExperience earlier = resume.experiences().get(1);
+        assertThat(earlier.companyName()).isEqualTo("Vellore Analytics");
+        assertThat(earlier.startDate()).isEqualTo("2024-05");
+        assertThat(earlier.endDate()).isEqualTo("2024-07");
+    }
+
+    @Test
+    @DisplayName("takes the role and the level from the most recent job title")
+    void readsRoleAndSeniority() {
+        ExtractedResume resume = service.heuristic(STRUCTURED);
+
+        assertThat(resume.primaryRole()).isEqualTo("Backend Engineering Intern");
+        assertThat(resume.seniority()).isEqualTo("INTERN");
+    }
+
+    @Test
+    @DisplayName("an open-ended role is current and has no end date")
+    void readsAnOngoingRole() {
+        ExtractedResume resume = service.heuristic("""
+                EXPERIENCE
+                Senior Software Engineer at Vertex Labs
+                July 2024 - Present
+                """);
+
+        ExtractedResume.ExtractedExperience entry = resume.experiences().get(0);
+        assertThat(entry.title()).isEqualTo("Senior Software Engineer");
+        assertThat(entry.companyName()).isEqualTo("Vertex Labs");
+        assertThat(entry.startDate()).isEqualTo("2024-07");
+        assertThat(entry.endDate()).isNull();
+        assertThat(entry.current()).isTrue();
+        assertThat(resume.seniority()).isEqualTo("SENIOR");
+    }
+
+    @Test
+    @DisplayName("reads an entry that leads with the employer rather than the role")
+    void readsEmployerFirstLayout() {
+        ExtractedResume resume = service.heuristic("""
+                WORK EXPERIENCE
+                Zyntara Technologies - Data Analyst
+                2023 - 2024
+                """);
+
+        ExtractedResume.ExtractedExperience entry = resume.experiences().get(0);
+        assertThat(entry.companyName()).isEqualTo("Zyntara Technologies");
+        assertThat(entry.title()).isEqualTo("Data Analyst");
+        assertThat(entry.startDate()).isEqualTo("2023");
+    }
+
+    @Test
+    @DisplayName("separates entries that were written without a blank line between them")
+    void separatesEntriesWithoutBlankLines() {
+        ExtractedResume resume = service.heuristic("""
+                EXPERIENCE
+                Backend Intern, Zyntara Technologies
+                June 2025 - December 2025
+                - Built APIs.
+                Data Intern, Vellore Analytics
+                May 2024 - July 2024
+                """);
+
+        assertThat(resume.experiences()).hasSize(2);
+        assertThat(resume.experiences().get(1).companyName()).isEqualTo("Vellore Analytics");
+    }
+
+    @Test
+    @DisplayName("a section it does not read is not mistaken for employment")
+    void doesNotReadProjectsAsEmployment() {
+        ExtractedResume resume = service.heuristic(STRUCTURED);
+
+        assertThat(resume.experiences())
+                .extracting(ExtractedResume.ExtractedExperience::companyName)
+                .doesNotContain("CampusConnect");
+        assertThat(resume.education())
+                .extracting(ExtractedResume.ExtractedEducation::institution)
+                .doesNotContain("CampusConnect");
+    }
+
+    @Test
+    @DisplayName("leaves the headline alone when the resume does not state one")
+    void doesNotInventAHeadline() {
+        // The summary is prose about the candidate, not a title they go by, and
+        // promoting it would put a paragraph in a 200-character field.
+        assertThat(service.heuristic(STRUCTURED).headline()).isNull();
+    }
+
+    @Test
+    @DisplayName("reads a title line written under the name as the headline")
+    void readsAStatedHeadline() {
+        ExtractedResume resume = service.heuristic("""
+                Ananya Sharma
+                Backend Developer
+                ananya@example.com
+                """);
+
+        assertThat(resume.headline()).isEqualTo("Backend Developer");
+    }
+
+    @Test
+    @DisplayName("does not record a level the title does not state")
+    void leavesSeniorityUnsetWhenTheTitleIsSilent() {
+        ExtractedResume resume = service.heuristic("""
+                EXPERIENCE
+                Software Engineer, Vertex Labs
+                2021 - 2024
+                """);
+
+        assertThat(resume.primaryRole()).isEqualTo("Software Engineer");
+        // Four years of it does not make somebody MID. The resume did not say.
+        assertThat(resume.seniority()).isNull();
+    }
+
+    @Test
+    @DisplayName("a heading with nothing under it produces no entries and no summary")
+    void emptySectionsProduceNothing() {
+        ExtractedResume resume = service.heuristic("""
+                SUMMARY
+
+                EXPERIENCE
+
+                EDUCATION
+                """);
+
+        assertThat(resume.summary()).isNull();
+        assertThat(resume.experiences()).isEmpty();
+        assertThat(resume.education()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an education entry with no institution is dropped rather than half-proposed")
+    void dropsEducationWithoutAnInstitution() {
+        // The profile requires an institution, so an entry without one could not
+        // be written even if the student accepted it.
+        ExtractedResume resume = service.heuristic("""
+                EDUCATION
+                2022 - 2026
+                """);
+
+        assertThat(resume.education()).isEmpty();
+    }
 }
