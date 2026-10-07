@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import com.careerflux.source.adapter.JobPostingPageAdapter;
+import com.careerflux.source.adapter.jsonld.JobPostingJsonLd;
 import com.careerflux.source.discovery.BoardHosts.Family;
 import com.careerflux.source.discovery.BoardHosts.Recognized;
 import com.careerflux.source.domain.AtsProvider;
@@ -130,12 +132,25 @@ public class AtsBoardProbe {
     // ------------------------------------------------------------------
 
     /**
-     * A board the company links to and CareerFlux can read wins; failing that,
-     * the first board it links to that CareerFlux recognises but cannot read.
-     * The company's own link beats a guessed token either way.
+     * What the company's own pages say, in the order worth believing it.
+     *
+     * <ol>
+     *   <li>A board it links to that an adapter reads through that system's API.
+     *   <li>A careers page that declares its own postings in JobPosting markup.
+     *   <li>A board it links to that CareerFlux recognises but cannot read.
+     * </ol>
+     *
+     * <p>The API comes first because it is structured data meant to be read, with
+     * ids and timestamps a page rarely states. The page markup comes next because
+     * it is readable now: an employer on a system whose API needs their own key
+     * used to be recorded and left alone, while the roles were sitting in the
+     * markup of the page that linked to it. Anything the company links to beats a
+     * guessed token, which is why all of this runs before strategy 2.
      */
     private Optional<DiscoveredBoard> inspectCareersPages(String host) {
         DiscoveredBoard recognizedOnly = null;
+        String readableUrl = null;
+        int readablePostings = 0;
         for (String path : CAREERS_PATHS) {
             String url = "https://" + host + path;
             String html = fetcher.apply(url);
@@ -156,6 +171,28 @@ public class AtsBoardProbe {
                             "Linked from " + url + ". " + board.family().note());
                 }
             }
+            if (readableUrl == null) {
+                // Asked of the same parser the adapter will use, so discovery
+                // cannot register a page the adapter then fails to read.
+                int declared = JobPostingJsonLd.parse(html).postings().size();
+                if (declared > 0) {
+                    readableUrl = url;
+                    readablePostings = declared;
+                }
+            }
+        }
+        if (readableUrl != null) {
+            // The provider is still worth recording when the page named one: an
+            // operator reading the registry should see that this is a JazzHR
+            // employer being read through its careers page, not an unknown stack.
+            AtsProvider provider = recognizedOnly == null ? AtsProvider.OTHER : recognizedOnly.provider();
+            log.info("Discovered a readable careers page for {} at {}, declaring {} postings",
+                    host, readableUrl, readablePostings);
+            return Optional.of(new DiscoveredBoard(host, provider, JobPostingPageAdapter.KEY, host,
+                    DiscoveryMethod.DOMAIN_INSPECTION,
+                    "Reads " + readableUrl + ", which publishes JobPosting markup for "
+                            + readablePostings + (readablePostings == 1 ? " role." : " roles."),
+                    readableUrl));
         }
         if (recognizedOnly != null) {
             log.info("Discovered {} board '{}' for {}; recorded without an adapter",

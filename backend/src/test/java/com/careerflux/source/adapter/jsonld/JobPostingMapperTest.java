@@ -421,6 +421,48 @@ class JobPostingMapperTest {
             assertThat(posting.rawPayload()).contains("careers.elsewhere.example");
         }
 
+        /** A careers page on the company's own domain, listing roles hosted elsewhere. */
+        private static final JobPostingMapper.PageContext FROM_COMPANY_PAGE =
+                new JobPostingMapper.PageContext(COMPANY, "https://nimbusdevops.co.in/careers", "Ab3dE5fG7h");
+
+        @Test
+        @DisplayName("an applicant tracking system the company sends students to is a destination")
+        void recognisedBoardIsADestination() {
+            // The roles are listed on the company's own page and applied for on
+            // their ATS. Accepting only the page's own host left every one of
+            // those postings readable and impossible to apply for.
+            String apply = "https://nimbusdevops.applytojob.com/apply/Ab3dE5fG7h/Platform-Engineer";
+
+            RawJobPosting posting = mapped(posting("\"url\":\"" + apply + "\""), FROM_COMPANY_PAGE);
+
+            assertThat(posting.applyUrl()).isEqualTo(apply);
+            assertThat(posting.sourceUrl()).isEqualTo(apply);
+        }
+
+        @Test
+        @DisplayName("a host that is neither the page's nor a board is still refused")
+        void unrelatedHostIsRefused() {
+            // A perfectly valid URL, on a host with no relationship to either the
+            // page or any applicant tracking system CareerFlux knows.
+            RawJobPosting posting = mapped(
+                    posting("\"url\":\"https://jobs-aggregator.net/apply/1\""), FROM_COMPANY_PAGE);
+
+            assertThat(posting.applyUrl()).isNull();
+            assertThat(posting.sourceUrl()).isNull();
+        }
+
+        @Test
+        @DisplayName("a board's name inside someone else's URL is not that board")
+        void boardNameElsewhereInTheUrlIsRefused() {
+            // The name appears; the host a student would reach is not a board.
+            RawJobPosting posting = mapped(
+                    posting("\"url\":\"https://redirector.net/go"
+                            + "?next=https://nimbusdevops.applytojob.com/apply\""),
+                    FROM_COMPANY_PAGE);
+
+            assertThat(posting.applyUrl()).isNull();
+        }
+
         @Test
         @DisplayName("sameAs, mainEntityOfPage and the organization's links are never a destination")
         void neverFromOtherLinks() {

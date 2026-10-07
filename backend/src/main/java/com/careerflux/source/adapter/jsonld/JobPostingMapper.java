@@ -19,6 +19,7 @@ import java.util.Set;
 import com.careerflux.common.ApplyUrl;
 import com.careerflux.common.TextUtils;
 import com.careerflux.source.adapter.RawJobPosting;
+import com.careerflux.source.discovery.BoardHosts;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 
@@ -33,8 +34,9 @@ import com.fasterxml.jackson.databind.node.TextNode;
  * <p><b>What the page is not trusted for.</b> The company is the source's own,
  * never {@code hiringOrganization}, so a page cannot post jobs under another
  * employer's name. The application destination is only the posting's own
- * {@code url}, and only when it is on the host the page came from, so a planted
- * link cannot send a student elsewhere; {@code sameAs} is never a destination.
+ * {@code url}, and only when that URL leads to the host the page came from or to
+ * an applicant tracking system CareerFlux recognises, so a planted link cannot
+ * send a student somewhere arbitrary; {@code sameAs} is never a destination.
  *
  * <p><b>What it refuses to guess.</b> A value that the pipeline's vocabulary
  * cannot state exactly is left unset rather than approximated: several different
@@ -166,10 +168,22 @@ public final class JobPostingMapper {
     // ------------------------------------------------------------------
 
     /**
-     * The posting's own page, and only when it is on the host the page came from.
-     * A URL pointing anywhere else is data the page happens to carry, not somewhere
-     * to send a student, and {@code sameAs} is never a destination at all. Nothing
-     * here is fetched.
+     * Where a student is sent to apply.
+     *
+     * <p>Two destinations are accepted and nothing else. The posting's own page on
+     * the host the page came from, which is the unambiguous case. And a page on an
+     * applicant tracking system CareerFlux already recognises, because a company's
+     * careers page routinely lists the roles itself and sends the student to its
+     * ATS to apply: an employer on JazzHR publishes the roles at
+     * {@code acme.com/careers} and the apply links at {@code acme.applytojob.com}.
+     * Refusing the second left every one of those postings with no link at all,
+     * which is a job a student can read and cannot apply for.
+     *
+     * <p>A recognised host is established from the board's own address, not by
+     * finding its name somewhere in the URL. {@code https://elsewhere.example/
+     * ?next=https://acme.applytojob.com} carries the name and would reach
+     * elsewhere.example, so it is refused. {@code sameAs} is never a destination.
+     * Nothing here is fetched.
      */
     private static String destination(JobPostingNode node, PageContext context) {
         String url = blankToNull(node.url());
@@ -177,7 +191,22 @@ public final class JobPostingMapper {
             return null;
         }
         String candidate = url.strip();
-        return sameHost(context.pageUrl(), candidate) && ApplyUrl.isValid(candidate) ? candidate : null;
+        if (!ApplyUrl.isValid(candidate)) {
+            return null;
+        }
+        return sameHost(context.pageUrl(), candidate) || isRecognisedBoard(candidate) ? candidate : null;
+    }
+
+    /** Whether the host a student would actually reach is a board CareerFlux knows. */
+    private static boolean isRecognisedBoard(String candidate) {
+        String candidateHost = host(candidate);
+        if (candidateHost == null) {
+            return false;
+        }
+        return BoardHosts.recognize(candidate)
+                .map(board -> candidateHost.equals(host(board.sourceUrl()))
+                        || candidateHost.equals(host(board.boardUrl())))
+                .orElse(false);
     }
 
     private static boolean sameHost(String pageUrl, String candidate) {

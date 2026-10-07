@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.careerflux.source.adapter.GreenhouseAdapter;
+import com.careerflux.source.adapter.JobPostingPageAdapter;
 import com.careerflux.source.adapter.LeverAdapter;
 import com.careerflux.source.discovery.AtsBoardProbe.DiscoveredBoard;
 import com.careerflux.source.domain.AtsProvider;
@@ -258,6 +259,106 @@ class AtsBoardProbeDiscoveryTest {
                 assertThat(server.bytesSent("/careers"))
                         .isLessThan(AtsBoardProbe.MAX_BODY_BYTES + 64L * 1024 * 1024);
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("a careers page that declares its own postings")
+    class ReadableCareersPages {
+
+        /** One posting, in the shape a hosted careers page publishes it. */
+        private String posting(String title) {
+            return "<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\","
+                    + "\"@type\":\"JobPosting\",\"title\":\"" + title + "\","
+                    + "\"description\":\"<p>Work with us.</p>\",\"datePosted\":\"2026-02-02\","
+                    + "\"hiringOrganization\":{\"@type\":\"Organization\",\"name\":\"Acme\"},"
+                    + "\"url\":\"https://acme.example/apply/1/" + title.replace(' ', '-') + "\"}"
+                    + "</script>";
+        }
+
+        @Test
+        @DisplayName("is registered against the adapter that reads page markup")
+        void readablePageBecomesASource() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><head>" + posting("Cloud Architect") + "</head><body>Careers</body></html>");
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(JobPostingPageAdapter.KEY);
+            assertThat(found.get().ingestible()).isTrue();
+            assertThat(found.get().sourceUrl()).isEqualTo("https://acme.example/careers");
+            assertThat(found.get().howFound()).isEqualTo(DiscoveryMethod.DOMAIN_INSPECTION);
+            assertThat(found.get().detail()).contains("JobPosting markup for 1 role");
+        }
+
+        @Test
+        @DisplayName("beats a board whose API CareerFlux cannot read, and keeps naming that provider")
+        void readablePageBeatsARecognisedBoardWithNoAdapter() {
+            // The employer JazzHR hosts: the apply links go to applytojob.com,
+            // whose API needs the employer's own key, while the roles themselves
+            // are declared in the markup of the page that links to it. Before
+            // this, such a source was recorded and never read.
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><head>" + posting("Cloud Architect") + posting("Project Manager")
+                                    + "</head><body><a href=\"https://acme.applytojob.com/apply\">Openings</a>"
+                                    + "</body></html>");
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(JobPostingPageAdapter.KEY);
+            assertThat(found.get().ingestible()).isTrue();
+            // Still recorded as the JazzHR employer it is, read a different way.
+            assertThat(found.get().provider()).isEqualTo(AtsProvider.JAZZHR);
+            assertThat(found.get().detail()).contains("2 roles");
+        }
+
+        @Test
+        @DisplayName("loses to a board with a real API, which is the better reading")
+        void linkedApiBoardStillWins() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><head>" + posting("Cloud Architect") + "</head>"
+                                    + "<body><a href=\"https://boards.greenhouse.io/acme\">Jobs</a></body></html>")
+                    .page("https://boards-api.greenhouse.io/v1/boards/acme/jobs",
+                            "{\"jobs\":[{\"id\":1}]}");
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(GreenhouseAdapter.KEY);
+            assertThat(found.get().provider()).isEqualTo(AtsProvider.GREENHOUSE);
+        }
+
+        @Test
+        @DisplayName("a page with no posting markup is still only recorded")
+        void pageWithoutMarkupIsUnchanged() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><body><a href=\"https://acme.applytojob.com/apply\">Openings</a>"
+                                    + "</body></html>");
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().provider()).isEqualTo(AtsProvider.JAZZHR);
+            assertThat(found.get().ingestible()).isFalse();
+            assertThat(found.get().adapterKey()).isNull();
+        }
+
+        @Test
+        @DisplayName("markup for something other than a job is not a board")
+        void otherMarkupIsNotABoard() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><head><script type=\"application/ld+json\">"
+                                    + "{\"@context\":\"https://schema.org\",\"@type\":\"Organization\","
+                                    + "\"name\":\"Acme\"}</script></head><body>No openings</body></html>");
+
+            assertThat(fixtures.probe().probe("acme.example")).isEmpty();
         }
     }
 }
