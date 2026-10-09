@@ -158,6 +158,46 @@ public final class BoardHosts {
         return FAMILIES.stream().filter(family -> family.provider() == provider).findFirst();
     }
 
+    /**
+     * Whether the host a reader would actually reach is a board CareerFlux knows.
+     *
+     * <p>{@link #recognize} matches a board's name anywhere in the text it is
+     * given, which is right for scanning a page and wrong for judging a single
+     * link: {@code https://elsewhere.example/?next=https://acme.applytojob.com}
+     * carries the name and leads somewhere else entirely. This compares the
+     * URL's own host against the board's own address, so only the real thing
+     * passes.
+     */
+    public static boolean isBoardUrl(String url) {
+        String host = hostOf(url);
+        if (host == null) {
+            return false;
+        }
+        return recognize(url)
+                .map(board -> host.equals(hostOf(board.sourceUrl()))
+                        || host.equals(hostOf(board.boardUrl())))
+                .orElse(false);
+    }
+
+    /** The host of an http(s) URL, lower-cased, or null if it is neither. */
+    public static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            java.net.URI uri = new java.net.URI(url.strip());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null
+                    || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
+                return null;
+            }
+            return host.toLowerCase(java.util.Locale.ROOT);
+        } catch (java.net.URISyntaxException notAUrl) {
+            return null;
+        }
+    }
+
     /** The board a single URL belongs to, if it is one CareerFlux recognises. */
     public static Optional<Recognized> recognize(String url) {
         if (url == null || url.isBlank()) {

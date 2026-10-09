@@ -10,10 +10,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import com.careerflux.common.error.UnsafeUrlException;
+import com.careerflux.config.CareerFluxProperties;
+import com.careerflux.source.adapter.jsonld.Sitemap;
 import com.careerflux.source.domain.AccessPolicyType;
 import com.careerflux.source.domain.SourceHealthStatus;
 import com.careerflux.source.domain.SourceType;
 import com.careerflux.source.net.SafeUrlValidator;
+import com.careerflux.source.service.RobotsTxtService;
 import com.careerflux.source.service.SourceRateLimiter;
 import com.careerflux.support.StreamingHttpServer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,24 +26,34 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
- * Reading a careers page through its JobPosting markup (Phase 2, stage 4).
+ * Reading a careers page, and the job pages it points at (Phase 2, stage 4).
  *
- * <p>The fixture is written in the shape a JazzHR-hosted careers page publishes:
- * several postings in separate blocks, no {@code identifier}, a date-only
+ * <p>The fixtures are written in the shape a hosted careers page publishes:
+ * postings in separate blocks, no {@code identifier}, a date-only
  * {@code datePosted}, {@code employmentType} as an array, and an address whose
  * country is spelled out. The postings themselves are invented.
  *
- * <p>Nothing here asserts on a whole body. Failures report counts and single
- * fields, so a broken expectation cannot flood the output.
+ * <p>Most of what is tested here is the disagreement between a listing and the
+ * pages it links to, because that is where a real employer's data went wrong: a
+ * careers page advertising roles that had already been withdrawn.
+ *
+ * <p>Every test is pinned to the loopback server by {@link OnlyLoopback}, so a
+ * fixture that names an outside host can never put a request on the network.
+ * Nothing asserts on a whole body either, so a broken expectation cannot flood
+ * the output.
  */
 class JobPostingPageAdapterTest {
 
     private StreamingHttpServer server;
     private SimpleClientHttpRequestFactory loopback;
+
+    private static final String ONE_PATH = "/apply/4EpNpkSTON/Associate-Project-Manager";
+    private static final String TWO_PATH = "/apply/ByksQiOipi/Cloud-Architect";
 
     private static final String POSTING_ONE = """
             {"@context":"https://schema.org",
@@ -74,6 +88,18 @@ class JobPostingPageAdapterTest {
              "name":"Northgate Systems","url":"__BASE__"}
             """;
 
+    /** Nothing leaves the loopback interface, whatever a fixture says. */
+    private static final class OnlyLoopback extends SafeUrlValidator {
+        @Override
+        public URI validate(String rawUrl) {
+            URI uri = URI.create(rawUrl);
+            if (!"127.0.0.1".equals(uri.getHost()) && !"localhost".equals(uri.getHost())) {
+                throw new UnsafeUrlException("Refused in this test: " + rawUrl);
+            }
+            return uri;
+        }
+    }
+
     @BeforeEach
     void start() throws IOException {
         server = new StreamingHttpServer();
@@ -94,9 +120,27 @@ class JobPostingPageAdapterTest {
         server.close();
     }
 
+    /**
+     * A robots reader whose every request lands on the loopback server, whatever
+     * host the URL names. A fixture that links to an outside host would otherwise
+     * make a real request for that host's robots.txt.
+     */
+    private RobotsTxtService robots() {
+        ClientHttpRequestFactory routing = (uri, method) -> {
+            String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            return loopback.createRequest(URI.create(server.url(path)), method);
+        };
+        return new RobotsTxtService(
+                RestClient.builder().requestFactory(routing).build(),
+                new CareerFluxProperties(null, null, null,
+                        new CareerFluxProperties.Sources("CareerFluxBot/0.1 (+https://careerflux.local/bot)",
+                                Duration.ofSeconds(20), 20, Duration.ofHours(6)),
+                        null, new CareerFluxProperties.Demo(false, false), null, true));
+    }
+
     private JobPostingPageAdapter adapter() {
         return new JobPostingPageAdapter(RestClient.builder().requestFactory(loopback).build(),
-                new SourceRateLimiter(), new SafeUrlValidator(), new ObjectMapper());
+                new SourceRateLimiter(), new OnlyLoopback(), new ObjectMapper(), robots());
     }
 
     /**
@@ -105,6 +149,11 @@ class JobPostingPageAdapterTest {
      * page was served from.
      */
     private byte[] page(String... blocks) {
+        return pageLinking(List.of(), blocks);
+    }
+
+    /** A page carrying the given JSON-LD blocks and the given anchors. */
+    private byte[] pageLinking(List<String> hrefs, String... blocks) {
         String base = server.url("");
         StringBuilder html = new StringBuilder("<!doctype html><html><head><title>Careers</title>");
         for (String block : blocks) {
@@ -112,8 +161,20 @@ class JobPostingPageAdapterTest {
                     .append(block.replace("__BASE__", base))
                     .append("</script>");
         }
-        return html.append("</head><body><h1>Careers</h1></body></html>")
-                .toString().getBytes(StandardCharsets.UTF_8);
+        html.append("</head><body><h1>Careers</h1>");
+        for (String href : hrefs) {
+            html.append("<a href=\"").append(href.replace("__BASE__", base)).append("\">role</a>");
+        }
+        return html.append("</body></html>").toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Registers a job's own page, declaring the posting the way a real one does. */
+    private void jobPage(String path, String block) {
+        server.fixed(path, 200, page(block), "Content-Type", "text/html; charset=utf-8");
+    }
+
+    private void listing(String... blocks) {
+        server.fixed("/careers", 200, page(blocks), "Content-Type", "text/html; charset=utf-8");
     }
 
     private SourceConfiguration sourceAt(String path, int maxJobs) {
@@ -121,54 +182,172 @@ class JobPostingPageAdapterTest {
                 "pages.test.example", JobPostingPageAdapter.KEY, 6000, null, maxJobs);
     }
 
-    @Test
-    @DisplayName("reads every posting the page declares")
-    void readsThePostings() {
-        server.fixed("/careers", 200, page(NOT_A_POSTING, POSTING_ONE, POSTING_TWO),
-                "Content-Type", "text/html; charset=utf-8");
+    private List<RawJobPosting> fetch(int maxJobs) {
+        return adapter().fetchJobs(sourceAt("/careers", maxJobs));
+    }
 
-        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/careers", 200));
+    // ------------------------------------------------------------ reading
+
+    @Test
+    @DisplayName("reads every posting the listing declares")
+    void readsThePostings() {
+        listing(NOT_A_POSTING, POSTING_ONE, POSTING_TWO);
+        jobPage(ONE_PATH, POSTING_ONE);
+        jobPage(TWO_PATH, POSTING_TWO);
+
+        List<RawJobPosting> postings = fetch(200);
 
         assertThat(postings).hasSize(2);
         assertThat(postings).extracting(RawJobPosting::title)
-                .containsExactly("Associate Project Manager", "Cloud Architect");
-        assertThat(postings.get(0).locationText()).contains("Hyderabad");
-        assertThat(postings.get(0).applyUrl())
-                .isEqualTo(server.url("/apply/4EpNpkSTON/Associate-Project-Manager"));
-        assertThat(postings.get(0).postedAt()).isNotNull();
-        assertThat(postings.get(0).externalId()).isNotBlank();
+                .containsExactlyInAnyOrder("Associate Project Manager", "Cloud Architect");
+        RawJobPosting first = postings.stream()
+                .filter(p -> "Associate Project Manager".equals(p.title())).findFirst().orElseThrow();
+        assertThat(first.locationText()).contains("Hyderabad");
+        assertThat(first.applyUrl()).isEqualTo(server.url(ONE_PATH));
+        assertThat(first.postedAt()).isNotNull();
+        assertThat(first.externalId()).isNotBlank();
     }
+
+    @Test
+    @DisplayName("finds postings the listing does not declare, by opening what it links to")
+    void readsPostingsFromLinkedPagesAlone() {
+        // The shape of a real applicant tracking board: the listing names no
+        // postings in its markup, only links to each job's own page.
+        server.fixed("/careers", 200,
+                pageLinking(List.of("__BASE__" + ONE_PATH, "__BASE__" + TWO_PATH), NOT_A_POSTING),
+                "Content-Type", "text/html; charset=utf-8");
+        jobPage(ONE_PATH, POSTING_ONE);
+        jobPage(TWO_PATH, POSTING_TWO);
+
+        assertThat(fetch(200)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("a posting's own page outranks what the listing said about it")
+    void theOwnPageWins() {
+        // The listing is a snapshot; the job's page is current.
+        listing(POSTING_ONE);
+        jobPage(ONE_PATH, POSTING_ONE.replace("Associate Project Manager", "Senior Project Manager"));
+
+        assertThat(fetch(200)).extracting(RawJobPosting::title).containsExactly("Senior Project Manager");
+    }
+
+    // -------------------------------------------------------- withdrawals
+
+    @Test
+    @DisplayName("a posting whose page is gone is dropped")
+    void dropsWithdrawnPostings() {
+        listing(POSTING_ONE, POSTING_TWO);
+        jobPage(ONE_PATH, POSTING_ONE);
+        server.fixed(TWO_PATH, 410, new byte[0]);
+
+        List<RawJobPosting> postings = fetch(200);
+
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Associate Project Manager");
+    }
+
+    @Test
+    @DisplayName("every posting withdrawn is an empty board, not a failure")
+    void allWithdrawnIsAnEmptyBoard() {
+        // The employer answered for each one. That is knowledge, not a read
+        // failure, and the run should close them rather than mark the source bad.
+        listing(POSTING_ONE, POSTING_TWO);
+        server.fixed(ONE_PATH, 410, new byte[0]);
+        server.fixed(TWO_PATH, 404, new byte[0]);
+
+        assertThat(fetch(200)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a page that says nothing leaves the listing's claim standing")
+    void keepsAClaimWhenThePageIsSilent() {
+        // An employer whose job pages carry no markup is no worse off than before.
+        listing(POSTING_ONE);
+        server.fixed(ONE_PATH, 200, "<html><body>Apply here</body></html>".getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "text/html");
+
+        assertThat(fetch(200)).extracting(RawJobPosting::title).containsExactly("Associate Project Manager");
+    }
+
+    @Test
+    @DisplayName("a link it cannot fetch does not abort the run, and does not withdraw the posting")
+    void aRefusedLinkDoesNotAbortTheRun() {
+        // A board link is followed, and this one cannot be fetched: OnlyLoopback
+        // refuses the outside host, which is what the real validator does for a
+        // private address or a plain-http hop. That is no evidence either way, so
+        // the run finishes and the listing's claim stands.
+        listing(POSTING_ONE.replace("__BASE__", "https://northgate.applytojob.com"),
+                POSTING_TWO);
+        jobPage(TWO_PATH, POSTING_TWO);
+
+        assertThat(fetch(200)).extracting(RawJobPosting::title)
+                .containsExactlyInAnyOrder("Associate Project Manager", "Cloud Architect");
+    }
+
+    // ------------------------------------------------------------- expiry
+
+    @Test
+    @DisplayName("a posting whose stated expiry has passed is dropped")
+    void dropsExpiredPostings() {
+        listing(POSTING_ONE.replace("\"datePosted\":\"2026-02-02\"",
+                "\"datePosted\":\"2020-01-01\",\"validThrough\":\"2020-06-30\""));
+
+        assertThat(fetch(200)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a posting that has not expired yet is kept")
+    void keepsPostingsWithAFutureExpiry() {
+        listing(POSTING_ONE.replace("\"datePosted\":\"2026-02-02\"",
+                "\"datePosted\":\"2026-02-02\",\"validThrough\":\"2099-12-30\""));
+        jobPage(ONE_PATH, POSTING_ONE);
+
+        assertThat(fetch(200)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an expiry it cannot read is never a reason to drop a posting")
+    void unreadableExpiryIsIgnored() {
+        assertThat(JobPostingPageAdapter.hasExpired(null)).isFalse();
+        assertThat(JobPostingPageAdapter.hasExpired("")).isFalse();
+        assertThat(JobPostingPageAdapter.hasExpired("whenever")).isFalse();
+        assertThat(JobPostingPageAdapter.hasExpired("2099-12-30")).isFalse();
+        assertThat(JobPostingPageAdapter.hasExpired("2020-06-30")).isTrue();
+        assertThat(JobPostingPageAdapter.hasExpired("2020-06-30T12:00:00+05:30")).isTrue();
+    }
+
+    // -------------------------------------------------------------- rules
 
     @Test
     @DisplayName("the employer is the source's, not the name written into the page")
     void companyComesFromTheSource() {
         // hiringOrganization is written by whoever wrote the page. A page that
         // names somebody else must not re-attribute the jobs to them.
-        String impersonating = POSTING_ONE.replace("Northgate Systems", "Some Other Employer");
-        server.fixed("/careers", 200, page(impersonating), "Content-Type", "text/html");
+        listing(POSTING_ONE.replace("Northgate Systems", "Some Other Employer"));
+        jobPage(ONE_PATH, POSTING_ONE.replace("Northgate Systems", "Some Other Employer"));
 
-        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/careers", 200));
-
-        assertThat(postings).hasSize(1);
-        assertThat(postings.get(0).companyName()).isEqualTo("Northgate Systems");
+        assertThat(fetch(200)).extracting(RawJobPosting::companyName).containsOnly("Northgate Systems");
     }
 
     @Test
     @DisplayName("stops at the configured ceiling")
     void honoursMaxJobs() {
-        server.fixed("/careers", 200, page(POSTING_ONE, POSTING_TWO), "Content-Type", "text/html");
+        listing(POSTING_ONE, POSTING_TWO);
+        jobPage(ONE_PATH, POSTING_ONE);
+        jobPage(TWO_PATH, POSTING_TWO);
 
-        assertThat(adapter().fetchJobs(sourceAt("/careers", 1))).hasSize(1);
+        assertThat(fetch(1)).hasSize(1);
     }
 
     @Test
-    @DisplayName("a page with no JobPosting markup fails rather than reporting an empty board")
+    @DisplayName("a page with no JobPosting markup anywhere fails rather than reporting an empty board")
     void refusesToReportAnEmptyBoard() {
-        // Reporting zero postings would let one site redesign close every job
-        // this source has ever produced.
-        server.fixed("/careers", 200, page(NOT_A_POSTING), "Content-Type", "text/html");
+        // Nothing was found and nothing answered "gone", so this is a failure to
+        // read. Reporting zero would let one site redesign close every job this
+        // source has ever produced.
+        listing(NOT_A_POSTING);
 
-        assertThatThrownBy(() -> adapter().fetchJobs(sourceAt("/careers", 200)))
+        assertThatThrownBy(() -> fetch(200))
                 .isInstanceOf(AdapterException.class)
                 .hasMessageContaining("No readable JobPosting markup");
     }
@@ -176,43 +355,34 @@ class JobPostingPageAdapterTest {
     @Test
     @DisplayName("markup that declares nothing usable is a failure too")
     void refusesPostingsThatCannotBeMapped() {
-        // A JobPosting with no title is not something a student can be shown.
-        server.fixed("/careers", 200,
-                page("{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\","
-                        + "\"description\":\"We are hiring.\"}"),
-                "Content-Type", "text/html");
+        listing("{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\","
+                + "\"description\":\"We are hiring.\"}");
 
-        assertThatThrownBy(() -> adapter().fetchJobs(sourceAt("/careers", 200)))
-                .isInstanceOf(AdapterException.class);
+        assertThatThrownBy(() -> fetch(200)).isInstanceOf(AdapterException.class);
     }
 
     @Test
     @DisplayName("an apply link on the employer's applicant tracking system is kept")
     void keepsAnAtsDestination() {
-        // The shape this adapter exists for: the roles are listed on the
-        // company's own page and applied for on the system hosting their hiring,
-        // so the destination is on a different host by design.
-        server.fixed("/careers", 200,
-                page(POSTING_ONE.replace("__BASE__", "https://northgate.applytojob.com")),
-                "Content-Type", "text/html");
+        // The roles are listed on the company's own page and applied for on their
+        // ATS, so the destination is on a different host by design. The link is
+        // not fetched here — OnlyLoopback refuses it — which is exactly the
+        // "no evidence either way" case, so the claim stands.
+        listing(POSTING_ONE.replace("__BASE__", "https://northgate.applytojob.com"));
 
-        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/careers", 200));
+        List<RawJobPosting> postings = fetch(200);
 
         assertThat(postings).hasSize(1);
         assertThat(postings.get(0).applyUrl())
-                .isEqualTo("https://northgate.applytojob.com/apply/4EpNpkSTON/Associate-Project-Manager");
+                .isEqualTo("https://northgate.applytojob.com" + ONE_PATH);
     }
 
     @Test
     @DisplayName("an apply link on a host that is neither the page's nor a board is dropped")
     void dropsAnUnrelatedDestination() {
-        // A planted link must not send a student somewhere arbitrary. The posting
-        // is still worth showing; CareerFlux just cannot say where to apply.
-        server.fixed("/careers", 200,
-                page(POSTING_ONE.replace("__BASE__", "https://unrelated-host.net")),
-                "Content-Type", "text/html");
+        listing(POSTING_ONE.replace("__BASE__", "https://unrelated-host.net"));
 
-        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/careers", 200));
+        List<RawJobPosting> postings = fetch(200);
 
         assertThat(postings).hasSize(1);
         assertThat(postings.get(0).applyUrl()).isNull();
@@ -234,10 +404,209 @@ class JobPostingPageAdapterTest {
                 "https://acme.example/careers", "acme", JobPostingPageAdapter.KEY, 60, null, 10))).isTrue();
     }
 
+    // ------------------------------------------------------------- robots
+
     @Test
-    @DisplayName("health reports how many postings the page declares")
+    @DisplayName("a page the host's robots.txt disallows is not opened")
+    void doesNotOpenPagesRobotsDisallows() {
+        // The ingestion gate judged the listing's address. The pages it points at
+        // are other paths, with rules of their own.
+        server.fixed("/robots.txt", 200, "User-agent: *\nDisallow: /apply/\n".getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "text/plain");
+        listing(POSTING_ONE, POSTING_TWO);
+        jobPage(ONE_PATH, POSTING_ONE);
+        jobPage(TWO_PATH, POSTING_TWO);
+
+        List<RawJobPosting> postings = fetch(200);
+
+        assertThat(server.requestCount(ONE_PATH)).isZero();
+        assertThat(server.requestCount(TWO_PATH)).isZero();
+        // Nothing contradicted the listing, so its claims stand.
+        assertThat(postings).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("a host whose robots.txt cannot be read is treated as closed")
+    void unreadableRobotsKeepsPagesClosed() {
+        server.fixed("/robots.txt", 503, new byte[0]);
+        listing(POSTING_ONE);
+        jobPage(ONE_PATH, POSTING_ONE);
+
+        fetch(200);
+
+        assertThat(server.requestCount(ONE_PATH)).isZero();
+    }
+
+    @Test
+    @DisplayName("a host that publishes no robots.txt is open")
+    void noRobotsMeansOpen() {
+        listing(POSTING_ONE);
+        jobPage(ONE_PATH, POSTING_ONE);
+
+        fetch(200);
+
+        assertThat(server.requestCount(ONE_PATH)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("robots.txt is read once for a whole run, however many pages follow")
+    void robotsIsReadOncePerRun() {
+        server.fixed("/robots.txt", 200, "User-agent: *\nDisallow: /private/\n".getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "text/plain");
+        listing(POSTING_ONE, POSTING_TWO);
+        jobPage(ONE_PATH, POSTING_ONE);
+        jobPage(TWO_PATH, POSTING_TWO);
+
+        fetch(200);
+
+        assertThat(server.requestCount("/robots.txt")).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------- sitemap
+
+    private static final String JOB_ONE = "/jobs/100/platform-engineer";
+    private static final String JOB_TWO = "/jobs/200/data-analyst";
+
+    /** A job's page declaring its posting but no url of its own, as plenty of sites do. */
+    private static String anonymousPosting(String title) {
+        return "{\"@context\":\"https://schema.org\",\"@type\":\"JobPosting\",\"title\":\"" + title
+                + "\",\"description\":\"<p>Join the team.</p>\",\"datePosted\":\"2026-09-15\","
+                + "\"validThrough\":\"2099-12-30\",\"employmentType\":\"FULL_TIME\","
+                + "\"jobLocation\":{\"@type\":\"Place\",\"address\":{\"@type\":\"PostalAddress\","
+                + "\"addressLocality\":\"Hyderabad\",\"addressCountry\":\"India\"}}}";
+    }
+
+    private void sitemap(String path, String... locs) {
+        StringBuilder xml = new StringBuilder(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
+        for (String loc : locs) {
+            xml.append("<url><loc>").append(loc).append("</loc></url>");
+        }
+        server.fixed(path, 200, xml.append("</urlset>").toString().getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "application/xml");
+    }
+
+    @Test
+    @DisplayName("reads the job pages a sitemap names")
+    void readsFromASitemap() {
+        sitemap("/sitemap.xml", server.url(JOB_ONE), server.url(JOB_TWO));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+        jobPage(JOB_TWO, anonymousPosting("Data Analyst"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title)
+                .containsExactly("Platform Engineer", "Data Analyst");
+        assertThat(postings).extracting(RawJobPosting::companyName).containsOnly("Northgate Systems");
+    }
+
+    @Test
+    @DisplayName("a page that names no identity of its own is known by its address")
+    void aPageIsItsOwnIdentity() {
+        sitemap("/sitemap.xml", server.url(JOB_ONE), server.url(JOB_TWO));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+        jobPage(JOB_TWO, anonymousPosting("Platform Engineer"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        // Same title, different pages: two jobs, not one.
+        assertThat(postings).hasSize(2);
+        assertThat(postings).extracting(RawJobPosting::externalId).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("the marketing pages in a sitemap are not opened")
+    void ignoresPagesThatAreNotJobs() {
+        sitemap("/sitemap.xml", server.url("/about-us"), server.url(JOB_ONE), server.url("/pricing"));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+        // Registered, so a request for either would be counted. An unregistered
+        // path is answered by the server's default handler and counted by nobody,
+        // which would make the assertions below true whatever the adapter did.
+        jobPage("/about-us", anonymousPosting("About us"));
+        jobPage("/pricing", anonymousPosting("Pricing"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Platform Engineer");
+
+        assertThat(server.requestCount("/about-us")).isZero();
+        assertThat(server.requestCount("/pricing")).isZero();
+    }
+
+    @Test
+    @DisplayName("a sitemap page robots.txt disallows is not opened")
+    void sitemapRespectsRobots() {
+        server.fixed("/robots.txt", 200, "User-agent: *\nDisallow: /jobs/200\n".getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "text/plain");
+        sitemap("/sitemap.xml", server.url(JOB_ONE), server.url(JOB_TWO));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+        jobPage(JOB_TWO, anonymousPosting("Data Analyst"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(server.requestCount(JOB_TWO)).isZero();
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Platform Engineer");
+    }
+
+    @Test
+    @DisplayName("an index is expanded into the sitemaps it names on its own host")
+    void expandsAnIndex() {
+        // The second child is served and readable, but under another host name:
+        // "localhost" reaches the same test server as "127.0.0.1" while being a
+        // different host as far as the adapter is concerned.
+        String otherHost = server.url("/other-sitemap.xml").replace("127.0.0.1", "localhost");
+        server.fixed("/sitemap.xml", 200,
+                ("<?xml version=\"1.0\"?><sitemapindex>"
+                        + "<sitemap><loc>" + server.url("/sitemap-jobs.xml") + "</loc></sitemap>"
+                        + "<sitemap><loc>" + otherHost + "</loc></sitemap>"
+                        + "</sitemapindex>").getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "application/xml");
+        sitemap("/sitemap-jobs.xml", server.url(JOB_ONE));
+        sitemap("/other-sitemap.xml", server.url(JOB_TWO));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+        jobPage(JOB_TWO, anonymousPosting("Data Analyst"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Platform Engineer");
+        assertThat(server.requestCount("/other-sitemap.xml")).isZero();
+    }
+
+    @Test
+    @DisplayName("a sitemap whose pages carry no markup fails rather than reporting an empty board")
+    void sitemapWithoutMarkupFails() {
+        sitemap("/sitemap.xml", server.url(JOB_ONE));
+        server.fixed(JOB_ONE, 200, "<html><body>Apply</body></html>".getBytes(StandardCharsets.UTF_8),
+                "Content-Type", "text/html");
+
+        assertThatThrownBy(() -> adapter().fetchJobs(sourceAt("/sitemap.xml", 200)))
+                .isInstanceOf(AdapterException.class)
+                .hasMessageContaining("No readable JobPosting markup");
+    }
+
+    @Test
+    @DisplayName("recognises a sitemap and nothing else as one")
+    void recognisesSitemaps() {
+        assertThat(Sitemap.isSitemap("<?xml version=\"1.0\"?><urlset></urlset>")).isTrue();
+        assertThat(Sitemap.isSitemap("<sitemapindex></sitemapindex>")).isTrue();
+        assertThat(Sitemap.isSitemap("<html><body>urlset</body></html>")).isFalse();
+        assertThat(Sitemap.isSitemap(null)).isFalse();
+        assertThat(Sitemap.isIndex("<sitemapindex></sitemapindex>")).isTrue();
+        assertThat(Sitemap.isIndex("<urlset></urlset>")).isFalse();
+        // Entities in an address are undone, and only the path decides what is a job.
+        assertThat(Sitemap.locs("<loc> https://a.example/jobs?x=1&amp;y=2 </loc>"))
+                .containsExactly("https://a.example/jobs?x=1&y=2");
+        assertThat(Sitemap.looksLikeJobPage("https://a.example/jobs/12/engineer")).isTrue();
+        assertThat(Sitemap.looksLikeJobPage("https://jobs.a.example/about-us")).isFalse();
+        assertThat(Sitemap.looksLikeJobPage("https://a.example/sitemap-jobs.xml")).isFalse();
+    }
+
+    // ------------------------------------------------------------- health
+
+    @Test
+    @DisplayName("health reports how many postings the listing declares")
     void healthCountsPostings() {
-        server.fixed("/careers", 200, page(POSTING_ONE, POSTING_TWO), "Content-Type", "text/html");
+        listing(POSTING_ONE, POSTING_TWO);
 
         SourceHealthResult health = adapter().checkHealth(sourceAt("/careers", 200));
 

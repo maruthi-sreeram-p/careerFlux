@@ -17,8 +17,9 @@
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  background: rgb(8 9 12 / 85%);
-  backdrop-filter: blur(12px);
+  background: var(--glass-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border-bottom: 1px solid var(--line-faint);
 }
 

@@ -1,28 +1,51 @@
 /* ==========================================================================
    CareerFlux design tokens
 
-   A dark-first system. The surfaces are near-black neutrals with a faint cool
-   cast; colour is treated as a scarce resource and spent only where it carries
-   meaning — a match score, a source state, a destructive action. Borders and
-   spacing do the structural work that gradients and shadows would do in a
-   louder interface.
+   A light system built on warm paper rather than white. The page is a soft
+   cream; the things you read and act on — cards, dialogs, tables, inputs — are
+   white or near-white, so white dominates the content while the backdrop stays
+   warm enough not to glare. Colour is still a scarce resource, spent only where
+   it carries meaning: a match score, a source state, a destructive action.
+
+   Glass is used on the layers that genuinely float above the page — dialogs,
+   menus, the sticky bars and the cards — as translucent white over the cream
+   with a blur behind it. It is a material, not a decoration: anything a person
+   reads long-form sits on a solid surface.
    ========================================================================== */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* --- Surfaces -----------------------------------------------------------
-     Six steps from the page backdrop to the highest raised element. Anything
-     that needs to sit above something else moves one step up, never two. */
-  --bg: #08090c;
-  --bg-subtle: #0a0c10;
-  --panel: #0e1116;
-  --panel-raised: #12161d;
-  --panel-hover: #171c25;
-  --panel-active: #1c222c;
+     The page is cream; everything raised above it moves toward white. Six
+     steps, and anything sitting above something else moves one step, never two. */
+  --bg: #f6f2ea;
+  --bg-subtle: #fbf8f3;
+  --panel: #ffffff;
+  --panel-raised: #ffffff;
+  --panel-hover: #faf7f1;
+  --panel-active: #f2ece1;
 
-  /* Overlay scrims and glass. Used sparingly: dialogs and the mobile nav. */
-  --scrim: rgb(4 5 7 / 72%);
+  /* The scrim behind a dialog. Warm rather than neutral black, so the cream
+     underneath darkens instead of turning grey. */
+  --scrim: rgb(46 38 28 / 34%);
+
+  /* --- Glass --------------------------------------------------------------
+     Translucent white over the cream page, blurred. The edge is two lines: a
+     warm outer border that separates the surface from the page, and a bright
+     inner highlight along the top that makes it read as a pane of glass rather
+     than a flat translucent box.
+
+     The blur is deliberately modest. A heavy blur behind a card full of small
+     text costs readability on scroll and compositing on cheaper machines, and
+     buys very little. */
+  --glass: rgb(255 255 255 / 72%);
+  --glass-strong: rgb(255 255 255 / 86%);
+  --glass-solid: rgb(255 255 255 / 94%);
+  --glass-border: rgb(203 190 169 / 52%);
+  --glass-highlight: rgb(255 255 255 / 90%);
+  --glass-blur: 16px;
+  --glass-saturate: 155%;
 
   /* --- Lines --------------------------------------------------------------
      Hairlines carry most of the structure, so there are four weights rather
@@ -31,53 +54,58 @@
      The first three are decorative boundaries between regions, which WCAG does
      not hold to a contrast ratio. --line-control is different: it is the border
      that tells someone where an input begins, so it meets the 3:1 required by
-     1.4.11 Non-text Contrast even though it is visibly heavier than the rest. */
-  --line-faint: #161a21;
-  --line: #1d232c;
-  --line-strong: #29313d;
-  --line-control: #5d6470;
+     1.4.11 Non-text Contrast (3.7:1 on white) even though it is visibly heavier
+     than the rest. */
+  --line-faint: #f0e9dd;
+  --line: #e6ded0;
+  --line-strong: #d6cab6;
+  --line-control: #8c8372;
 
   /* --- Text ---------------------------------------------------------------
      Four steps, every one of which clears WCAG AA (4.5:1) against --panel:
-     roughly 15.7, 8.4, 6.9 and 4.7 to one. The faintest step is still used only
-     for metadata, but "less important" is not a reason to make text unreadable. */
-  --text: #e7eaf0;
-  --text-secondary: #a5adbb;
-  --text-muted: #949cab;
-  --text-faint: #7d8492;
+     roughly 16.5, 9.3, 7.0 and 5.6 to one. The faintest step is still used only
+     for metadata, but "less important" is not a reason to make text unreadable.
+     Warm-tinted, because pure grey on cream reads as dirty. */
+  --text: #1c1a17;
+  --text-secondary: #4a453d;
+  --text-muted: #5e584e;
+  --text-faint: #6e6759;
 
   /* --- Accent -------------------------------------------------------------
-     A single cool teal signals "CareerFlux is doing something intelligent
-     here": primary actions, focus, active nav, the match ring. It appears on
-     roughly one element per screen region, never as decoration. */
-  --accent: #46d1c2;
-  --accent-bright: #6fe3d6;
-  --accent-dim: #1f6f68;
-  --accent-faint: rgb(70 209 194 / 12%);
-  --accent-line: rgb(70 209 194 / 28%);
-  --accent-ink: #04231f;
+     A single deep teal signals "CareerFlux is doing something intelligent
+     here": primary actions, focus, active nav, the match ring. Darkened from
+     the dark theme's teal so it clears 4.5:1 on white (5.2:1) — a mid teal that
+     looked right on near-black is unreadable on paper. It appears on roughly
+     one element per screen region, never as decoration. */
+  --accent: #0b7a6e;
+  --accent-bright: #0e9487;
+  --accent-dim: #8ed4cb;
+  --accent-faint: rgb(11 122 110 / 9%);
+  --accent-line: rgb(11 122 110 / 30%);
+  --accent-ink: #ffffff;
 
   /* --- Semantic -----------------------------------------------------------
-     Deliberately desaturated so that nothing shouts. Each has a faint fill and
-     a line variant so badges can be built without new values. */
-  --positive: #5cc98e;
-  --positive-faint: rgb(92 201 142 / 12%);
-  --positive-line: rgb(92 201 142 / 28%);
+     Deliberately deep rather than bright, so that nothing shouts and every one
+     carries text safely on white. Each has a faint fill and a line variant so
+     badges can be built without new values. */
+  --positive: #1f7a4d;
+  --positive-faint: rgb(31 122 77 / 10%);
+  --positive-line: rgb(31 122 77 / 28%);
 
-  --caution: #d8a63f;
-  --caution-faint: rgb(216 166 63 / 12%);
-  --caution-line: rgb(216 166 63 / 28%);
+  --caution: #8a6212;
+  --caution-faint: rgb(138 98 18 / 11%);
+  --caution-line: rgb(138 98 18 / 28%);
 
-  --negative: #e0705f;
-  --negative-faint: rgb(224 112 95 / 12%);
-  --negative-line: rgb(224 112 95 / 30%);
+  --negative: #b23a28;
+  --negative-faint: rgb(178 58 40 / 9%);
+  --negative-line: rgb(178 58 40 / 28%);
 
-  --info: #7ba2f0;
-  --info-faint: rgb(123 162 240 / 12%);
-  --info-line: rgb(123 162 240 / 28%);
+  --info: #2b5fc4;
+  --info-faint: rgb(43 95 196 / 9%);
+  --info-line: rgb(43 95 196 / 26%);
 
-  --neutral-faint: rgb(165 173 187 / 8%);
-  --neutral-line: rgb(165 173 187 / 18%);
+  --neutral-faint: rgb(94 88 78 / 7%);
+  --neutral-line: rgb(94 88 78 / 16%);
 
   /* --- Typography ---------------------------------------------------------
      Inter for everything the reader reads, JetBrains Mono for anything the
@@ -128,21 +156,25 @@
   --space-32: 8rem;
 
   /* --- Radii --------------------------------------------------------------
-     Restrained on purpose. Nothing in the product is a pill except badges. */
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+     Softer than the dark theme's. Glass needs a little more curvature to read
+     as a pane rather than a rectangle of paint, but nothing here is a pill
+     except badges. */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
   --radius-full: 999px;
 
   /* --- Elevation ----------------------------------------------------------
-     Shadows are almost invisible; they exist to lift dialogs and menus off the
-     page, not to decorate cards. */
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow: 0 4px 16px -4px rgb(0 0 0 / 50%);
-  --shadow-lg: 0 16px 48px -12px rgb(0 0 0 / 65%);
-  --shadow-focus: 0 0 0 3px rgb(70 209 194 / 22%);
+     On a light theme a shadow is the only thing separating a white card from a
+     white-ish page, so these do real work rather than hinting. Warm-tinted and
+     wide, because a neutral black shadow on cream reads as grime. */
+  --shadow-sm: 0 1px 2px rgb(72 58 38 / 6%), 0 1px 1px rgb(72 58 38 / 4%);
+  --shadow: 0 6px 20px -6px rgb(72 58 38 / 14%), 0 2px 6px -2px rgb(72 58 38 / 8%);
+  --shadow-lg: 0 28px 64px -20px rgb(56 44 28 / 28%), 0 8px 20px -8px rgb(56 44 28 / 14%);
+  --shadow-glass: 0 10px 32px -12px rgb(72 58 38 / 18%), 0 2px 8px -3px rgb(72 58 38 / 10%);
+  --shadow-focus: 0 0 0 3px rgb(11 122 110 / 20%);
 
   /* --- Motion -------------------------------------------------------------
      One easing curve for almost everything, so movement feels like it comes
@@ -181,5 +213,17 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* A translucent surface is only safe where the browser can actually blur what
+   is behind it. Without backdrop-filter the same rules would render as flat
+   washed-out white over cream, with text sitting on whatever scrolls beneath,
+   so those surfaces fall back to solid. */
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --glass: #ffffff;
+    --glass-strong: #ffffff;
+    --glass-solid: #ffffff;
   }
 }

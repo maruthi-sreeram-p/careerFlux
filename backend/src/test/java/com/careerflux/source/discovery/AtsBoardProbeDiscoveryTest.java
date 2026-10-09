@@ -361,4 +361,147 @@ class AtsBoardProbeDiscoveryTest {
             assertThat(fixtures.probe().probe("acme.example")).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("a site with no board and no listing, but a sitemap of job pages")
+    class SitemapSites {
+
+        private static final String SITEMAP = "https://acme.example/sitemap.xml";
+        private static final String JOB_A = "https://acme.example/jobs/1/engineer";
+        private static final String JOB_B = "https://acme.example/jobs/2/analyst";
+        private static final String JOB_C = "https://acme.example/jobs/3/designer";
+
+        /** A job page that declares its own posting, as a server-rendered site does. */
+        private String declaringPage(String title) {
+            return "<html><head><script type=\"application/ld+json\">{\"@context\":\"https://schema.org\","
+                    + "\"@type\":\"JobPosting\",\"title\":\"" + title + "\","
+                    + "\"description\":\"<p>Join us.</p>\",\"datePosted\":\"2026-09-15\"}"
+                    + "</script></head><body>" + title + "</body></html>";
+        }
+
+        /** What most JavaScript careers sites look like to a reader that runs no scripts. */
+        private static final String SHELL = "<html><head><title>Job Details</title></head><body></body></html>";
+
+        private String sitemapOf(String... locs) {
+            StringBuilder xml = new StringBuilder("<?xml version=\"1.0\"?><urlset>");
+            for (String loc : locs) {
+                xml.append("<url><loc>").append(loc).append("</loc></url>");
+            }
+            return xml.append("</urlset>").toString();
+        }
+
+        @Test
+        @DisplayName("is registered when its job pages declare postings")
+        void readableSitemapBecomesASource() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/robots.txt", "User-agent: *\nDisallow: /admin/\nSitemap: " + SITEMAP)
+                    .page(SITEMAP, sitemapOf(JOB_A, JOB_B, JOB_C, "https://acme.example/about-us"))
+                    .page(JOB_A, declaringPage("Engineer"))
+                    .page(JOB_B, declaringPage("Analyst"))
+                    .page(JOB_C, declaringPage("Designer"));
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(JobPostingPageAdapter.KEY);
+            assertThat(found.get().ingestible()).isTrue();
+            assertThat(found.get().sourceUrl()).isEqualTo(SITEMAP);
+            assertThat(found.get().detail()).contains("3 job pages").contains("3 of 3 sampled");
+        }
+
+        @Test
+        @DisplayName("is found at /sitemap.xml when robots.txt does not say where it is")
+        void defaultSitemapLocation() {
+            Fixtures fixtures = new Fixtures()
+                    .page(SITEMAP, sitemapOf(JOB_A))
+                    .page(JOB_A, declaringPage("Engineer"));
+
+            assertThat(fixtures.probe().probe("acme.example")).isPresent();
+        }
+
+        @Test
+        @DisplayName("is not registered when the job pages are empty shells")
+        void shellPagesAreNotABoard() {
+            // Registering it would produce a source the adapter then fails to read,
+            // and say "healthy" in the registry until the first sync.
+            Fixtures fixtures = new Fixtures()
+                    .page(SITEMAP, sitemapOf(JOB_A, JOB_B, JOB_C))
+                    .page(JOB_A, SHELL).page(JOB_B, SHELL).page(JOB_C, SHELL);
+
+            assertThat(fixtures.probe().probe("acme.example")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("never opens a job page the host's robots.txt disallows")
+        void respectsRobots() {
+            Fixtures fixtures = new Fixtures()
+                    .page(SITEMAP, sitemapOf(JOB_A, JOB_B))
+                    .page(JOB_A, declaringPage("Engineer"))
+                    .page(JOB_B, declaringPage("Analyst"));
+            AtsBoardProbe probe = new AtsBoardProbe(url -> {
+                fixtures.requested.add(url);
+                return fixtures.pages.get(url);
+            }, new ObjectMapper(), origin -> url -> false);
+
+            assertThat(probe.probe("acme.example")).isEmpty();
+            assertThat(fixtures.requested).doesNotContain(JOB_A, JOB_B);
+        }
+
+        @Test
+        @DisplayName("ignores a sitemap that is not on the company's own host")
+        void sitemapMustBeTheCompanys() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/robots.txt", "Sitemap: https://elsewhere.example/sitemap.xml")
+                    .page("https://elsewhere.example/sitemap.xml", sitemapOf("https://elsewhere.example/jobs/1/x"))
+                    .page("https://elsewhere.example/jobs/1/x", declaringPage("Somebody else's job"));
+
+            assertThat(fixtures.probe().probe("acme.example")).isEmpty();
+            assertThat(fixtures.requested).doesNotContain("https://elsewhere.example/sitemap.xml");
+        }
+
+        @Test
+        @DisplayName("loses to a board with a real API, which is the better reading")
+        void apiBoardOutranksASitemap() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://boards-api.greenhouse.io/v1/boards/acme/jobs", "{\"jobs\":[{\"id\":1}]}")
+                    .page(SITEMAP, sitemapOf(JOB_A))
+                    .page(JOB_A, declaringPage("Engineer"));
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(GreenhouseAdapter.KEY);
+        }
+
+        @Test
+        @DisplayName("beats a recognised board that nothing reads")
+        void sitemapBeatsARecordOfNothing() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><body><a href=\"https://acme.applytojob.com/apply\">Openings</a></body></html>")
+                    .page(SITEMAP, sitemapOf(JOB_A))
+                    .page(JOB_A, declaringPage("Engineer"));
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().adapterKey()).isEqualTo(JobPostingPageAdapter.KEY);
+        }
+
+        @Test
+        @DisplayName("falls back to recording the board when the sitemap is no use")
+        void recordedBoardSurvivesAnUnusableSitemap() {
+            Fixtures fixtures = new Fixtures()
+                    .page("https://acme.example/careers",
+                            "<html><body><a href=\"https://acme.applytojob.com/apply\">Openings</a></body></html>")
+                    .page(SITEMAP, sitemapOf(JOB_A))
+                    .page(JOB_A, SHELL);
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().ingestible()).isFalse();
+            assertThat(found.get().provider()).isEqualTo(AtsProvider.JAZZHR);
+        }
+    }
 }

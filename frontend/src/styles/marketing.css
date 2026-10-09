@@ -30,8 +30,9 @@
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  background: rgb(8 9 12 / 78%);
-  backdrop-filter: blur(14px);
+  background: var(--glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border-bottom: 1px solid var(--line-faint);
 }
 
@@ -81,8 +82,8 @@
   transform: translateX(-50%);
   background: radial-gradient(
     circle,
-    rgb(70 209 194 / 7%) 0%,
-    rgb(70 209 194 / 2%) 38%,
+    rgb(11 122 110 / 9%) 0%,
+    rgb(214 186 132 / 10%) 38%,
     transparent 66%
   );
   pointer-events: none;

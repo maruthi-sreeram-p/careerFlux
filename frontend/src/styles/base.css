@@ -19,7 +19,11 @@ html {
 
 body {
   min-height: 100dvh;
-  background: var(--bg);
+  background:
+    radial-gradient(900px 520px at 10% -8%, rgb(11 122 110 / 7%), transparent 62%),
+    radial-gradient(760px 460px at 96% -2%, rgb(214 176 112 / 15%), transparent 64%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--text-base);

@@ -199,14 +199,7 @@ public final class JobPostingMapper {
 
     /** Whether the host a student would actually reach is a board CareerFlux knows. */
     private static boolean isRecognisedBoard(String candidate) {
-        String candidateHost = host(candidate);
-        if (candidateHost == null) {
-            return false;
-        }
-        return BoardHosts.recognize(candidate)
-                .map(board -> candidateHost.equals(host(board.sourceUrl()))
-                        || candidateHost.equals(host(board.boardUrl())))
-                .orElse(false);
+        return BoardHosts.isBoardUrl(candidate);
     }
 
     private static boolean sameHost(String pageUrl, String candidate) {

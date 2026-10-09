@@ -226,7 +226,12 @@ export function AddCompanyDialog({ open, onClose }: { open: boolean; onClose: ()
           )}
 
           {result.alreadyKnown.length > 0 && (
-            <p className="text-faint">Already in the registry: {result.alreadyKnown.join(', ')}.</p>
+            <p className="text-muted">
+              <strong>Already registered: {result.alreadyKnown.join(', ')}.</strong> Nothing was
+              added, because a source for it already exists. Open it from the registry below to
+              carry on from whatever state it stopped at — a source sits at DISCOVERED until it has
+              been classified and its terms reviewed.
+            </p>
           )}
 
           {result.withoutBoard.length > 0 && (

@@ -8,9 +8,11 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import com.careerflux.source.adapter.JobPostingPageAdapter;
 import com.careerflux.source.adapter.jsonld.JobPostingJsonLd;
+import com.careerflux.source.adapter.jsonld.Sitemap;
 import com.careerflux.source.discovery.BoardHosts.Family;
 import com.careerflux.source.discovery.BoardHosts.Recognized;
 import com.careerflux.source.domain.AtsProvider;
@@ -18,6 +20,7 @@ import com.careerflux.source.domain.DiscoveryMethod;
 import com.careerflux.source.net.BoundedResponse;
 import com.careerflux.source.net.SafeRedirects;
 import com.careerflux.source.net.SafeUrlValidator;
+import com.careerflux.source.service.RobotsTxtService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -91,21 +94,35 @@ public class AtsBoardProbe {
     private final Function<String, String> fetcher;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Given an origin, what that host's robots.txt lets be read. Asked per host, per
+     * discovery, so a changed policy is seen on the next run and never remembered.
+     */
+    private final Function<String, Predicate<String>> robotsFor;
+
     @Autowired
     public AtsBoardProbe(RestClient.Builder restClientBuilder, SafeUrlValidator urlValidator,
-                         ObjectMapper objectMapper) {
+                         ObjectMapper objectMapper, RobotsTxtService robots) {
         RestClient restClient = restClientBuilder
                 .requestFactory(timeoutFactory(urlValidator))
                 .defaultHeader("User-Agent", "CareerFlux/0.1 (+source discovery; contact placement office)")
                 .build();
         this.fetcher = url -> fetchText(restClient, urlValidator, url);
         this.objectMapper = objectMapper;
+        this.robotsFor = origin -> robots.policyFor(origin + "/")::isAllowed;
     }
 
-    /** For tests: pages come from {@code fetcher} instead of the network. */
+    /** For tests: pages come from {@code fetcher} instead of the network, and robots allows everything. */
     AtsBoardProbe(Function<String, String> fetcher, ObjectMapper objectMapper) {
+        this(fetcher, objectMapper, origin -> url -> true);
+    }
+
+    /** For tests that need robots.txt to say something. */
+    AtsBoardProbe(Function<String, String> fetcher, ObjectMapper objectMapper,
+                  Function<String, Predicate<String>> robotsFor) {
         this.fetcher = fetcher;
         this.objectMapper = objectMapper;
+        this.robotsFor = robotsFor;
     }
 
     /**
@@ -121,10 +138,121 @@ public class AtsBoardProbe {
         }
 
         Optional<DiscoveredBoard> inspected = inspectCareersPages(host);
-        if (inspected.isPresent()) {
+        if (inspected.isPresent() && inspected.get().ingestible()) {
             return inspected;
         }
-        return probeTokensDirectly(host);
+        if (inspected.isPresent()) {
+            // A board the company links to that nothing reads. Recording it is
+            // better than nothing, and a sitemap of readable pages is better than
+            // recording it.
+            return readableSitemap(host).or(() -> inspected);
+        }
+        Optional<DiscoveredBoard> direct = probeTokensDirectly(host);
+        if (direct.isPresent()) {
+            // A board with a real API outranks reading pages.
+            return direct;
+        }
+        return readableSitemap(host);
+    }
+
+    // ------------------------------------------------------------------
+    // Strategy 3: a sitemap of pages that describe their own jobs
+    // ------------------------------------------------------------------
+
+    /**
+     * A site that has no board and no listing page, but publishes a sitemap whose job
+     * pages declare JobPosting markup.
+     *
+     * <p>Last, because it is the weakest reading: a board with an API gives ids,
+     * dates and a complete list, while this gives only the pages a budget can open.
+     * It is still the only way in for an employer running its own careers site.
+     *
+     * <p>Three things must hold before anything is registered, so discovery cannot
+     * record a source the adapter would then fail to read. The sitemap must be on
+     * this company's own host. The pages in it that look like jobs must be ones that
+     * host's robots.txt permits. And at least one of a small sample of them must
+     * actually declare a posting, asked of the same parser the adapter uses. A site
+     * whose pages are empty shells, which is how most JavaScript careers sites
+     * look to a reader that runs no scripts, is reported as having no readable board.
+     */
+    private Optional<DiscoveredBoard> readableSitemap(String host) {
+        String robotsTxt = fetcher.apply("https://" + host + "/robots.txt");
+        List<String> candidates = new ArrayList<>();
+        if (robotsTxt != null) {
+            for (String line : robotsTxt.split("\\R")) {
+                String trimmed = line.strip();
+                if (trimmed.regionMatches(true, 0, "sitemap:", 0, 8)) {
+                    candidates.add(trimmed.substring(8).strip());
+                }
+            }
+        }
+        candidates.add("https://" + host + "/sitemap.xml");
+
+        Set<String> tried = new LinkedHashSet<>();
+        for (String sitemapUrl : candidates) {
+            if (tried.size() >= 3 || !tried.add(sitemapUrl)) {
+                continue;
+            }
+            String sitemapHost = sitemapHostOf(sitemapUrl, host);
+            if (sitemapHost == null) {
+                continue;
+            }
+            String xml = fetcher.apply(sitemapUrl);
+            if (!Sitemap.isSitemap(xml)) {
+                continue;
+            }
+            if (Sitemap.isIndex(xml)) {
+                // One child is enough to know whether this site is worth reading;
+                // the adapter reads more of them.
+                String child = Sitemap.locs(xml).stream()
+                        .filter(loc -> sitemapHost.equals(BoardHosts.hostOf(loc)))
+                        .findFirst().orElse(null);
+                xml = child == null ? null : fetcher.apply(child);
+                if (!Sitemap.isSitemap(xml)) {
+                    continue;
+                }
+            }
+            Predicate<String> allowed = robotsFor.apply("https://" + sitemapHost);
+            List<String> jobs = Sitemap.locs(xml).stream()
+                    .filter(Sitemap::looksLikeJobPage)
+                    .filter(loc -> sitemapHost.equals(BoardHosts.hostOf(loc)))
+                    .filter(allowed)
+                    .toList();
+            if (jobs.isEmpty()) {
+                continue;
+            }
+            int declared = 0;
+            // First, middle and last, each once: a site that marks up some of its
+            // pages and not others is told apart from one that marks up none.
+            Set<Integer> sample = new LinkedHashSet<>(List.of(0, jobs.size() / 2, jobs.size() - 1));
+            int sampled = sample.size();
+            for (int index : sample) {
+                String html = fetcher.apply(jobs.get(index));
+                if (html != null && !JobPostingJsonLd.parse(html).postings().isEmpty()) {
+                    declared++;
+                }
+            }
+            if (declared > 0) {
+                log.info("Discovered a readable sitemap for {} at {}: {} job pages, markup on {} of {} sampled",
+                        host, sitemapUrl, jobs.size(), declared, sampled);
+                return Optional.of(new DiscoveredBoard(host, AtsProvider.OTHER, JobPostingPageAdapter.KEY, host,
+                        DiscoveryMethod.DOMAIN_INSPECTION,
+                        "Reads the sitemap at " + sitemapUrl + ", which lists " + jobs.size()
+                                + " job pages; JobPosting markup found on " + declared + " of " + sampled
+                                + " sampled.",
+                        sitemapUrl));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The sitemap's host when it belongs to this company, otherwise null. */
+    private static String sitemapHostOf(String sitemapUrl, String companyHost) {
+        String host = BoardHosts.hostOf(sitemapUrl);
+        if (host == null) {
+            return null;
+        }
+        return host.equals(companyHost) || host.endsWith("." + companyHost) ? host : null;
     }
 
     // ------------------------------------------------------------------
