@@ -115,6 +115,18 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
     }
 
     /**
+     * A sitemap, read like a page under the larger feed ceiling. A sitemap is a
+     * data file, not markup around a posting: a large employer's lists tens of
+     * thousands of jobs (Accenture India's is 3 MB), which the page ceiling
+     * refused, so the country with the most jobs was the one never read.
+     */
+    protected FetchedPage getSitemap(SourceConfiguration configuration, String url) {
+        Fetched fetched = fetch(configuration, pageClient, url, MAX_BODY_BYTES);
+        return new FetchedPage(bodyText(fetched, pageCharset(fetched.headers())), fetched.status(),
+                fetched.latencyMs());
+    }
+
+    /**
      * One rate-limited, validated, bounded GET, following only redirects that pass
      * validation. Shared so a page and a feed are fetched under exactly the same
      * rules, and neither can drift from the other.

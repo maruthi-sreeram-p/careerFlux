@@ -216,6 +216,7 @@ function platformNav(): NavGroup[] {
       label: 'Intelligence',
       items: [
         { to: '/app/admin/sources', label: 'Source registry', icon: 'Sliders' },
+        { to: '/app/admin/adapters', label: 'Adapters', icon: 'Layers' },
         { to: '/app/sources', label: 'Sources', icon: 'Radar' },
       ],
     },

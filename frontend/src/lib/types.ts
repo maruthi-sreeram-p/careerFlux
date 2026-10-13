@@ -479,6 +479,67 @@ export interface SourceStats {
   aiEnabled: boolean;
 }
 
+/** What an admin types to describe a JSON feed; blank means not mapped. */
+export interface AdapterDefinitionInput {
+  adapterKey: string;
+  displayName: string;
+  description: string;
+  documentationUrl: string;
+  endpointTemplate: string;
+  itemsPath: string;
+  idPath: string;
+  titlePath: string;
+  locationPath: string;
+  descriptionPath: string;
+  applyUrlPath: string;
+  applyUrlTemplate: string;
+  postedAtPath: string;
+  employmentTypePath: string;
+  departmentPath: string;
+}
+
+export interface AdapterDefinition {
+  adapterKey: string;
+  displayName: string;
+  description: string | null;
+  documentationUrl: string | null;
+  endpointTemplate: string;
+  itemsPath: string | null;
+  idPath: string;
+  titlePath: string;
+  locationPath: string | null;
+  descriptionPath: string | null;
+  applyUrlPath: string | null;
+  applyUrlTemplate: string | null;
+  postedAtPath: string | null;
+  employmentTypePath: string | null;
+  departmentPath: string | null;
+  enabled: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdapterPreview {
+  fetched: boolean;
+  endpoint: string;
+  robotsStatus: string | null;
+  message: string;
+  total: number;
+  unreadable: number;
+  postings: {
+    externalId: string;
+    title: string;
+    location: string | null;
+    employmentType: string | null;
+    department: string | null;
+    applyUrl: string | null;
+    postedAt: string | null;
+    hasDescription: boolean;
+  }[];
+}
+
 export interface AdapterInfo {
   key: string;
   displayName: string;

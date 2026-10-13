@@ -75,13 +75,21 @@ public final class JobPostingMapper {
      * @param companyName the employer this source belongs to, from the source itself
      * @param pageUrl     where the page was fetched from; the host a destination link must match
      * @param externalId  the adapter's own stable id for this posting, or null to take the page's
+     * @param postingPage whether {@code pageUrl} is this posting's own page, the only posting it
+     *                    declares; that page is then where a student applies when the markup names
+     *                    no destination of its own
      */
-    public record PageContext(String companyName, String pageUrl, String externalId) {
+    public record PageContext(String companyName, String pageUrl, String externalId, boolean postingPage) {
 
         public PageContext {
             companyName = blankToNull(companyName);
             pageUrl = blankToNull(pageUrl);
             externalId = blankToNull(externalId);
+        }
+
+        /** A page that is not known to be the posting's own: a listing, or a page of several. */
+        public PageContext(String companyName, String pageUrl, String externalId) {
+            this(companyName, pageUrl, externalId, false);
         }
     }
 
@@ -186,15 +194,22 @@ public final class JobPostingMapper {
      * Nothing here is fetched.
      */
     private static String destination(JobPostingNode node, PageContext context) {
+        if (context.pageUrl() == null) {
+            return null;
+        }
         String url = blankToNull(node.url());
-        if (url == null || context.pageUrl() == null) {
-            return null;
+        if (url != null) {
+            String candidate = url.strip();
+            if (ApplyUrl.isValid(candidate)
+                    && (sameHost(context.pageUrl(), candidate) || isRecognisedBoard(candidate))) {
+                return candidate;
+            }
         }
-        String candidate = url.strip();
-        if (!ApplyUrl.isValid(candidate)) {
-            return null;
-        }
-        return sameHost(context.pageUrl(), candidate) || isRecognisedBoard(candidate) ? candidate : null;
+        // Many employers' markup names no url: the page is the posting, and its
+        // Apply button is on it. That page was fetched from the employer's own
+        // host, so it is a destination. A listing page is not: it is every job's.
+        String page = context.pageUrl().strip();
+        return context.postingPage() && ApplyUrl.isValid(page) ? page : null;
     }
 
     /** Whether the host a student would actually reach is a board CareerFlux knows. */

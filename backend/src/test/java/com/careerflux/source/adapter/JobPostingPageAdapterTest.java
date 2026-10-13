@@ -515,6 +515,36 @@ class JobPostingPageAdapterTest {
     }
 
     @Test
+    @DisplayName("a job's own page is where a student applies when its markup names no url")
+    void ownPageIsTheApplyLink() {
+        sitemap("/sitemap.xml", server.url(JOB_ONE));
+        jobPage(JOB_ONE, anonymousPosting("Platform Engineer"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(postings).singleElement().satisfies(posting -> {
+            assertThat(posting.applyUrl()).isEqualTo(server.url(JOB_ONE));
+            assertThat(posting.sourceUrl()).isEqualTo(server.url(JOB_ONE));
+        });
+    }
+
+    @Test
+    @DisplayName("a page declaring several postings is no single posting's apply link")
+    void sharedPageIsNoApplyLink() {
+        sitemap("/sitemap.xml", server.url(JOB_ONE));
+        server.fixed(JOB_ONE, 200, page(
+                        anonymousPosting("Platform Engineer").replace("\"title\"", "\"identifier\":\"R-1\",\"title\""),
+                        anonymousPosting("Data Analyst").replace("\"title\"", "\"identifier\":\"R-2\",\"title\"")),
+                "Content-Type", "text/html; charset=utf-8");
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title)
+                .containsExactlyInAnyOrder("Platform Engineer", "Data Analyst");
+        assertThat(postings).extracting(RawJobPosting::applyUrl).containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("the marketing pages in a sitemap are not opened")
     void ignoresPagesThatAreNotJobs() {
         sitemap("/sitemap.xml", server.url("/about-us"), server.url(JOB_ONE), server.url("/pricing"));
@@ -570,6 +600,86 @@ class JobPostingPageAdapterTest {
 
         assertThat(postings).extracting(RawJobPosting::title).containsExactly("Platform Engineer");
         assertThat(server.requestCount("/other-sitemap.xml")).isZero();
+    }
+
+    @Test
+    @DisplayName("an index of one sitemap per country is read India first, past the per-run limit")
+    void indexIsReadIndiaFirst() {
+        // Accenture's shape: a job sitemap and a general one per country, India
+        // well down the list. Only four children are read per run, which left
+        // every Indian posting unread and Argentina's in the portal instead.
+        String[] countries = {"ae-en", "ar-es", "at-de", "au-en", "in-en"};
+        StringBuilder index = new StringBuilder("<?xml version=\"1.0\"?><sitemapindex>");
+        for (String country : countries) {
+            index.append("<sitemap><loc>").append(server.url("/" + country + "/jobpostings-sitemap.xml"))
+                    .append("</loc></sitemap><sitemap><loc>").append(server.url("/" + country + "/sitemap.xml"))
+                    .append("</loc></sitemap>");
+            sitemap("/" + country + "/jobpostings-sitemap.xml", server.url("/" + country + "/jobs/r-" + country));
+            sitemap("/" + country + "/sitemap.xml", server.url("/" + country + "/about-us"));
+            jobPage("/" + country + "/jobs/r-" + country, anonymousPosting("Engineer " + country));
+        }
+        server.fixed("/sitemap-index.xml", 200, index.append("</sitemapindex>").toString()
+                .getBytes(StandardCharsets.UTF_8), "Content-Type", "application/xml");
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap-index.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title).first().isEqualTo("Engineer in-en");
+        assertThat(server.requestCount("/in-en/jobpostings-sitemap.xml")).isEqualTo(1);
+        // Then other countries' job sitemaps, before anyone's general one.
+        assertThat(server.requestCount("/ae-en/jobpostings-sitemap.xml")).isEqualTo(1);
+        assertThat(server.requestCount("/ae-en/sitemap.xml")).isZero();
+    }
+
+    @Test
+    @DisplayName("a child sitemap larger than a web page is still read")
+    void largeChildSitemapIsRead() {
+        // Accenture India's job sitemap is 3 MB. Under the 2 MB page ceiling it
+        // was skipped, and the run read other countries' jobs instead.
+        StringBuilder big = new StringBuilder("<?xml version=\"1.0\"?><urlset>");
+        big.append("<url><loc>").append(server.url("/in-en/jobs/r-in")).append("</loc></url>");
+        while (big.length() < 2_600_000) {
+            big.append("<url><loc>").append(server.url("/in-en/about-us/" + big.length())).append("</loc></url>");
+        }
+        server.fixed("/in-en/jobpostings-sitemap.xml", 200,
+                big.append("</urlset>").toString().getBytes(StandardCharsets.UTF_8), "Content-Type", "application/xml");
+        server.fixed("/sitemap-index.xml", 200, ("<?xml version=\"1.0\"?><sitemapindex><sitemap><loc>"
+                        + server.url("/in-en/jobpostings-sitemap.xml") + "</loc></sitemap></sitemapindex>")
+                        .getBytes(StandardCharsets.UTF_8), "Content-Type", "application/xml");
+        jobPage("/in-en/jobs/r-in", anonymousPosting("Engineer in-en"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap-index.xml", 200));
+
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Engineer in-en");
+    }
+
+    @Test
+    @DisplayName("within one sitemap, India's job pages are read before the rest")
+    void sitemapPagesIndiaFirst() {
+        sitemap("/sitemap.xml", server.url("/us-en/jobs/r-us"), server.url("/in-en/jobs/r-in"));
+        jobPage("/us-en/jobs/r-us", anonymousPosting("Engineer us-en"));
+        jobPage("/in-en/jobs/r-in", anonymousPosting("Engineer in-en"));
+
+        List<RawJobPosting> postings = adapter().fetchJobs(sourceAt("/sitemap.xml", 1));
+
+        assertThat(postings).extracting(RawJobPosting::title).containsExactly("Engineer in-en");
+        assertThat(server.requestCount("/us-en/jobs/r-us")).isZero();
+    }
+
+    @Test
+    @DisplayName("which addresses are for India, and the order they are read in")
+    void indiaOrdering() {
+        assertThat(Sitemap.isForIndia("https://www.accenture.com/in-en/careers/jobdetails?id=R1")).isTrue();
+        assertThat(Sitemap.isForIndia("https://careers.example.com/en-in/jobs/1")).isTrue();
+        assertThat(Sitemap.isForIndia("https://careers.example.com/india/jobs/1")).isTrue();
+        assertThat(Sitemap.isForIndia("https://careers.northgate.co.in/jobs/1")).isTrue();
+        assertThat(Sitemap.isForIndia("https://www.accenture.com/ar-es/careers/jobdetails?id=R1")).isFalse();
+        assertThat(Sitemap.isForIndia("https://careers.example.com/jobs/indiana-engineer")).isFalse();
+        assertThat(Sitemap.isForIndia("https://careers.example.com/internships/1")).isFalse();
+
+        assertThat(Sitemap.indiaFirst(List.of("https://x.com/us-en/jobs/1", "https://x.com/in-en/jobs/2",
+                "https://x.com/gb-en/jobs/3", "https://x.com/in-en/jobs/4")))
+                .containsExactly("https://x.com/in-en/jobs/2", "https://x.com/in-en/jobs/4",
+                        "https://x.com/us-en/jobs/1", "https://x.com/gb-en/jobs/3");
     }
 
     @Test

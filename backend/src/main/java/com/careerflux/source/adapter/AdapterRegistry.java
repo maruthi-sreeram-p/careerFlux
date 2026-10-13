@@ -4,9 +4,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,7 +27,16 @@ public class AdapterRegistry {
 
     private final Map<String, JobSourceAdapter> adaptersByKey = new LinkedHashMap<>();
 
+    /** Adapters an admin defined as data; consulted after every built-in one. */
+    private final ConfiguredAdapters configured;
+
     public AdapterRegistry(List<JobSourceAdapter> adapters) {
+        this(adapters, ConfiguredAdapters.NONE);
+    }
+
+    @Autowired
+    public AdapterRegistry(List<JobSourceAdapter> adapters, ConfiguredAdapters configured) {
+        this.configured = configured;
         for (JobSourceAdapter adapter : adapters) {
             String key = adapter.getMetadata().key();
             JobSourceAdapter previous = adaptersByKey.put(key, adapter);
@@ -37,21 +48,31 @@ public class AdapterRegistry {
     }
 
     public Optional<JobSourceAdapter> find(String key) {
-        return key == null ? Optional.empty() : Optional.ofNullable(adaptersByKey.get(key));
+        if (key == null) {
+            return Optional.empty();
+        }
+        JobSourceAdapter builtIn = adaptersByKey.get(key);
+        return builtIn != null ? Optional.of(builtIn) : configured.find(key);
     }
 
     public boolean has(String key) {
-        return key != null && adaptersByKey.containsKey(key);
+        return find(key).isPresent();
     }
 
-    /** Picks the first adapter that claims it can handle this configuration. */
+    /**
+     * Picks the first adapter that claims it can handle this configuration.
+     * Built-in adapters are asked first; a configured one only ever claims a
+     * source registered under its own key.
+     */
     public Optional<JobSourceAdapter> resolveFor(SourceConfiguration configuration) {
-        return adaptersByKey.values().stream()
+        return Stream.concat(adaptersByKey.values().stream(), configured.enabled().stream())
                 .filter(adapter -> adapter.supports(configuration))
                 .findFirst();
     }
 
     public List<SourceMetadata> describeAll() {
-        return adaptersByKey.values().stream().map(JobSourceAdapter::getMetadata).toList();
+        return Stream.concat(adaptersByKey.values().stream(), configured.enabled().stream())
+                .map(JobSourceAdapter::getMetadata)
+                .toList();
     }
 }

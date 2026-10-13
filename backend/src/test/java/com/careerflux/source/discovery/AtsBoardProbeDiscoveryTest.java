@@ -410,6 +410,26 @@ class AtsBoardProbeDiscoveryTest {
         }
 
         @Test
+        @DisplayName("an index child that cannot be read is passed over for the next")
+        void unreadableChildIsPassedOver() {
+            // India's child comes first and is too large for discovery's ceiling,
+            // which the fetcher reports as null, exactly as for an unreachable page.
+            String index = "<?xml version=\"1.0\"?><sitemapindex>"
+                    + "<sitemap><loc>https://acme.example/ae-en/jobpostings-sitemap.xml</loc></sitemap>"
+                    + "<sitemap><loc>https://acme.example/in-en/jobpostings-sitemap.xml</loc></sitemap>"
+                    + "</sitemapindex>";
+            Fixtures fixtures = new Fixtures()
+                    .page(SITEMAP, index)
+                    .page("https://acme.example/ae-en/jobpostings-sitemap.xml", sitemapOf(JOB_A))
+                    .page(JOB_A, declaringPage("Engineer"));
+
+            Optional<DiscoveredBoard> found = fixtures.probe().probe("acme.example");
+
+            assertThat(found).isPresent();
+            assertThat(found.get().sourceUrl()).isEqualTo(SITEMAP);
+        }
+
+        @Test
         @DisplayName("is found at /sitemap.xml when robots.txt does not say where it is")
         void defaultSitemapLocation() {
             Fixtures fixtures = new Fixtures()

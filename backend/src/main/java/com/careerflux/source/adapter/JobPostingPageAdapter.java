@@ -164,7 +164,9 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
     @Override
     public List<RawJobPosting> fetchJobs(SourceConfiguration configuration) {
         String listingUrl = endpointFor(configuration);
-        String listingHtml = getPage(configuration, listingUrl).html();
+        // A source registered at a sitemap is read under the sitemap ceiling.
+        String listingHtml = (isXml(listingUrl) ? getSitemap(configuration, listingUrl)
+                : getPage(configuration, listingUrl)).html();
         JobPostingJsonLd.Result listed = JobPostingJsonLd.parse(listingHtml);
 
         // What the listing claims, in the order it claims it.
@@ -175,7 +177,7 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
                 lapsed++;
                 continue;
             }
-            map(node, configuration, listingUrl, null)
+            map(node, configuration, listingUrl, null, false)
                     .ifPresent(posting -> claimed.putIfAbsent(posting.externalId(), posting));
         }
 
@@ -230,7 +232,7 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
                 // page declares exactly one posting and says nothing of its own:
                 // two postings sharing one fallback would collapse into one.
                 String fallbackId = declared.size() == 1 && !hasIdentity(node) ? url : null;
-                map(node, configuration, url, fallbackId)
+                map(node, configuration, url, fallbackId, declared.size() == 1)
                         .ifPresent(posting -> fromOwnPage.putIfAbsent(posting.externalId(), posting));
             }
         }
@@ -283,9 +285,9 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
      * {@code hiringOrganization}: that field is written by whoever wrote the page.
      */
     private java.util.Optional<RawJobPosting> map(JobPostingNode node, SourceConfiguration configuration,
-                                                  String pageUrl, String fallbackId) {
-        return JobPostingMapper.map(node,
-                new JobPostingMapper.PageContext(configuration.sourceName(), pageUrl, fallbackId));
+                                                  String pageUrl, String fallbackId, boolean postingPage) {
+        return JobPostingMapper.map(node, new JobPostingMapper.PageContext(
+                configuration.sourceName(), pageUrl, fallbackId, postingPage));
     }
 
     /** Whether the posting names itself: an identifier, its own url, or the page it is the subject of. */
@@ -353,7 +355,9 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
         if (Sitemap.isIndex(sitemapXml)) {
             List<String> expanded = new ArrayList<>();
             int read = 0;
-            for (String child : locs) {
+            // A site with one sitemap per country lists India among dozens; with
+            // only a few read per run, India's jobs come first.
+            for (String child : Sitemap.childrenInReadingOrder(locs)) {
                 if (read >= MAX_SITEMAP_FILES) {
                     break;
                 }
@@ -362,16 +366,18 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
                 }
                 read++;
                 try {
-                    expanded.addAll(Sitemap.locs(getPage(configuration, child).html()));
+                    expanded.addAll(Sitemap.locs(getSitemap(configuration, child).html()));
                 } catch (AdapterException unreadable) {
-                    log.debug("Sitemap {} unreadable: {}", child, unreadable.getMessage());
+                    // Said where an operator will see it: a child skipped quietly is
+                    // a whole country's jobs missing with nothing to say why.
+                    log.info("Sitemap {} unreadable: {}", child, unreadable.getMessage());
                 }
             }
             locs = expanded;
         }
 
         Set<String> pages = new LinkedHashSet<>();
-        for (String loc : locs) {
+        for (String loc : Sitemap.indiaFirst(locs)) {
             String candidate = resolve(loc, sitemapUrl);
             String candidateHost = candidate == null ? null : BoardHosts.hostOf(candidate);
             if (candidate == null || candidateHost == null || candidate.endsWith(".xml")
@@ -392,6 +398,12 @@ public class JobPostingPageAdapter extends AbstractHttpJobAdapter {
     }
 
 
+
+    private static boolean isXml(String url) {
+        String path = url.toLowerCase(java.util.Locale.ROOT);
+        int query = path.indexOf('?');
+        return (query < 0 ? path : path.substring(0, query)).endsWith(".xml");
+    }
 
     /** True only when the page states an expiry and that expiry is in the past. */
     static boolean hasExpired(String validThrough) {

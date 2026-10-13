@@ -90,6 +90,9 @@ public class AtsBoardProbe {
     /** A canonical-host or trailing-slash hop is normal; a chain is not. */
     private static final int MAX_REDIRECTS = 3;
 
+    /** Child sitemaps of an index tried before giving up on it. */
+    private static final int MAX_CHILD_ATTEMPTS = 3;
+
     /** Returns a page's text, or null for any failure. */
     private final Function<String, String> fetcher;
     private final ObjectMapper objectMapper;
@@ -203,12 +206,21 @@ public class AtsBoardProbe {
             }
             if (Sitemap.isIndex(xml)) {
                 // One child is enough to know whether this site is worth reading;
-                // the adapter reads more of them.
-                String child = Sitemap.locs(xml).stream()
+                // the adapter reads more of them, in the same order. A child too
+                // large for discovery's ceiling is passed over for the next.
+                List<String> children = Sitemap.childrenInReadingOrder(Sitemap.locs(xml)).stream()
                         .filter(loc -> sitemapHost.equals(BoardHosts.hostOf(loc)))
-                        .findFirst().orElse(null);
-                xml = child == null ? null : fetcher.apply(child);
-                if (!Sitemap.isSitemap(xml)) {
+                        .limit(MAX_CHILD_ATTEMPTS)
+                        .toList();
+                xml = null;
+                for (String child : children) {
+                    String childXml = fetcher.apply(child);
+                    if (Sitemap.isSitemap(childXml)) {
+                        xml = childXml;
+                        break;
+                    }
+                }
+                if (xml == null) {
                     continue;
                 }
             }

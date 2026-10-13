@@ -32,6 +32,7 @@ import AdminOps from './pages/admin/AdminOps';
 import AdminInstitutions from './pages/admin/AdminInstitutions';
 import CollegeAdministration from './pages/admin/CollegeAdministration';
 import AdminSources from './pages/admin/AdminSources';
+import AdminAdapters from './pages/admin/AdminAdapters';
 import NotFound from './pages/NotFound';
 
 /** Blocks a route until the session is known, then sends you where you belong. */
@@ -269,6 +270,14 @@ export default function App() {
                   element={
                     <RequireAdmin>
                       <AdminSources />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="admin/adapters"
+                  element={
+                    <RequireAdmin>
+                      <AdminAdapters />
                     </RequireAdmin>
                   }
                 />

@@ -27,4 +27,7 @@ public interface JobObservationRepository extends JpaRepository<JobObservation, 
     long countByJobIdAndActiveTrue(UUID jobId);
 
     long countBySourceId(UUID sourceId);
+
+    /** Postings this source still lists: what was withdrawn or vanished is not counted. */
+    long countBySourceIdAndActiveTrue(UUID sourceId);
 }

@@ -431,3 +431,44 @@
   color: var(--text-secondary);
   text-align: right;
 }
+
+/* ------------------------------------------------------- Admin adapters */
+
+.adapter-form__paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .adapter-form__paths {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.adapter-preview {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.adapter-preview__message {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.adapter-preview__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.adapter-builtins {
+  margin-top: var(--space-6);
+}

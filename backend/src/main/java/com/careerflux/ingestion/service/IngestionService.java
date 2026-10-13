@@ -368,6 +368,9 @@ public class IngestionService {
                 // case where a difference means the employer actually edited something.
                 List<com.careerflux.job.domain.JobChange> changes =
                         changeDetector.detect(job, normalized, resolution.observation());
+                // A link the record lacks is a gap, not an edit: the source may only
+                // now be able to say where to apply. Never replaces a known link.
+                fillApplyUrl(job, normalized);
                 if (!changes.isEmpty()) {
                     // Counted in addition to the duplicate above, never instead of it.
                     outcome = PostingOutcome.UPDATED;
@@ -484,13 +487,18 @@ public class IngestionService {
         if (job.getSeniority() == com.careerflux.common.taxonomy.Seniority.UNSPECIFIED) {
             job.setSeniority(normalized.seniority());
         }
+        fillApplyUrl(job, normalized);
+        if (job.getPostedAt() == null) {
+            job.setPostedAt(normalized.postedAt());
+        }
+    }
+
+    /** Sets where to apply when the record has nowhere; a known link is never replaced. */
+    private void fillApplyUrl(Job job, NormalizedJob normalized) {
         if (!TextUtils.hasText(job.getApplyUrl()) && TextUtils.hasText(normalized.applyUrl())) {
             job.setApplyUrl(ApplyUrl.sanitize(normalized.applyUrl()));
             String key = deduplicator.normalizeUrl(normalized.applyUrl());
             job.setApplyUrlKey(key.isEmpty() ? null : key);
-        }
-        if (job.getPostedAt() == null) {
-            job.setPostedAt(normalized.postedAt());
         }
     }
 

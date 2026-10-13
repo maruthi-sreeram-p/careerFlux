@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, queryString, tokenStore } from './api';
 import { exportFileName } from './privacy';
 import type {
+  AdapterDefinition,
   AcademicRecord,
   AdapterInfo,
   CandidateProfile,
@@ -340,6 +341,45 @@ export function useSystemStats() {
     queryKey: keys.systemStats,
     queryFn: ({ signal }) => api.get<SystemStats>('/api/admin/ops/stats', signal),
     refetchInterval: 30_000,
+  });
+}
+
+/** Adapters an admin defined as data. Platform operators only. */
+export function useAdapterDefinitions() {
+  return useQuery({
+    queryKey: ['admin', 'adapters'],
+    queryFn: ({ signal }) => api.get<AdapterDefinition[]>('/api/admin/adapters', signal),
+  });
+}
+
+/**
+ * Creates (no key), updates (key and body) or switches a definition on or off
+ * (key and toggle). The adapter list every source dialog reads is refreshed
+ * too, since a saved definition is an adapter sources can be registered with.
+ */
+export function useSaveAdapterDefinition() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      key,
+      body,
+      toggle,
+    }: {
+      key: string | null;
+      body?: unknown;
+      toggle?: 'enable' | 'disable';
+    }) => {
+      if (key && toggle) {
+        return api.post<AdapterDefinition>(`/api/admin/adapters/${encodeURIComponent(key)}/${toggle}`);
+      }
+      return key
+        ? api.put<AdapterDefinition>(`/api/admin/adapters/${encodeURIComponent(key)}`, body)
+        : api.post<AdapterDefinition>('/api/admin/adapters', body);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'adapters'] });
+      queryClient.invalidateQueries({ queryKey: keys.adapters });
+    },
   });
 }
 

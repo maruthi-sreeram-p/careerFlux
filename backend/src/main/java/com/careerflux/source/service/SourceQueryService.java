@@ -144,7 +144,7 @@ public class SourceQueryService {
         healthCounts.forEach((status, count) -> byHealth.put(status.name(), count));
 
         long jobsFromActive = sourceRepository.findByState(SourceState.ACTIVE).stream()
-                .mapToLong(source -> observationRepository.countBySourceId(source.getId()))
+                .mapToLong(source -> observationRepository.countBySourceIdAndActiveTrue(source.getId()))
                 .sum();
 
         return new SourceStats(
@@ -192,7 +192,7 @@ public class SourceQueryService {
                 source.getConsecutiveFailures(),
                 source.reliabilityPercent(),
                 source.getJobsIngestedTotal(),
-                observationRepository.countBySourceId(source.getId()),
+                observationRepository.countBySourceIdAndActiveTrue(source.getId()),
                 source.getRateLimitPerMinute(),
                 source.getSourceType() == SourceType.LOCAL_FIXTURE,
                 source.getState().needsAttention(),

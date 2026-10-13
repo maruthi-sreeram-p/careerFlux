@@ -482,6 +482,59 @@ class JobPostingMapperTest {
             assertThat(mapped(posting("\"url\":\"" + PAGE_URL + "\""),
                     new JobPostingMapper.PageContext(COMPANY, null, "Ab3dE5fG7h")).applyUrl()).isNull();
         }
+
+        /** An employer's own job page, fetched for this posting and declaring only it. */
+        private static final String OWN_JOB_PAGE = "https://careers.nimbusdevops.co.in/jobs/4821/platform-engineer";
+
+        @Test
+        @DisplayName("markup with no url: the posting's own page is where a student applies")
+        void postingPageWithoutUrl() {
+            // Accenture's and Meta's job pages state no url. Without this every
+            // posting they publish was readable and had no way to apply.
+            RawJobPosting posting = mapped(posting(""),
+                    new JobPostingMapper.PageContext(COMPANY, OWN_JOB_PAGE, OWN_JOB_PAGE, true));
+
+            assertThat(posting.applyUrl()).isEqualTo(OWN_JOB_PAGE);
+            assertThat(posting.sourceUrl()).isEqualTo(OWN_JOB_PAGE);
+        }
+
+        @Test
+        @DisplayName("a url the page states still outranks the page itself")
+        void statedUrlOutranksThePage() {
+            String apply = "https://nimbusdevops.applytojob.com/apply/Ab3dE5fG7h/Platform-Engineer";
+
+            RawJobPosting posting = mapped(posting("\"url\":\"" + apply + "\""),
+                    new JobPostingMapper.PageContext(COMPANY, OWN_JOB_PAGE, OWN_JOB_PAGE, true));
+
+            assertThat(posting.applyUrl()).isEqualTo(apply);
+        }
+
+        @Test
+        @DisplayName("a listing page is every job's page, never one job's destination")
+        void listingPageIsNotADestination() {
+            RawJobPosting posting = mapped(posting(""),
+                    new JobPostingMapper.PageContext(COMPANY, "https://nimbusdevops.co.in/careers", "Ab3dE5fG7h"));
+
+            assertThat(posting.applyUrl()).isNull();
+            assertThat(posting.sourceUrl()).isNull();
+        }
+
+        @Test
+        @DisplayName("a refused url falls back to the posting's own page, never to the refused host")
+        void refusedUrlFallsBackToThePage() {
+            RawJobPosting posting = mapped(posting("\"url\":\"https://jobs-aggregator.net/apply/1\""),
+                    new JobPostingMapper.PageContext(COMPANY, OWN_JOB_PAGE, OWN_JOB_PAGE, true));
+
+            assertThat(posting.applyUrl()).isEqualTo(OWN_JOB_PAGE);
+        }
+
+        @Test
+        @DisplayName("a posting page that is not a usable web address is no destination")
+        void unusablePostingPage() {
+            assertThat(mapped(posting(""),
+                    new JobPostingMapper.PageContext(COMPANY, "https://localhost/jobs/1", "Ab3dE5fG7h", true))
+                    .applyUrl()).isNull();
+        }
     }
 
     @Nested
