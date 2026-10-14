@@ -88,7 +88,7 @@ export function AddCompanyDialog({ open, onClose }: { open: boolean; onClose: ()
       setSelection({});
       toast.show(discoverySummary(outcome), 'success');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Those domains could not be probed.');
+      setError(caught instanceof Error ? caught.message : 'Those websites could not be checked.');
     }
   };
 
@@ -113,7 +113,7 @@ export function AddCompanyDialog({ open, onClose }: { open: boolean; onClose: ()
               onClick={runDiscover}
               disabled={!canConfirm(selection) || discover.isPending}
             >
-              {discover.isPending ? 'Probing…' : 'Confirm and probe'}
+              {discover.isPending ? 'Checking…' : 'Confirm and check'}
             </Button>
           )}
           {finished && (

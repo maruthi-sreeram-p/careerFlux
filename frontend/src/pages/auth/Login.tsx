@@ -33,7 +33,7 @@ export default function Login() {
       setError(
         caught instanceof ApiError
           ? caught.message
-          : 'CareerFlux could not reach the server. Check that the API is running.',
+          : 'CareerFlux could not reach the server. Please check that the service is running and try again.',
       );
     } finally {
       setSubmitting(false);

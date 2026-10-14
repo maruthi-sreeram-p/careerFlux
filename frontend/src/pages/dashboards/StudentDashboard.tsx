@@ -249,7 +249,7 @@ export default function StudentDashboard() {
               title="Nothing above your match threshold yet"
               body={
                 summary.notice ??
-                'CareerFlux only shows roles that clear 70%. Add more skills and target roles, or wait for the next ingestion run.'
+                'CareerFlux only shows roles that clear 70%. Add more skills and target roles, or check back after new jobs are added.'
               }
               action={
                 <div className="row gap-2">
@@ -283,8 +283,8 @@ export default function StudentDashboard() {
         >
           {recentActivity.length === 0 ? (
             <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>
-              No job changes detected yet. Change detection compares each observation against the
-              last one, so this fills up as sources are re-synced.
+              No job changes have been noticed yet. CareerFlux compares each job with how it looked
+              earlier, so this list fills up as sources are refreshed.
             </p>
           ) : (
             <ul className="timeline">
@@ -296,7 +296,7 @@ export default function StudentDashboard() {
         </Panel>
 
         <div className="grid" style={{ gap: 'var(--space-4)', alignContent: 'start' }}>
-          <Panel title="Your pipeline">
+          <Panel title="Your applications">
             <div className="grid" style={{ gap: 'var(--space-3)' }}>
               {[
                 { label: 'Saved', value: engagement.saved, to: '/app/saved' },
@@ -345,8 +345,8 @@ export default function StudentDashboard() {
             </div>
             {!summary.aiEnabled && (
               <p className="text-faint" style={{ fontSize: 'var(--text-2xs)', marginTop: 'var(--space-3)' }}>
-                Without an API key, resumes are read by a simpler parser and match explanations are
-                written from the score rather than by a model. Everything else works the same.
+                AI assistance is switched off, so resumes are read with a simpler method and match
+                explanations are written from the score alone. Everything else works the same.
               </p>
             )}
           </Panel>

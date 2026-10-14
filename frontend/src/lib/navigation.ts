@@ -204,7 +204,7 @@ function placementCoordinatorNav(): NavGroup[] {
 
 function platformNav(): NavGroup[] {
   return [
-    { items: [{ to: '/app', label: 'Operations', icon: 'Terminal', end: true }] },
+    { items: [{ to: '/app', label: 'Overview', icon: 'Terminal', end: true }] },
     {
       // Onboarding a college is the first thing a new deployment does, and
       // until it happens nobody else can sign in at all. Its own group rather
@@ -213,11 +213,11 @@ function platformNav(): NavGroup[] {
       items: [{ to: '/app/admin/institutions', label: 'Institutions', icon: 'Building' }],
     },
     {
-      label: 'Intelligence',
+      label: 'Job sources',
       items: [
-        { to: '/app/admin/sources', label: 'Source registry', icon: 'Sliders' },
-        { to: '/app/admin/adapters', label: 'Adapters', icon: 'Layers' },
-        { to: '/app/sources', label: 'Sources', icon: 'Radar' },
+        { to: '/app/admin/sources', label: 'Source list', icon: 'Sliders' },
+        { to: '/app/admin/adapters', label: 'Source types', icon: 'Layers' },
+        { to: '/app/sources', label: 'Job sources', icon: 'Radar' },
       ],
     },
     {

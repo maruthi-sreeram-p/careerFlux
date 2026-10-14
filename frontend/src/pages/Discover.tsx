@@ -360,7 +360,7 @@ export default function Discover() {
                 body={
                   activeFilterCount > 0 || debounced
                     ? 'Try widening the filters, or clear them to see everything CareerFlux has collected.'
-                    : 'No jobs have been ingested yet. An administrator needs to activate a source before anything appears here.'
+                    : 'No jobs have been added yet. An administrator needs to activate a source before anything appears here.'
                 }
                 action={
                   activeFilterCount > 0 ? (

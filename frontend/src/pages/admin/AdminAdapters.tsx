@@ -126,13 +126,13 @@ function DefinitionDialog({
           toast.show(
             editing
               ? `${saved.displayName} saved.`
-              : `${saved.displayName} saved as ${saved.adapterKey}. Register a source with it next.`,
+              : `${saved.displayName} saved as ${saved.adapterKey}. Add a source using it next.`,
             'success',
           );
           onClose();
         },
         onError: (caught) =>
-          setError(caught instanceof ApiError ? caught.message : 'The adapter could not be saved.'),
+          setError(caught instanceof ApiError ? caught.message : 'The source type could not be saved.'),
       },
     );
   };
@@ -141,7 +141,7 @@ function DefinitionDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={editing ? `Edit ${editing.displayName}` : 'Define an adapter'}
+      title={editing ? `Edit ${editing.displayName}` : 'Add a source type'}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -189,8 +189,8 @@ function DefinitionDialog({
         )}
 
         <Field
-          label="Endpoint"
-          hint="An https address returning JSON. Put {token} where each source's identifier goes, e.g. https://api.acme.example/boards/{token}/jobs."
+          label="Feed address"
+          hint="A secure (https) address that returns job data. Put {token} where each source's identifier goes, e.g. https://api.acme.example/boards/{token}/jobs."
         >
           {({ id }) => (
             <TextInput
@@ -240,8 +240,8 @@ function DefinitionDialog({
         {preview && <PreviewResult preview={preview} />}
 
         <p className="text-faint" style={{ fontSize: 'var(--text-xs)' }}>
-          Try it makes one request, only if the endpoint's robots.txt permits it. Saving activates
-          nothing: a source using this adapter is still classified, checked against robots.txt and
+          Try it makes one request, only if the website permits it. Saving activates
+          nothing: a source using this adapter is still classified, checked for website permission and
           reviewed for terms before it syncs.
         </p>
       </div>
@@ -336,12 +336,12 @@ export default function AdminAdapters() {
   return (
     <div className="page page--wide">
       <PageHeader
-        title="Adapters"
-        subtitle="Teach CareerFlux to read a public JSON job feed without a code change. Sources registered with an adapter still pass every policy check."
+        title="Source types"
+        subtitle="Teach CareerFlux to read a public job listing feed without changing the software. Sources added with a source type still pass every permission check."
         actions={
           <Button variant="primary" size="sm" onClick={() => setDialog({ editing: null })}>
             <Icon.Plus size={14} />
-            Define adapter
+            Add source type
           </Button>
         }
       />
@@ -354,15 +354,15 @@ export default function AdminAdapters() {
         )}
         {definitions.isError && (
           <ErrorState
-            title="The adapters could not be loaded"
+            title="The source types could not be loaded"
             body={(definitions.error as Error).message}
             onRetry={() => definitions.refetch()}
           />
         )}
         {definitions.data?.length === 0 && (
           <EmptyState
-            title="No adapters defined yet"
-            body="Define one for any employer or board that publishes its jobs as JSON."
+            title="No source types added yet"
+            body="Add one for any employer or job board that publishes its jobs as a public listing feed."
           />
         )}
         {definitions.data?.map((definition) => (

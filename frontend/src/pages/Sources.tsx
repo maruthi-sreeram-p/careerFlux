@@ -42,19 +42,19 @@ export default function Sources() {
   return (
     <div className="page page--wide">
       <PageHeader
-        title="Source intelligence"
+        title="Job sources"
         subtitle="Every place CareerFlux collects jobs from, what it is permitted to read there, and whether that source is currently working."
         actions={
           stats.data && (
             <div className="row gap-2">
-              <Tooltip label="The transport carrying pipeline events">
+              <Tooltip label="How background updates are delivered">
                 <Badge square>{stats.data.ingestionTransport}</Badge>
               </Tooltip>
               <Tooltip
                 label={
                   stats.data.aiEnabled
-                    ? 'A language model is configured for enrichment and explanations'
-                    : 'No model configured — deterministic paths only'
+                    ? 'AI assistance is switched on for profile reading and match explanations'
+                    : 'AI assistance is switched off; standard rules are used'
                 }
               >
                 <Badge tone={stats.data.aiEnabled ? 'accent' : 'neutral'} square dot>
@@ -151,7 +151,7 @@ export default function Sources() {
 
           {sources.isError && (
             <ErrorState
-              title="The registry could not be loaded"
+              title="The source list could not be loaded"
               body={(sources.error as Error).message}
               onRetry={() => sources.refetch()}
             />
@@ -163,7 +163,7 @@ export default function Sources() {
               title={selected.length > 0 ? 'No sources in those states' : 'No sources registered yet'}
               body={
                 selected.length > 0
-                  ? 'Clear the state filter to see the whole registry.'
+                  ? 'Clear the status filter to see every source.'
                   : 'An administrator registers a source, CareerFlux classifies it, and it only becomes active once the access policy is satisfied.'
               }
             />
@@ -175,11 +175,11 @@ export default function Sources() {
 
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Adapters in this build</h2>
+          <h2 className="section__title">Supported source types</h2>
         </div>
         <p className="page-subtitle" style={{ marginBottom: 'var(--space-4)' }}>
-          A source can only be activated if one of these knows how to read it. Each targets a
-          documented public endpoint that its provider publishes for exactly this purpose.
+          A source can only be activated if one of these knows how to read it. Each uses an
+          official public listing that its provider publishes for this purpose.
         </p>
 
         <div className="mkt-grid">

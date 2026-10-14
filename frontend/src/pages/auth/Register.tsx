@@ -46,7 +46,7 @@ export default function Register() {
           Object.fromEntries(caught.violations.map((v) => [v.field, v.message])),
         );
       } else {
-        setError('CareerFlux could not reach the server. Check that the API is running.');
+        setError('CareerFlux could not reach the server. Please check that the service is running and try again.');
       }
     } finally {
       setSubmitting(false);

@@ -100,16 +100,16 @@ function ProvenanceCard({ entry }: { entry: ProvenanceEntry }) {
       <div className="provenance__grid">
         <DataItem label="Source type" value={titleize(entry.sourceType)} />
         {entry.atsProvider !== 'NONE' && entry.atsProvider !== 'UNKNOWN' && (
-          <DataItem label="ATS provider" value={titleize(entry.atsProvider)} />
+          <DataItem label="Hiring platform" value={titleize(entry.atsProvider)} />
         )}
         <DataItem label="How we found it" value={titleize(entry.discoveryMethod)} />
         <DataItem label="Access policy" value={titleize(entry.accessPolicy ?? 'Not determined')} />
         <DataItem
-          label="First observed"
+          label="First seen"
           value={formatDateTime(entry.firstObservedAt)}
           mono
         />
-        <DataItem label="Last observed" value={formatDateTime(entry.lastObservedAt)} mono />
+        <DataItem label="Last seen" value={formatDateTime(entry.lastObservedAt)} mono />
         <DataItem label="Times seen" value={entry.observationCount} mono />
         <DataItem
           label="Policy verified"

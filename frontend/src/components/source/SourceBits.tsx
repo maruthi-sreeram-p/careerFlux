@@ -63,7 +63,7 @@ export function HealthBadge({
   // UNKNOWN means nobody has looked yet. It must never read as "fine".
   if (health === 'UNKNOWN') {
     return (
-      <Tooltip label="No health probe has run against this source yet">
+      <Tooltip label="No status check has been run on this source yet">
         <Badge square>NOT CHECKED</Badge>
       </Tooltip>
     );
@@ -142,7 +142,7 @@ export function HealthSparkline({ checks }: { checks: HealthCheckView[] }) {
   if (checks.length === 0) {
     return (
       <p className="text-faint" style={{ fontSize: 'var(--text-xs)' }}>
-        No probes recorded yet.
+        No status checks recorded yet.
       </p>
     );
   }
@@ -153,7 +153,7 @@ export function HealthSparkline({ checks }: { checks: HealthCheckView[] }) {
     <div
       className="sparkline"
       role="img"
-      aria-label={`${checks.length} recent health probes, most recent ${checks[0].status.toLowerCase()}`}
+      aria-label={`${checks.length} recent status checks, most recent ${checks[0].status.toLowerCase()}`}
     >
       {ordered.map((check, index) => (
         <Tooltip

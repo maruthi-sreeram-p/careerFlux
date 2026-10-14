@@ -39,7 +39,7 @@ export default function Saved() {
   return (
     <div className="page">
       <PageHeader
-        title="Your pipeline"
+        title="Your applications"
         subtitle="Roles you kept, and the ones you told CareerFlux you applied to."
       />
 

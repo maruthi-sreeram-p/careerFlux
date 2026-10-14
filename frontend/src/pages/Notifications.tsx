@@ -135,7 +135,7 @@ export default function Notifications() {
           <EmptyState
             icon={<Icon.Bell size={20} />}
             title="No alerts yet"
-            body="Alerts are created when a newly ingested job clears your match threshold. Existing jobs you were matched against during setup do not generate alerts, because that would be fifty notifications on your first day."
+            body="Alerts are created when a newly added job clears your match threshold. Existing jobs you were matched against during setup do not generate alerts, because that would be fifty notifications on your first day."
           />
         </Panel>
       )}

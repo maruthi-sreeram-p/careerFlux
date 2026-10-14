@@ -182,8 +182,8 @@ function ProfileTab({ profile }: { profile: CandidateProfile }) {
         action={<Badge>{pluralize(skills.length, 'skill')}</Badge>}
       >
         <p className="text-muted" style={{ fontSize: 'var(--text-sm)', marginBottom: 'var(--space-3)' }}>
-          These carry 40% of every match score. Matched against the same canonical dictionary the
-          job descriptions are resolved through, so spelling variants do not cost you anything.
+          These carry 40% of every match score. Your skills are compared with the same standard skill list used for job
+          descriptions, so different spellings of a skill are treated as the same.
         </p>
         <TokenInput values={skills} onChange={setSkills} maxValues={40} label="Skills" />
       </Panel>

@@ -124,7 +124,7 @@ function RegisterDialog({ open, onClose }: { open: boolean; onClose: () => void 
         </Field>
 
         <Field
-          label="Adapter"
+          label="Source type"
           hint="Leave blank to let classification pick one from the URL."
         >
           {({ id }) => (
@@ -141,7 +141,7 @@ function RegisterDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
         <Field
           label="External identifier"
-          hint="The board token or company slug the adapter needs, e.g. the Greenhouse board name. Filled in from a recognised board URL when left blank."
+          hint="The board name or company identifier this source type needs, e.g. the Greenhouse board name. Filled in from a recognised board URL when left blank."
         >
           {({ id }) => (
             <TextInput
@@ -220,7 +220,7 @@ function ActionRow({ source }: { source: SourceSummary }) {
           {source.adapterKey ? (
             <Badge square>{source.adapterKey}</Badge>
           ) : (
-            <Badge tone="caution">No adapter</Badge>
+            <Badge tone="caution">No source type</Badge>
           )}
           <span className="text-faint" style={{ fontSize: 'var(--text-2xs)' }}>
             {source.lastSuccessfulSyncAt
@@ -235,8 +235,8 @@ function ActionRow({ source }: { source: SourceSummary }) {
             Classify
           </Button>
         )}
-        <Button size="sm" onClick={() => run('check-robots', 'robots.txt evaluated')}>
-          Check robots
+        <Button size="sm" onClick={() => run('check-robots', 'Website permissions checked')}>
+          Check permissions
         </Button>
         {(source.state === 'CLASSIFIED' || source.state === 'POLICY_REVIEW') && (
           <Button
@@ -298,10 +298,10 @@ function ActionRow({ source }: { source: SourceSummary }) {
         )}
         {(source.state === 'ACTIVE' || source.state === 'DEGRADED') && (
           <>
-            <Button size="sm" onClick={() => run('health-check', 'Health probe complete')}>
-              Probe
+            <Button size="sm" onClick={() => run('health-check', 'Status check complete')}>
+              Check status
             </Button>
-            <Button variant="primary" size="sm" onClick={() => run('sync', 'Ingestion run complete')}>
+            <Button variant="primary" size="sm" onClick={() => run('sync', 'Collection run complete')}>
               Sync now
             </Button>
           </>
@@ -319,7 +319,7 @@ export default function AdminSources() {
   return (
     <div className="page page--wide">
       <PageHeader
-        title="Source registry"
+        title="Source list"
         subtitle="Register, classify and review sources. Every action here is recorded against your account in the audit log."
         actions={
           <div className="row gap-2">
@@ -347,7 +347,7 @@ export default function AdminSources() {
 
         {sources.isError && (
           <ErrorState
-            title="The registry could not be loaded"
+            title="The source list could not be loaded"
             body={(sources.error as Error).message}
             onRetry={() => sources.refetch()}
           />

@@ -89,9 +89,9 @@ export default function Landing() {
           </Link>
           <div className="marketing-nav__links">
             <a href="#how">How it works</a>
-            <a href="#sources">Source intelligence</a>
+            <a href="#sources">Trusted sources</a>
             <a href="#matching">Explainable matching</a>
-            <a href="#trust">Provenance</a>
+            <a href="#trust">Job history</a>
           </div>
           <div className="row gap-2">
             <Link to="/login" className="btn btn--ghost btn--sm">
@@ -141,37 +141,37 @@ export default function Landing() {
       <Section
         id="how"
         eyebrow="The product"
-        title="Three intelligence layers, working on the same problem"
-        lead="Everything CareerFlux does sits in one of three layers. Each answers a question a job board never asks."
+        title="Three areas of support, working on the same goal"
+        lead="Everything CareerFlux does falls into one of three areas. Each answers a question that an ordinary job board does not."
       >
         <div className="mkt-grid">
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Radar size={16} />
             </span>
-            <h3 className="mkt-card__title">Source intelligence</h3>
+            <h3 className="mkt-card__title">Trusted sources</h3>
             <p className="mkt-card__body">
-              Where should we look for this career? Can we legitimately access it? Is the endpoint
-              healthy, and when did we last confirm any of that? Every source carries a policy
-              record and a lifecycle you can read.
+              Where should we look for this career? Are we permitted to read it? Is the source
+              working properly, and when did we last confirm that? Every source has a written
+              access policy and a clear record of its approval stages.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Layers size={16} />
             </span>
-            <h3 className="mkt-card__title">Job intelligence</h3>
+            <h3 className="mkt-card__title">Job insights</h3>
             <p className="mkt-card__body">
               What is this role really asking for? Have we seen it before under a different title?
-              Did the requirements change since yesterday? One canonical job, however many places
-              list it.
+              Did the requirements change since yesterday? Each job appears once, however many
+              places advertise it.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Sparkle size={16} />
             </span>
-            <h3 className="mkt-card__title">Candidate intelligence</h3>
+            <h3 className="mkt-card__title">Personal guidance</h3>
             <p className="mkt-card__body">
               Who are you, what are you aiming at, and which of these roles genuinely fit? Scored
               across five dimensions, with the reasoning attached to every number.
@@ -183,42 +183,42 @@ export default function Landing() {
       {/* ----------------------------------------------------- Source intelligence */}
       <Section
         id="sources"
-        eyebrow="The differentiator"
+        eyebrow="What sets us apart"
         title="We show you where the jobs came from, and whether we should have been there"
-        lead="Most aggregators will not tell you where a listing came from, because the answer is often embarrassing. CareerFlux treats source access as a first-class, auditable decision."
+        lead="Most aggregators will not tell you where a listing came from, because the answer is often embarrassing. CareerFlux treats permission to read a source as a deliberate decision that is recorded and can be reviewed."
       >
         <div className="mkt-grid">
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Shield size={16} />
             </span>
-            <h3 className="mkt-card__title">A policy gate nothing bypasses</h3>
+            <h3 className="mkt-card__title">A permission check that is never skipped</h3>
             <p className="mkt-card__body">
-              A source cannot become active until robots.txt permits the exact path, a named person
-              has reviewed the terms, and no access control would have to be worked around. Login
-              walls, CAPTCHAs and anti-bot protection are permanent disqualifiers, not obstacles.
+              A source cannot be used until its website permits automated reading of the page, a named
+              person has reviewed its terms, and no restriction would have to be worked around.
+              Sign-in pages, CAPTCHAs and bot protection permanently rule a source out.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Flow size={16} />
             </span>
-            <h3 className="mkt-card__title">A lifecycle you can audit</h3>
+            <h3 className="mkt-card__title">An approval process you can review</h3>
             <p className="mkt-card__body">
-              Discovered, classified, policy review, approved, active, health monitored. Every
-              transition is recorded with its reason and its actor, so the question "why are we
-              reading this?" always has an answer with a timestamp on it.
+              Discovered, classified, policy review, approved, active and monitored. Every change of
+              stage is recorded with its reason and the person responsible, so the question "why
+              are we reading this source?" always has a dated answer.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Pulse size={16} />
             </span>
-            <h3 className="mkt-card__title">Health that is measured, not assumed</h3>
+            <h3 className="mkt-card__title">Reliability that is checked, not assumed</h3>
             <p className="mkt-card__body">
-              Sources are probed on a schedule. Sustained failure degrades a source and eventually
-              pulls it out of service, because quietly serving stale jobs from a broken feed is
-              worse than serving none.
+              Sources are checked regularly. If a source keeps failing, it is marked as unreliable and
+              eventually withdrawn, because showing outdated jobs from a faulty source is worse
+              than showing none.
             </p>
           </article>
         </div>
@@ -288,9 +288,9 @@ export default function Landing() {
       {/* -------------------------------------------------------------- Trust */}
       <Section
         id="trust"
-        eyebrow="Provenance and change detection"
-        title="Every job knows where it came from, and what it used to say"
-        lead="A duplicate is never deleted. When two sources list the same opening, both sightings survive as observations of one canonical job — so you can see how widely a role is being advertised, and when it moved."
+        eyebrow="Job history and changes"
+        title="Every job shows where it came from and what it used to say"
+        lead="A duplicate listing is never deleted. When two sources advertise the same opening, both are kept as records of a single job, so you can see how widely a role is advertised and when it changed."
       >
         <div className="mkt-grid">
           <article className="mkt-card">
@@ -300,27 +300,27 @@ export default function Landing() {
             <h3 className="mkt-card__title">First seen, last seen</h3>
             <p className="mkt-card__body">
               Not "posted 2 days ago" copied from somewhere. The dates CareerFlux shows are when it
-              observed the posting itself, per source.
+              saw the posting itself, for each source.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Pulse size={16} />
             </span>
-            <h3 className="mkt-card__title">Change detection</h3>
+            <h3 className="mkt-card__title">Change tracking</h3>
             <p className="mkt-card__body">
-              A Spring Boot requirement added. The location moved. The salary band updated. The job
-              closed and reopened. All of it recorded and shown on the role.
+              A new required skill added. The location moved. The salary band updated. The job
+              closed and reopened. Every change is recorded and shown on the role.
             </p>
           </article>
           <article className="mkt-card">
             <span className="mkt-card__icon">
               <Icon.Layers size={16} />
             </span>
-            <h3 className="mkt-card__title">Multi-source deduplication</h3>
+            <h3 className="mkt-card__title">Duplicate listings combined</h3>
             <p className="mkt-card__body">
-              Matched on requisition id, application URL, canonical key and description similarity —
-              not on whether two titles happen to be spelled the same way.
+              Matched using the job reference number, application link and description similarity,
+              not just on whether two titles are spelled the same way.
             </p>
           </article>
         </div>
@@ -332,11 +332,11 @@ export default function Landing() {
           </div>
           <div>
             <p className="mkt-number__value">9</p>
-            <p className="mkt-number__label">lifecycle states a source moves through</p>
+            <p className="mkt-number__label">approval stages a source moves through</p>
           </div>
           <div>
             <p className="mkt-number__value">0</p>
-            <p className="mkt-number__label">access controls bypassed, by design</p>
+            <p className="mkt-number__label">restrictions bypassed, by design</p>
           </div>
           <div>
             <p className="mkt-number__value">70%</p>
@@ -354,8 +354,8 @@ export default function Landing() {
             </Badge>
             <h2 className="cta__title">Start with your resume. CareerFlux does the looking.</h2>
             <p className="mkt-section__lead" style={{ maxWidth: '54ch', marginTop: 0 }}>
-              Upload it once, correct anything the parser got wrong, tell us the roles you are
-              aiming at, and let the pipeline run.
+              Upload it once, correct anything we read wrongly, tell us the roles you are
+              aiming at, and let CareerFlux do the searching.
             </p>
             <Link to="/register" className="btn btn--primary btn--lg">
               Create your profile

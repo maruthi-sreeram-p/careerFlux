@@ -114,7 +114,7 @@ function PolicyPanel({ policy }: { policy: PolicyView }) {
         }
         detail={
           policy.requiresCaptcha
-            ? 'A CAPTCHA guards this endpoint. Bypassing it is never acceptable.'
+            ? 'A CAPTCHA protects this source. Bypassing it is never acceptable.'
             : policy.hasAntiBot
               ? 'The site signals that automated access is unwanted.'
               : undefined
@@ -138,8 +138,8 @@ function PolicyPanel({ policy }: { policy: PolicyView }) {
       {policy.crawlDelaySeconds ? (
         <PolicyCheck
           status="warn"
-          label={`Crawl delay of ${policy.crawlDelaySeconds}s declared`}
-          detail="CareerFlux paces its requests to respect this, overriding its own rate limit if that is slower."
+          label={`Required wait between requests: ${policy.crawlDelaySeconds}s declared`}
+          detail="CareerFlux spaces out its requests to respect this wait time."
         />
       ) : null}
     </div>
@@ -203,7 +203,7 @@ export default function SourceDetail() {
         </div>
       </div>
 
-      <Panel title="Lifecycle" tight>
+      <Panel title="Approval stages" tight>
         <LifecycleRail state={summary.state} />
         <p className="text-muted" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--space-3)' }}>
           Currently {titleize(summary.state)} since {formatDateTime(summary.stateChangedAt)}.
@@ -218,8 +218,8 @@ export default function SourceDetail() {
           <Panel title="Identity">
             <div className="data-list data-list--cols">
               <DataItem label="Source type" value={titleize(summary.sourceType)} />
-              <DataItem label="ATS provider" value={titleize(summary.atsProvider)} />
-              <DataItem label="Adapter" value={summary.adapterKey ?? 'None assigned'} mono />
+              <DataItem label="Hiring platform" value={titleize(summary.atsProvider)} />
+              <DataItem label="Source type" value={summary.adapterKey ?? 'None assigned'} mono />
               <DataItem
                 label="Company"
                 value={
@@ -311,13 +311,13 @@ export default function SourceDetail() {
             )}
           </Panel>
 
-          <Panel title="Recent ingestion runs" flush>
+          <Panel title="Recent collection runs" flush>
             {recentRuns.length === 0 ? (
               <p
                 className="text-muted"
                 style={{ fontSize: 'var(--text-sm)', padding: 'var(--space-5)' }}
               >
-                This source has never been synced.
+                This source has not been refreshed yet.
               </p>
             ) : (
               <div className="scroll-x">
@@ -373,7 +373,7 @@ export default function SourceDetail() {
 
         {/* ------------------------------------------------------- Side column */}
         <div className="grid" style={{ gap: 'var(--space-4)', alignContent: 'start' }}>
-          <Panel title="Health">
+          <Panel title="Reliability">
             <HealthSparkline checks={recentHealth} />
             <div className="data-list data-list--cols" style={{ marginTop: 'var(--space-4)' }}>
               <DataItem
@@ -430,7 +430,7 @@ export default function SourceDetail() {
             </Link>
           </Panel>
 
-          <Panel title="Lifecycle history">
+          <Panel title="Approval history">
             <ul className="timeline">
               {lifecycle.map((entry, index) => (
                 <li className="timeline__item" key={`${entry.occurredAt}-${index}`}>

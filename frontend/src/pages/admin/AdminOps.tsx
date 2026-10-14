@@ -68,10 +68,10 @@ export default function AdminOps() {
     <div className="page page--wide">
       <PageHeader
         title="Operations"
-        subtitle="Ingestion, the event pipeline and the state of the corpus. Refreshes every 30 seconds."
+        subtitle="Job collection, background processing and the overall state of the job listings. Refreshes every 30 seconds."
         actions={
           <div className="row gap-2">
-            <Tooltip label="The transport carrying pipeline events">
+            <Tooltip label="How background updates are delivered">
               <Badge square>{data.ingestionTransport}</Badge>
             </Tooltip>
             <Tooltip label={data.aiEnabled ? `Model: ${data.aiModel}` : 'No model configured'}>
@@ -90,27 +90,27 @@ export default function AdminOps() {
           note={`${data.openJobs} open · ${data.closedJobs} closed`}
         />
         <Stat
-          label="Ingested in 24h"
+          label="Jobs added in 24 hours"
           value={data.jobsIngestedLast24h}
           tone="accent"
-          note={`${pluralize(data.ingestionRunsLast24h, 'run')} in the same window`}
+          note={`${pluralize(data.ingestionRunsLast24h, 'collection run')} in the same period`}
         />
         <Stat
-          label="Changes detected in 24h"
+          label="Changes found in 24 hours"
           value={data.jobChangesLast24h}
-          note="Diffs against the previous observation"
+          note="Compared with the previous sighting"
         />
         <Stat
-          label="Failed runs in 24h"
+          label="Failed runs in 24 hours"
           value={data.failedRunsLast24h}
           tone={data.failedRunsLast24h === 0 ? 'positive' : undefined}
-          note={data.failedRunsLast24h === 0 ? 'All runs completed' : 'Check the source health'}
+          note={data.failedRunsLast24h === 0 ? 'All runs completed' : 'Review the source status'}
         />
       </div>
 
       <div className="grid grid--two section">
         <Panel
-          title="Pipeline events, last 24 hours"
+          title="Background activity, last 24 hours"
           action={
             <div className="row gap-2">
               {data.pendingPipelineEvents > 0 && (
@@ -129,7 +129,7 @@ export default function AdminOps() {
         >
           {topics.every(([, count]) => count === 0) ? (
             <p className="text-muted" style={{ fontSize: 'var(--text-sm)' }}>
-              No pipeline events in the last 24 hours. Events are emitted when a source is synced.
+              No background activity in the last 24 hours. Activity is recorded when a source is refreshed.
             </p>
           ) : (
             <div>
@@ -148,12 +148,11 @@ export default function AdminOps() {
             </div>
           )}
           <p className="text-faint" style={{ fontSize: 'var(--text-2xs)', marginTop: 'var(--space-4)' }}>
-            These are the stages of the ingestion pipeline. The same topic names are used whether
-            events travel through the in-process outbox or Kafka.
+            These are the stages of job collection and processing.
           </p>
         </Panel>
 
-        <Panel title="Source registry">
+        <Panel title="Source list">
           <div className="grid" style={{ gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
             {Object.entries(data.sources.byState)
               .filter(([, count]) => count > 0)
@@ -181,7 +180,7 @@ export default function AdminOps() {
       </div>
 
       <div className="grid grid--two section">
-        <Panel title="Health across the registry">
+        <Panel title="Source status overview">
           <div className="grid" style={{ gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
             {Object.entries(data.sources.byHealth).map(([health, count]) => (
               <div className="row between" key={health}>
