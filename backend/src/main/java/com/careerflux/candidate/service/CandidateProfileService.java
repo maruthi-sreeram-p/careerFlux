@@ -71,6 +71,7 @@ public class CandidateProfileService {
     private final SkillResolver skillResolver;
     private final CandidateMapper mapper;
     private final ApplicationEventPublisher events;
+    private final PersonalEmailVerification personalEmailVerification;
 
     public CandidateProfileService(CandidateProfileRepository profileRepository,
                                    CandidateSkillRepository skillRepository,
@@ -78,7 +79,8 @@ public class CandidateProfileService {
                                    ResumeRepository resumeRepository,
                                    SkillResolver skillResolver,
                                    CandidateMapper mapper,
-                                   ApplicationEventPublisher events) {
+                                   ApplicationEventPublisher events,
+                                   PersonalEmailVerification personalEmailVerification) {
         this.profileRepository = profileRepository;
         this.skillRepository = skillRepository;
         this.preferenceValueRepository = preferenceValueRepository;
@@ -86,6 +88,7 @@ public class CandidateProfileService {
         this.skillResolver = skillResolver;
         this.mapper = mapper;
         this.events = events;
+        this.personalEmailVerification = personalEmailVerification;
     }
 
     @Transactional
@@ -140,6 +143,13 @@ public class CandidateProfileService {
         profile.setSummary(trimToNull(request.summary()));
         profile.setLocation(trimToNull(request.location()));
         profile.setPhone(trimToNull(request.phone()));
+        String personalEmail = trimToNull(request.personalEmail());
+        personalEmail = personalEmail == null ? null : personalEmail.toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Objects.equals(personalEmail, profile.getPersonalEmail())) {
+            profile.setPersonalEmail(personalEmail);
+            // A new address starts unconfirmed; the old confirmation says nothing about it.
+            personalEmailVerification.begin(profile);
+        }
         profile.setLinkedinUrl(trimToNull(request.linkedinUrl()));
         profile.setGithubUrl(trimToNull(request.githubUrl()));
         profile.setPortfolioUrl(trimToNull(request.portfolioUrl()));

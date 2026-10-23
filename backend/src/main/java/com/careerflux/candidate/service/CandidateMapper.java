@@ -48,6 +48,8 @@ public class CandidateMapper {
                 profile.getSummary(),
                 profile.getLocation(),
                 profile.getPhone(),
+                profile.getPersonalEmail(),
+                profile.getPersonalEmailVerifiedAt() != null,
                 profile.getLinkedinUrl(),
                 profile.getGithubUrl(),
                 profile.getPortfolioUrl(),

@@ -18,6 +18,8 @@ public interface CandidateProfileRepository extends JpaRepository<CandidateProfi
     @EntityGraph(attributePaths = {"user", "preferences"})
     Optional<CandidateProfile> findByUserId(UUID userId);
 
+    Optional<CandidateProfile> findByPersonalEmailTokenHash(String tokenHash);
+
     /** The identity an account already holds, as plain values, for redacting it out of text. */
     interface KnownIdentityView {
         String getFullName();

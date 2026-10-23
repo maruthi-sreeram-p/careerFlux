@@ -152,6 +152,10 @@ public class ErasureExecutor {
         profile.setSummary(null);
         profile.setLocation(null);
         profile.setPhone(null);
+        profile.setPersonalEmail(null);
+        profile.setPersonalEmailTokenHash(null);
+        profile.setPersonalEmailTokenExpiresAt(null);
+        profile.setPersonalEmailVerifiedAt(null);
         profile.setLinkedinUrl(null);
         profile.setGithubUrl(null);
         profile.setPortfolioUrl(null);

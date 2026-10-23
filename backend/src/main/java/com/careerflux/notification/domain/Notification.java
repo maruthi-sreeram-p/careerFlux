@@ -60,6 +60,9 @@ public class Notification {
     @Column(name = "read_at")
     private Instant readAt;
 
+    @Column(name = "email_sent_at")
+    private Instant emailSentAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -137,6 +140,14 @@ public class Notification {
 
     public void setReadAt(Instant readAt) {
         this.readAt = readAt;
+    }
+
+    public Instant getEmailSentAt() {
+        return emailSentAt;
+    }
+
+    public void setEmailSentAt(Instant emailSentAt) {
+        this.emailSentAt = emailSentAt;
     }
 
     public Instant getCreatedAt() {

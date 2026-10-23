@@ -58,6 +58,21 @@ public class CandidateProfile extends BaseEntity {
     @Column(name = "phone", length = 40)
     private String phone;
 
+    /** Where match alerts are also emailed. Optional; entering it is the opt-in. */
+    @Column(name = "personal_email", length = 254)
+    private String personalEmail;
+
+    /** SHA-256 of the pending confirmation token; the raw token exists only in the email. */
+    @Column(name = "personal_email_token_hash", length = 64)
+    private String personalEmailTokenHash;
+
+    @Column(name = "personal_email_token_expires_at")
+    private java.time.Instant personalEmailTokenExpiresAt;
+
+    /** Set when the owner followed the emailed link. Alerts are sent only when it is set. */
+    @Column(name = "personal_email_verified_at")
+    private java.time.Instant personalEmailVerifiedAt;
+
     @Column(name = "linkedin_url", length = 300)
     private String linkedinUrl;
 
@@ -203,6 +218,38 @@ public class CandidateProfile extends BaseEntity {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getPersonalEmail() {
+        return personalEmail;
+    }
+
+    public void setPersonalEmail(String personalEmail) {
+        this.personalEmail = personalEmail;
+    }
+
+    public String getPersonalEmailTokenHash() {
+        return personalEmailTokenHash;
+    }
+
+    public void setPersonalEmailTokenHash(String personalEmailTokenHash) {
+        this.personalEmailTokenHash = personalEmailTokenHash;
+    }
+
+    public java.time.Instant getPersonalEmailTokenExpiresAt() {
+        return personalEmailTokenExpiresAt;
+    }
+
+    public void setPersonalEmailTokenExpiresAt(java.time.Instant personalEmailTokenExpiresAt) {
+        this.personalEmailTokenExpiresAt = personalEmailTokenExpiresAt;
+    }
+
+    public java.time.Instant getPersonalEmailVerifiedAt() {
+        return personalEmailVerifiedAt;
+    }
+
+    public void setPersonalEmailVerifiedAt(java.time.Instant personalEmailVerifiedAt) {
+        this.personalEmailVerifiedAt = personalEmailVerifiedAt;
     }
 
     public String getLinkedinUrl() {

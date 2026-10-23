@@ -139,6 +139,8 @@ export interface CandidateProfile {
   summary: string | null;
   location: string | null;
   phone: string | null;
+  personalEmail: string | null;
+  personalEmailVerified: boolean;
   linkedinUrl: string | null;
   githubUrl: string | null;
   portfolioUrl: string | null;

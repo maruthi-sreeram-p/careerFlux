@@ -21,7 +21,7 @@ import {
   cn,
   useToast,
 } from '../components/ui/primitives';
-import { ApiError } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { IMMEDIATE_ALERTS_HINT, RESUME_HANDLING, SHOW_DIGEST_PREFERENCE } from '../lib/productCopy';
 import {
   usePendingProposal,
@@ -67,6 +67,7 @@ function ProfileTab({ profile }: { profile: CandidateProfile }) {
   const [summary, setSummary] = useState(profile.summary ?? '');
   const [location, setLocation] = useState(profile.location ?? '');
   const [phone, setPhone] = useState(profile.phone ?? '');
+  const [personalEmail, setPersonalEmail] = useState(profile.personalEmail ?? '');
   const [linkedin, setLinkedin] = useState(profile.linkedinUrl ?? '');
   const [github, setGithub] = useState(profile.githubUrl ?? '');
   const [portfolio, setPortfolio] = useState(profile.portfolioUrl ?? '');
@@ -84,6 +85,7 @@ function ProfileTab({ profile }: { profile: CandidateProfile }) {
         summary: summary || null,
         location: location || null,
         phone: phone || null,
+        personalEmail: personalEmail || null,
         linkedinUrl: linkedin || null,
         githubUrl: github || null,
         portfolioUrl: portfolio || null,
@@ -212,6 +214,39 @@ function ProfileTab({ profile }: { profile: CandidateProfile }) {
               <TextInput id={id} value={phone} onChange={(event) => setPhone(event.target.value)} />
             )}
           </Field>
+          <Field label="Personal email (we send a link to confirm it; clear it to stop alerts)">
+            {({ id }) => (
+              <TextInput
+                id={id}
+                type="email"
+                value={personalEmail}
+                onChange={(event) => setPersonalEmail(event.target.value)}
+              />
+            )}
+          </Field>
+          {profile.personalEmail && personalEmail === profile.personalEmail && (
+            <p className="muted" role="status">
+              {profile.personalEmailVerified ? (
+                'Confirmed. Alerts are emailed here.'
+              ) : (
+                <>
+                  Not confirmed yet, so no alerts are emailed. Check your inbox for the link.{' '}
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() =>
+                      api
+                        .post<void>('/api/candidate/personal-email/resend', {})
+                        .then(() => toast.show('Confirmation email sent.', 'success'))
+                        .catch(() => toast.show('Could not send the email. Try again later.', 'error'))
+                    }
+                  >
+                    Send the link again
+                  </button>
+                </>
+              )}
+            </p>
+          )}
         </div>
       </Panel>
 
