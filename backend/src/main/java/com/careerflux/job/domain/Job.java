@@ -284,6 +284,23 @@ public class Job extends BaseEntity {
         this.maxExperienceYears = maxExperienceYears;
     }
 
+    /**
+     * Whether a fresher can reasonably apply: an internship or entry-level role,
+     * or a junior or unlabelled one that states it wants at most a year of
+     * experience. A posting with no stated experience and no entry-level label
+     * is not assumed to suit a fresher, because a wrong alert costs more trust
+     * than a missed one.
+     */
+    public boolean isFresherSuitable() {
+        if (seniority == Seniority.INTERN || seniority == Seniority.ENTRY) {
+            return minExperienceYears == null || minExperienceYears.compareTo(BigDecimal.ONE) <= 0;
+        }
+        if (seniority == Seniority.JUNIOR || seniority == Seniority.UNSPECIFIED) {
+            return minExperienceYears != null && minExperienceYears.compareTo(BigDecimal.ONE) <= 0;
+        }
+        return false;
+    }
+
     public BigDecimal getSalaryMin() {
         return salaryMin;
     }

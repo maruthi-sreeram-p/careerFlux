@@ -33,9 +33,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <pre>
  *   95-100  immediate alert
  *   85-94   high priority
- *   70-84   daily digest
- *   below   not sent at all
+ *   75-84   daily digest
+ *   below 75   not sent at all
  * </pre>
+ *
+ * <p>Alerts are sent only for fresher-suitable jobs; see {@link Job#isFresherSuitable()}.
  *
  * <p>Two further rules keep this from becoming noise: a candidate is never told
  * about the same job twice, and candidates who switched immediate alerts off get
@@ -68,6 +70,10 @@ public class NotificationService {
     @Transactional
     public java.util.Optional<Notification> notifyMatch(User user, JobMatch match, boolean immediateAlertsEnabled) {
         if (match.getTier() == MatchTier.HIDDEN) {
+            return java.util.Optional.empty();
+        }
+        if (!match.getJob().isFresherSuitable()) {
+            // Colleges are mostly fresher cohorts: alert only for roles a fresher can take.
             return java.util.Optional.empty();
         }
         NotificationPriority priority = priorityFor(match.getOverallScore());

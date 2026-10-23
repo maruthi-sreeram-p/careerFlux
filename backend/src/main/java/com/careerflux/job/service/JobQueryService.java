@@ -120,7 +120,7 @@ public class JobQueryService {
                 results.getTotalElements(), results.getTotalPages());
     }
 
-    /** The dashboard feed: matches above the visibility floor, best first. */
+    /** The dashboard feed: matches above the visibility floor, fresher-suitable first, then best match. */
     @Transactional(readOnly = true)
     public List<JobSummary> recommendations(UUID userId, int limit) {
         CandidateProfile profile = profileService.findByUserId(userId).orElse(null);
@@ -135,12 +135,16 @@ public class JobQueryService {
                 EnumSet.of(com.careerflux.matching.domain.MatchTier.EXCELLENT,
                         com.careerflux.matching.domain.MatchTier.STRONG,
                         com.careerflux.matching.domain.MatchTier.MODERATE),
-                PageRequest.of(0, Math.min(limit, MAX_PAGE_SIZE)));
+                PageRequest.of(0, MAX_PAGE_SIZE));
 
+        // Fresher-suitable roles first, each group still best match first. The
+        // sort is stable, so the repository's score order survives within a group.
         List<Job> jobs = matches.getContent().stream()
                 .map(JobMatch::getJob)
                 .filter(job -> !dismissed.contains(job.getId()))
                 .filter(job -> job.getStatus() != JobStatus.CLOSED)
+                .sorted(java.util.Comparator.comparing((Job job) -> !job.isFresherSuitable()))
+                .limit(Math.min(limit, MAX_PAGE_SIZE))
                 .toList();
 
         return decorate(jobs, profile, true);

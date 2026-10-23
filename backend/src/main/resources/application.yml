@@ -281,7 +281,7 @@ careerflux:
   matching:
     # Thresholds drive notification routing; see docs/architecture.md.
     hidden-below: 70
-    digest-min: 70
+    digest-min: 75
     high-priority-min: 85
     immediate-min: 95
 

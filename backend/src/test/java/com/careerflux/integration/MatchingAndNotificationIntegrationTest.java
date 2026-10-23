@@ -268,8 +268,8 @@ class MatchingAndNotificationIntegrationTest {
         assertThat(notificationService.priorityFor(90)).isEqualTo(NotificationPriority.HIGH);
         assertThat(notificationService.priorityFor(85)).isEqualTo(NotificationPriority.HIGH);
         assertThat(notificationService.priorityFor(75)).isEqualTo(NotificationPriority.DIGEST);
-        assertThat(notificationService.priorityFor(70)).isEqualTo(NotificationPriority.DIGEST);
-        assertThat(notificationService.priorityFor(69)).isEqualTo(NotificationPriority.LOW);
+        assertThat(notificationService.priorityFor(74)).isEqualTo(NotificationPriority.LOW);
+        assertThat(notificationService.priorityFor(70)).isEqualTo(NotificationPriority.LOW);
     }
 
     @Test

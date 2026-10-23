@@ -170,7 +170,7 @@ public record CareerFluxProperties(
      */
     public record Matching(
             @DefaultValue("70") int hiddenBelow,
-            @DefaultValue("70") int digestMin,
+            @DefaultValue("75") int digestMin,
             @DefaultValue("85") int highPriorityMin,
             @DefaultValue("95") int immediateMin,
 

@@ -543,7 +543,7 @@ class MatchScorerScenarioTest {
 
     private static CareerFluxProperties properties() {
         return new CareerFluxProperties(null, null, null, null,
-                new CareerFluxProperties.Matching(70, 70, 85, 95, 400, 20_000,
+                new CareerFluxProperties.Matching(70, 75, 85, 95, 400, 20_000,
                         40, 20, 15, 10, 10, 5, 2.0, 5000),
                 new CareerFluxProperties.Demo(false, false),
                 null /* rate limits: not exercised here */,
