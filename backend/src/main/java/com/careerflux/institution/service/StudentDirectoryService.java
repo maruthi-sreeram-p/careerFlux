@@ -589,6 +589,7 @@ public class StudentDirectoryService {
                 user.getRollNumber(),
                 user.getDepartment() == null ? null : user.getDepartment().getName(),
                 user.getBatch() == null ? null : user.getBatch().getName(),
+                user.getSection(),
                 profile == null ? null : profile.getPrimaryRole(),
                 profile == null ? "NOT_STARTED" : profile.getOnboardingStage().name(),
                 profile == null ? 0 : profile.getProfileCompleteness(),

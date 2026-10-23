@@ -25,6 +25,7 @@ import static com.careerflux.user.Permission.SELF_PROFILE_MANAGE;
 import static com.careerflux.user.Permission.SOURCE_MANAGE;
 import static com.careerflux.user.Permission.SOURCE_VIEW;
 import static com.careerflux.user.Permission.STAFF_MANAGE;
+import static com.careerflux.user.Permission.STUDENT_IMPORT;
 import static com.careerflux.user.Permission.STUDENT_MANAGE;
 import static com.careerflux.user.Permission.STUDENT_READ_INSTITUTION;
 import static com.careerflux.user.Permission.STUDENT_READ_SCOPED;
@@ -82,6 +83,7 @@ public enum UserRole {
      */
     DEPARTMENT_COORDINATOR(EnumSet.of(
             STUDENT_READ_SCOPED,
+            STUDENT_IMPORT,
             ANALYTICS_VIEW,
             JOB_MARKET_VIEW,
             PLACEMENT_DRIVE_VIEW,
@@ -106,6 +108,7 @@ public enum UserRole {
      */
     PLACEMENT_COORDINATOR(EnumSet.of(
             STUDENT_READ_SCOPED,
+            STUDENT_IMPORT,
             STUDENT_READ_INSTITUTION,
             STUDENT_RESUME_READ,
             STUDENT_MANAGE,

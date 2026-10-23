@@ -42,6 +42,7 @@ public final class InstitutionDtos {
             String rollNumber,
             String departmentName,
             String batchName,
+            String section,
             String primaryRole,
             String onboardingStage,
             int profileCompleteness,

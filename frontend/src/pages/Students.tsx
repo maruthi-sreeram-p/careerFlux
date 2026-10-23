@@ -152,6 +152,11 @@ export default function Students() {
               : `Students in ${scopeLabel}.`
             : undefined
         }
+        actions={
+          <Link to="/students/import">
+            <Button>Add students from Excel</Button>
+          </Link>
+        }
       />
 
       <Panel>
@@ -353,7 +358,10 @@ export default function Students() {
                       {student.rollNumber ?? <span className="text-muted">â€”</span>}
                     </td>
                     <td>{student.departmentName ?? <span className="text-muted">Unassigned</span>}</td>
-                    <td>{student.batchName ?? <span className="text-muted">Unassigned</span>}</td>
+                    <td>
+                      {student.batchName ?? <span className="text-muted">Unassigned</span>}
+                      {student.section && <span className="text-faint"> · Section {student.section}</span>}
+                    </td>
                     <td className="numeric">
                       {student.verifiedCgpa ? (
                         <span

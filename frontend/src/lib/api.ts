@@ -210,6 +210,27 @@ export const api = {
   delete: <T>(path: string) => execute<T>(path, { method: 'DELETE' }, false),
   upload: <T>(path: string, formData: FormData) =>
     execute<T>(path, { method: 'POST', formData }, false),
+  /** Fetches a file the server generates, such as a spreadsheet template. */
+  download: async (path: string): Promise<Blob> => {
+    const fetchOnce = () =>
+      fetch(path, { headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {} });
+    let response = await fetchOnce().catch(() => {
+      throw new NetworkError();
+    });
+    if (response.status === 401 && tokenStore.refresh && (await refreshSession())) {
+      response = await fetchOnce();
+    }
+    if (!response.ok) {
+      throw new ApiError({
+        timestamp: new Date().toISOString(),
+        status: response.status,
+        code: 'UNEXPECTED',
+        message: 'That file could not be downloaded.',
+        path,
+      });
+    }
+    return response.blob();
+  },
 };
 
 /** Builds a query string, dropping empty values so URLs stay readable. */

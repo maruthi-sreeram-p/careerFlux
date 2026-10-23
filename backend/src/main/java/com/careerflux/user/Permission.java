@@ -41,6 +41,11 @@ public enum Permission {
     STUDENT_RESUME_READ,
     /** Create, edit and deactivate student accounts. */
     STUDENT_MANAGE,
+    /**
+     * Add students from a spreadsheet. A department coordinator may do this only
+     * for the departments in their own scope; the service checks that on every row.
+     */
+    STUDENT_IMPORT,
 
     // --- Institutional intelligence -----------------------------------------
     /** Aggregate analytics: skill supply, demand, readiness. No individual records. */

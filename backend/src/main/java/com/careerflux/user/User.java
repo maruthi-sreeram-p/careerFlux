@@ -55,6 +55,10 @@ public class User extends BaseEntity {
     @Column(name = "roll_number", length = 60)
     private String rollNumber;
 
+    /** The class section within a department and batch, as the college labels it. */
+    @Column(name = "section", length = 40)
+    private String section;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)
     private UserStatus status = UserStatus.ACTIVE;
@@ -228,6 +232,14 @@ public class User extends BaseEntity {
 
     public String getRollNumber() {
         return rollNumber;
+    }
+
+    public String getSection() {
+        return section;
+    }
+
+    public void setSection(String section) {
+        this.section = section;
     }
 
     public void setRollNumber(String rollNumber) {

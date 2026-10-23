@@ -141,6 +141,7 @@ public class ErasureExecutor {
         account.setPasswordResetToken(null);
         account.setPasswordResetExpiresAt(null);
         account.setRollNumber(null);
+        account.setSection(null);
         account.setLastLoginAt(null);
         account.setEmailVerified(false);
         account.setStatus(UserStatus.ERASED);

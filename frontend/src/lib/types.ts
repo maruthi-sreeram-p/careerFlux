@@ -707,6 +707,7 @@ export interface StudentRow {
   rollNumber: string | null;
   departmentName: string | null;
   batchName: string | null;
+  section: string | null;
   primaryRole: string | null;
   onboardingStage: string | null;
   /** Always a number: the server sends 0 for a student with no profile yet. */

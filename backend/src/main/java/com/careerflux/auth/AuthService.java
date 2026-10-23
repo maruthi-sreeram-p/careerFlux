@@ -184,6 +184,22 @@ public class AuthService {
     }
 
     /**
+     * Issues a set-your-password token for an account created on someone's
+     * behalf, valid for {@code ttl}. It is the same single-use token a reset
+     * uses, so {@code completePasswordReset} redeems it; only its digest is
+     * stored. The caller must send the returned raw value to the account's owner
+     * and nowhere else.
+     */
+    public String issueInviteToken(User user, java.time.Duration ttl) {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        String token = HexFormat.of().formatHex(bytes);
+        user.setPasswordResetToken(digest(token));
+        user.setPasswordResetExpiresAt(Instant.now().plus(ttl));
+        return token;
+    }
+
+    /**
      * Completes a reset and ends every session the account had.
      *
      * <p>Revoking is the point of a reset as much as the new password is: the

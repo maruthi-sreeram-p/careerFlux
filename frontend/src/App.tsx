@@ -24,6 +24,7 @@ import Shortlist from './pages/Shortlist';
 import StudentDetail from './pages/StudentDetail';
 import Account from './pages/Account';
 import Students from './pages/Students';
+import StudentImport from './pages/StudentImport';
 import Sources from './pages/Sources';
 import SourceDetail from './pages/SourceDetail';
 import Profile from './pages/Profile';
@@ -189,6 +190,14 @@ export default function App() {
                   element={
                     <RequireStaff>
                       <Students />
+                    </RequireStaff>
+                  }
+                />
+                <Route
+                  path="students/import"
+                  element={
+                    <RequireStaff>
+                      <StudentImport />
                     </RequireStaff>
                   }
                 />
