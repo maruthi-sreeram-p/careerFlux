@@ -301,11 +301,22 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
         return node == null ? null : text(node.get(parent), field);
     }
 
-    /** Parses ISO-8601 timestamps, tolerating the date-only form some feeds use. */
+    /**
+     * A date and time with a space for the {@code T} and the zone written out,
+     * as Recruitee and others publish: {@code 2026-10-12 13:59:52 UTC}, or with
+     * {@code GMT}, {@code Z} or an offset such as {@code +05:30}. A time with no
+     * zone at all is not accepted: guessing one would shift the posted date.
+     */
+    private static final java.util.regex.Pattern SPACED_TIMESTAMP = java.util.regex.Pattern.compile(
+            "(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,9})?)?)"
+                    + "\\s*(UTC|GMT|Z|[+-]\\d{2}:?\\d{2})");
+
+    /** Parses ISO-8601 timestamps, tolerating the date-only and spaced forms some feeds use. */
     protected static Instant parseInstant(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
+        value = value.strip();
         try {
             return OffsetDateTime.parse(value).toInstant();
         } catch (DateTimeParseException ignored) {
@@ -315,6 +326,19 @@ public abstract class AbstractHttpJobAdapter implements JobSourceAdapter {
             return Instant.parse(value);
         } catch (DateTimeParseException ignored) {
             // Fall through.
+        }
+        java.util.regex.Matcher spaced = SPACED_TIMESTAMP.matcher(value);
+        if (spaced.matches()) {
+            String zone = spaced.group(3);
+            String offset = zone.equals("UTC") || zone.equals("GMT") || zone.equals("Z")
+                    ? "Z"
+                    : zone.length() == 5 ? zone.substring(0, 3) + ":" + zone.substring(3) : zone;
+            try {
+                return OffsetDateTime.parse(spaced.group(1) + "T" + spaced.group(2) + offset).toInstant();
+            } catch (DateTimeParseException ignored) {
+                // A shape that matches with values that do not, such as month 13.
+                return null;
+            }
         }
         try {
             return java.time.LocalDate.parse(value).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
