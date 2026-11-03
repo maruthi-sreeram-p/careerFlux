@@ -580,6 +580,38 @@ public class MatchScorer {
                     friendly(role.employmentType().name()) + " role",
                     "You did not list this employment type as a preference.", order.next()));
         }
+        addSalaryContext(candidate, role, components, order);
+    }
+
+    /**
+     * Pay against the expectation the student stated. Shown, never weighted, and
+     * said only when both sides are comparable: different currencies or pay
+     * periods are not converted, so nothing is claimed about them.
+     */
+    private void addSalaryContext(CandidateSnapshot candidate, ScorableRole role,
+                                  List<MatchComponent> components, Counter order) {
+        BigDecimal wanted = candidate.salaryMin();
+        BigDecimal offered = role.salaryMax() != null ? role.salaryMax() : role.salaryMin();
+        if (wanted == null || offered == null
+                || !sameText(candidate.salaryCurrency(), role.salaryCurrency())
+                || !sameText(candidate.salaryPeriod(), role.salaryPeriod())) {
+            return;
+        }
+        if (offered.compareTo(wanted) >= 0) {
+            components.add(MatchComponent.neutral(MatchDimension.CONTEXT,
+                    "Pay meets your expectation",
+                    "The posting states up to " + trim(offered) + "; you want at least " + trim(wanted) + ".",
+                    order.next()));
+        } else {
+            components.add(MatchComponent.neutral(MatchDimension.CONTEXT,
+                    "Pay is below your expectation",
+                    "The posting states up to " + trim(offered) + "; you want at least " + trim(wanted) + ".",
+                    order.next()));
+        }
+    }
+
+    private boolean sameText(String a, String b) {
+        return TextUtils.hasText(a) && TextUtils.hasText(b) && a.trim().equalsIgnoreCase(b.trim());
     }
 
     // --------------------------------------------------------------- helpers

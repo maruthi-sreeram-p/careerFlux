@@ -51,6 +51,27 @@ public interface ScorableRole {
     List<RoleSkill> skills();
 
     /**
+     * Stated pay, where the source gave any. Context only: it is shown beside the
+     * score and carries no weight in it. Defaults to unstated so a requirement
+     * that has no pay field need not implement these.
+     */
+    default BigDecimal salaryMin() {
+        return null;
+    }
+
+    default BigDecimal salaryMax() {
+        return null;
+    }
+
+    default String salaryCurrency() {
+        return null;
+    }
+
+    default String salaryPeriod() {
+        return null;
+    }
+
+    /**
      * What to call this role in the explanations shown to a person.
      *
      * <p>A job is a "posting"; a company requirement is a "requirement". The

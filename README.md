@@ -154,7 +154,7 @@ abstraction exists.
 cd backend && mvn test
 ```
 
-150 tests. They cover the things where a bug would actually matter: the source
+The suite covers the things where a bug would actually matter: the source
 state machine, the policy gate, `robots.txt` matching, job normalization,
 deduplication across sources, the scoring rules, notification routing,
 authentication, authorization and candidate data isolation.
@@ -206,11 +206,15 @@ more than it is.
   documented public endpoint the provider publishes for syndication. Plus a
   local fixture adapter for development. This is deliberately a small, legitimate
   set rather than a scraper framework.
-- **Email is not wired up.** Password reset issues a real token; outside
-  production the token is returned to the caller rather than pretending a message
-  was sent.
-- **Salary is stored and displayed but is not part of the match score.** It is
-  stated as a preference and shown on jobs; the scorer does not yet use it.
+- **Email needs a mail server configured.** Match alerts, personal-email
+  confirmation and student invitations are sent through Spring Mail when
+  `SPRING_MAIL_HOST` is set (see `.env.example`); without it nothing is sent and
+  in-app alerts are unaffected. **Password reset does not send email yet**: it
+  issues a real token and, outside production, returns it to the caller.
+- **Salary is shown but carries no weight in the match score.** When a posting
+  and the student's expectation share a currency and pay period, the match
+  explanation says whether the pay meets it. Different currencies or periods are
+  never converted, so nothing is claimed about them.
 - **Semantic matching is not implemented.** Scoring is deterministic rules, which
   is what makes it explainable. Embeddings would be the next step, behind the
   same explanation contract.

@@ -89,6 +89,26 @@ public final class ScorableRoles {
         }
 
         @Override
+        public BigDecimal salaryMin() {
+            return job.getSalaryMin();
+        }
+
+        @Override
+        public BigDecimal salaryMax() {
+            return job.getSalaryMax();
+        }
+
+        @Override
+        public String salaryCurrency() {
+            return job.getSalaryCurrency();
+        }
+
+        @Override
+        public String salaryPeriod() {
+            return job.getSalaryPeriod();
+        }
+
+        @Override
         public String descriptor() {
             return "posting";
         }

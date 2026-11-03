@@ -35,7 +35,23 @@ public record CandidateSnapshot(
         Set<EmploymentType> employmentTypes,
         boolean openToRelocation,
         boolean immediateAlerts,
-        boolean dailyDigest) {
+        boolean dailyDigest,
+        BigDecimal salaryMin,
+        BigDecimal salaryMax,
+        String salaryCurrency,
+        String salaryPeriod) {
+
+    /** A candidate who stated no pay expectation. */
+    public CandidateSnapshot(UUID candidateId, UUID userId, String fullName, String primaryRole,
+                             Seniority seniority, BigDecimal yearsExperience, String location,
+                             Set<String> skillSlugs, List<String> targetRoles,
+                             Set<String> preferredLocations, Set<WorkMode> workModes,
+                             Set<EmploymentType> employmentTypes, boolean openToRelocation,
+                             boolean immediateAlerts, boolean dailyDigest) {
+        this(candidateId, userId, fullName, primaryRole, seniority, yearsExperience, location,
+                skillSlugs, targetRoles, preferredLocations, workModes, employmentTypes,
+                openToRelocation, immediateAlerts, dailyDigest, null, null, null, null);
+    }
 
     public CandidateSnapshot {
         skillSlugs = Set.copyOf(skillSlugs);

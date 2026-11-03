@@ -130,7 +130,11 @@ public class MatchingService {
                 employmentTypes,
                 preferences != null && preferences.isOpenToRelocation(),
                 preferences == null || preferences.isImmediateAlerts(),
-                preferences == null || preferences.isDailyDigest());
+                preferences == null || preferences.isDailyDigest(),
+                preferences == null ? null : preferences.getSalaryMin(),
+                preferences == null ? null : preferences.getSalaryMax(),
+                preferences == null ? null : preferences.getSalaryCurrency(),
+                preferences == null ? null : preferences.getSalaryPeriod());
     }
 
     /**
